@@ -2,6 +2,7 @@
 
 import { ChartBar, ClockCounterClockwise, Handbag, Wallet, X } from "@phosphor-icons/react";
 import { WalletAvatar } from "./avatar";
+import { CopyAddress } from "./copy-address";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -124,7 +125,7 @@ export function WalletBox() {
           <WalletAvatar address={wallet.address} size={36} />
           <div className="min-w-0 whitespace-nowrap text-[14px] leading-tight">
             <p className="font-semibold tabular-nums">{wallet.sol === null ? "…" : <NumberRoll value={wallet.sol} format={(n) => `${n.toFixed(2)} SOL`} />}</p>
-            <p className="text-white/45">{wallet.connected ? short(wallet.address) : `Watching ${short(wallet.address)}`}</p>
+            <CopyAddress address={wallet.address} prefix={wallet.connected ? undefined : "Watching"} />
           </div>
           <button onClick={wallet.forget} className="ml-auto text-white/40 transition-colors hover:text-white" aria-label="Disconnect"><X size={16} /></button>
         </div>

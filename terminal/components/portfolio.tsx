@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { BagLoader, ExposureDots, NumberRoll, StatusText } from "@/components/motion";
 import { WalletAvatar } from "./avatar";
+import { CopyAddress } from "./copy-address";
 import { CoinLogo } from "./coin-logo";
 import { info, useAccount } from "./app/hl";
 import { STATUS, useStore } from "./app/store";
 import { DOWN, UP, compact, pct, tone, usd } from "./app/format";
-import { isEvmAddress, short } from "./app/wallet";
+import { isEvmAddress } from "./app/wallet";
 import { WalletBox } from "./shell";
 
 // one screen, three parts: the watched SOL and the hedge on it (left), the hyperliquid accounts (right).
@@ -24,7 +25,7 @@ export function PortfolioPage() {
       <div className="grid min-h-0 flex-1 gap-4 px-5 pb-5 sm:px-7 sm:pb-7 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
         <div className="flex min-h-0 flex-col gap-4">
           {/* the watched wallet */}
-          <div className="flex flex-1 flex-col rounded-[20px] bg-[#141312] p-6">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] bg-[#141312] p-6">
             <p className="text-[13px] text-white/45">Wallet</p>
             {wallet.address ? (
               <>
@@ -32,7 +33,7 @@ export function PortfolioPage() {
                   <WalletAvatar address={wallet.address} size={44} />
                   <div className="leading-tight">
                     <p className="text-[15px] font-semibold">{wallet.connected ? wallet.name : "Watching"}</p>
-                    <p className="text-[13px] text-white/45">{short(wallet.address)}</p>
+                    <CopyAddress address={wallet.address} className="text-[13px]" />
                   </div>
                 </div>
                 <ValueChart sol={wallet.sol} mark={mark} />
@@ -45,7 +46,7 @@ export function PortfolioPage() {
               </>
             ) : (
               <div className="mt-auto">
-                <ExposureDots watched={20} hedged={0} per={1} size={12} className="mb-6 w-[174px] opacity-25" />
+                <ExposureDots watched={20} hedged={0} per={1} size={12} className="mb-6 w-[174px] opacity-25 [@media(max-height:860px)]:hidden" />
                 <p className="text-[20px] font-semibold tracking-[-0.02em]">No wallet yet</p>
                 <p className="mt-1 text-[14px] text-white/45">Connect one, or watch any address.</p>
                 <div className="-mx-4 -mb-4 max-w-[340px]">
@@ -56,7 +57,7 @@ export function PortfolioPage() {
           </div>
 
           {/* the hedge on it */}
-          <div className="flex flex-1 flex-col rounded-[20px] bg-[#141312] p-6">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] bg-[#141312] p-6">
             <div className="flex items-center justify-between">
               <p className="text-[13px] text-white/45">Hedge</p>
               <span className="rounded-[7px] bg-[#1c1b1a] px-2 py-0.5 text-[12px] text-white/55">Replay</span>
@@ -176,7 +177,7 @@ function Accounts() {
               <p className="mt-2 text-[13px] text-white/45 tabular-nums">Equity · {usd(account.withdrawable, 2)} withdrawable</p>
             </div>
             <span className="flex h-8 shrink-0 items-center gap-1 rounded-[10px] bg-[#1c1b1a] pl-3 pr-1 text-[12px] text-white/70 tabular-nums">
-              {short(address)}
+              <CopyAddress address={address} />
               <button onClick={() => setAccounts({ ...accounts, [role]: "" })} className="grid size-6 place-items-center rounded-[7px] text-white/45 transition-colors hover:bg-[#2e2c2a] hover:text-white" aria-label="Remove account">
                 ✕
               </button>
@@ -221,7 +222,7 @@ function Accounts() {
 // the hedge in two dotted lines: white recovery above, coral entry below, the way they sit on the chart
 function RuleSketch() {
   return (
-    <svg viewBox="0 0 240 64" className="mb-6 w-[240px] max-w-full" aria-hidden>
+    <svg viewBox="0 0 240 64" className="mb-6 w-[240px] max-w-full [@media(max-height:860px)]:hidden" aria-hidden>
       <line x1="4" x2="236" y1="16" y2="16" stroke="#ffffff" strokeOpacity="0.35" strokeWidth="5" strokeLinecap="round" strokeDasharray="0 11" />
       <line x1="4" x2="236" y1="48" y2="48" stroke="#f0645a" strokeOpacity="0.6" strokeWidth="6" strokeLinecap="round" strokeDasharray="0 11" />
     </svg>
@@ -237,7 +238,7 @@ function ValueChart({ sol, mark }: { sol: number | null; mark?: number }) {
       .then((rows) => setCloses(rows.map((r) => Number(r.c))))
       .catch(() => {});
   }, []);
-  if (sol === null || closes.length < 2) return <div className="mt-4 min-h-[96px] flex-1" />;
+  if (sol === null || closes.length < 2) return <div className="mt-4 min-h-[48px] flex-1" />;
   const pts = mark ? [...closes.slice(0, -1), mark] : closes;
   const lo = Math.min(...pts), hi = Math.max(...pts), span = hi - lo || 1;
   const w = 100, h = 40;
@@ -246,7 +247,7 @@ function ValueChart({ sol, mark }: { sol: number | null; mark?: number }) {
   const change = pts[pts.length - 1] / pts[0] - 1;
   const color = change < 0 ? DOWN : UP;
   return (
-    <div className="mt-4 flex min-h-[96px] flex-1 flex-col">
+    <div className="mt-4 flex min-h-[48px] flex-1 flex-col">
       <div className="flex items-center justify-between text-[12px] text-white/40 tabular-nums">
         <span>7 days at today&apos;s balance</span>
         <span style={{ color }}>{usd(sol * (pts[pts.length - 1] - pts[0]), 2)} · {pct(change)}</span>
