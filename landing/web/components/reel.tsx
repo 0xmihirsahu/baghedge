@@ -1,12 +1,11 @@
 "use client";
 
-import { motion, useMotionValue, useScroll, useTransform, type MotionValue } from "motion/react";
+import { motion, useInView, useMotionValue, useScroll, useTransform, type MotionValue } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { DotChart } from "@/components/chart";
 import { Field } from "@/components/field";
-import { StatusText } from "@/components/motion";
 import type { Source } from "@/lib/field";
-import { LOGO, fetchCandles, fmtPct, fmtPrice, useMarkets, type Coin } from "@/lib/markets";
+import { fetchCandles, fmtPrice, useMarkets, type Candle } from "@/lib/markets";
 
 const PITCH: [number, number] = [5, 6];
 const INK = "#16120f";
@@ -17,11 +16,11 @@ const FILLS = {
   coal: { bg: "bg-coal text-white", foot: "text-white/75", dot: "#ffffff", accent: "#f0645a" },
 };
 
-type Card = { title: string; source?: Source; visual?: "markets" | "rule"; fill: keyof typeof FILLS; foot?: string };
+type Card = { title: string; source?: Source; visual?: "candles" | "rule"; fill: keyof typeof FILLS; foot?: string };
 
 // wording follows docs/BAGHEDGE_CONTEXT.md: a trading terminal first, with a wallet hedge for SOL in Phantom
 const CARDS: Card[] = [
-  { title: "Trade perps on Hyperliquid.", visual: "markets", fill: "coral", foot: "Search markets, read candles, place orders." },
+  { title: "Trade perps on Hyperliquid.", visual: "candles", fill: "coral", foot: "Search markets, read candles, place orders." },
   { title: "Hedge the SOL in your wallet.", visual: "rule", fill: "coal" },
   {
     title: "Your SOL never moves.",
@@ -43,26 +42,39 @@ const CARDS: Card[] = [
   },
 ];
 
-const BOARD: Coin[] = ["BTC", "ETH", "SOL", "HYPE", "XRP", "DOGE"];
-
-// live perps from hyperliquid, the first thing the terminal shows
-// one big live quote at a time, decoding into the next market, the way the terminal's picker feels
-function Markets() {
-  const { markets } = useMarkets();
-  const [i, setI] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setI((v) => (v + 1) % BOARD.length), 2200);
-    return () => clearInterval(t);
-  }, []);
-  const c = BOARD[i], m = markets[c];
+// real SOL 4h candles drawn in dots: up candles white, down candles ink, wicks as smaller dots. draws in left to right
+function Candles({ candles }: { candles: Candle[] }) {
+  const ref = useRef<SVGSVGElement>(null);
+  const seen = useInView(ref, { once: true, margin: "-15% 0px" });
+  const VW = 600, VH = 520;
+  if (candles.length < 2) return <svg ref={ref} viewBox={`0 0 ${VW} ${VH}`} className="h-full w-full" aria-hidden />;
+  const lo = Math.min(...candles.map((c) => c.low)), hi = Math.max(...candles.map((c) => c.high));
+  const Y = (v: number) => 20 + (1 - (v - lo) / (hi - lo || 1)) * (VH - 40);
+  const step = VW / candles.length;
+  const col = (x: number, a: number, b: number, gap: number, r: number) => {
+    const out: number[] = [];
+    for (let y = Math.min(a, b); y <= Math.max(a, b) + 0.1; y += gap) out.push(y);
+    if (!out.length) out.push(a);
+    return out.map((y, i) => <circle key={i} cx={x} cy={y} r={r} />);
+  };
   return (
-    <div className="flex h-full flex-col items-start justify-center">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img key={c} src={LOGO[c]} alt="" className="size-14 rounded-full sm:size-16" />
-      <StatusText text={`${c}-PERP`} className="mt-6 block text-[22px] sm:text-[26px]" />
-      <StatusText text={`$${fmtPrice(m?.mark)}`} className="mt-1 block text-[64px] leading-none tracking-[-0.03em] tabular-nums sm:text-[96px]" />
-      <p className="mt-4 text-[16px] tabular-nums text-[#16120f]/70">{fmtPct(m?.change)} today · live from Hyperliquid</p>
-    </div>
+    <svg ref={ref} viewBox={`0 0 ${VW} ${VH}`} preserveAspectRatio="xMidYMid meet" className="h-full w-full" aria-hidden>
+      {candles.map((c, i) => {
+        const x = step * (i + 0.5), up = c.close >= c.open;
+        return (
+          <motion.g
+            key={c.time}
+            fill={up ? "#ffffff" : INK}
+            initial={{ opacity: 0, y: 8 }}
+            animate={seen ? { opacity: 1, y: 0 } : {}}
+            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1], delay: i * 0.025 }}
+          >
+            {col(x, Y(c.high), Y(c.low), 6, 1.5)}
+            {col(x, Y(c.open), Y(c.close), 8, Math.min(step * 0.34, 4.6))}
+          </motion.g>
+        );
+      })}
+    </svg>
   );
 }
 
@@ -80,10 +92,14 @@ export function Reel({ recede }: { recede?: MotionValue<number> }) {
 
   const { markets } = useMarkets();
   const [closes, setCloses] = useState<number[]>([]);
+  const [bars, setBars] = useState<Candle[]>([]);
   useEffect(() => {
     fetchCandles("SOL", "1h", 96)
       .then((c) => setCloses(c.map((k) => k.close)))
       .catch(() => setCloses([]));
+    fetchCandles("SOL", "4h", 4 * 34)
+      .then(setBars)
+      .catch(() => setBars([]));
   }, []);
   // the rule: entry 7% under the live mark, recovery 15% above the entry, the same shape as the brief's $140 and $161
   const mark = markets.SOL?.mark;
@@ -118,11 +134,13 @@ export function Reel({ recede }: { recede?: MotionValue<number> }) {
                   ? mark
                     ? `Live: hedge up to 6 SOL if the mark crosses down through $${fmtPrice(entry)}. Try to close on recovery to $${fmtPrice(recovery)}. Runs once.`
                     : undefined
-                  : card.foot;
+                  : card.visual === "candles" && mark
+                    ? `Live SOL-PERP, 4h candles, $${fmtPrice(mark)} now. Search markets, read candles, place orders.`
+                    : card.foot;
               return (
                 <ReelCard key={i} card={card} foot={foot}>
-                  {card.visual === "markets" ? (
-                    <Markets />
+                  {card.visual === "candles" ? (
+                    <Candles candles={bars} />
                   ) : card.visual === "rule" ? (
                     <DotChart
                       closes={closes}
