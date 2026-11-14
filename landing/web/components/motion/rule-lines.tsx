@@ -14,6 +14,7 @@ export function RuleLines({
   recovery,
   armed,
   editing = false,
+  variant = "dots",
   chip = "#0b0908",
   className,
 }: {
@@ -22,6 +23,8 @@ export function RuleLines({
   armed: boolean;
   // while drafting a rule: the lines show at half strength with handles, before anything is armed
   editing?: boolean;
+  // "dots" is the landing's halftone line. "line" is a thin dashed price line for a working chart
+  variant?: "dots" | "line";
   chip?: string;
   className?: string;
 }) {
@@ -56,7 +59,11 @@ export function RuleLines({
                   <line x1={0} x2={w} y1={l.y} y2={l.y} stroke="#fff" strokeWidth={12} pathLength={1} strokeDasharray="1 1" style={{ strokeDashoffset: shown ? 0 : 1, transition: t }} />
                 </mask>
                 <g style={{ opacity: armed ? 1 : 0.55, transition: "opacity 400ms ease" }}>
-                  <line x1={6} x2={w - 6} y1={l.y} y2={l.y} stroke={l.color} strokeWidth={l.r * 2} strokeLinecap="round" strokeDasharray="0 11" mask={`url(#${id}m${i})`} />
+                  {variant === "line" ? (
+                    <line x1={0} x2={w} y1={l.y} y2={l.y} stroke={l.color} strokeWidth={1.5} strokeDasharray="6 5" mask={`url(#${id}m${i})`} />
+                  ) : (
+                    <line x1={6} x2={w - 6} y1={l.y} y2={l.y} stroke={l.color} strokeWidth={l.r * 2} strokeLinecap="round" strokeDasharray="0 11" mask={`url(#${id}m${i})`} />
+                  )}
                 </g>
                 <g style={{ opacity: shown ? 1 : 0, transition: still ? "none" : `opacity 300ms ease-out ${armed ? l.delay + 500 : 0}ms` }}>
                   <rect x={w - labelW - 6} y={l.y - 30} width={labelW} height={22} rx={7} fill={chip} />
@@ -67,7 +74,7 @@ export function RuleLines({
                 {l.onDrag && editing && (
                   <g>
                     {/* the handle: a bigger dot at the left end, and a wide invisible strip to grab */}
-                    <circle cx={14} cy={l.y} r={7} fill={l.color} />
+                    <circle cx={14} cy={l.y} r={variant === "line" ? 5 : 7} fill={l.color} />
                     <rect
                       x={0}
                       y={l.y - 12}
