@@ -5,7 +5,7 @@ import { ruleFromPolicy, solanaToBytes32, type HedgePolicy } from "../shared/pol
 import { openDb } from "../server/db";
 import { fallbackSigner, verifiedSigner, type Exchange, type L1Action, type HedgeSigner, type OrderStatusResult, type SubmitResult } from "../server/exchange";
 import { GuardRefused } from "../server/guard";
-import { createWorker, publicError, type SignContext } from "../server/worker";
+import { createWorker, publicErrorCode, type SignContext } from "../server/worker";
 
 type Order = { cloid: string; oid: number; buy: boolean; reduceOnly: boolean; trigger?: string; origLots: number; filledLots: number; status: string; parent?: string };
 
@@ -501,16 +501,18 @@ describe("worker", () => {
     worker.stop();
     const status = worker.status();
     expect(status.lastTickAt).not.toBeNull();
-    expect(status.lastError?.message).toBe("Hyperliquid info returned HTTP 429 for 0x…");
+    expect(status.lastError?.code).toBe("rate_limited");
+    expect(JSON.stringify(status)).not.toContain("abab");     // no upstream text in the public status
     expect(status.rateLimitedUntil).toBeGreaterThan(Date.now());
   });
 
-  test("publicError elides hex ids, URLs and base58 strings, and caps length", () => {
-    expect(publicError(new Error(`rule 0x${"cd".repeat(32)} failed`))).toBe("rule 0x… failed");
-    expect(publicError("GET https://solana-mainnet.g.alchemy.com/v2/SECRETKEY123 failed")).toBe("GET <url> failed");
-    expect(publicError("wallet 9T9nns3a5Qi6BA28jwvuaWGU2uPPdcesPMkQES7YCjM2 unreadable")).toBe("wallet … unreadable");
-    expect(publicError("Hyperliquid info returned HTTP 429")).toBe("Hyperliquid info returned HTTP 429");
-    expect(publicError("error ".repeat(100))).toHaveLength(160);
+  test("publicErrorCode maps errors to fixed categories and never echoes upstream text", () => {
+    expect(publicErrorCode(new Error("Hyperliquid info returned HTTP 429"))).toBe("rate_limited");
+    expect(publicErrorCode(new Error("Hyperliquid returned no SOL market"))).toBe("venue_error");
+    expect(publicErrorCode(new GuardRefused("price outside policy"))).toBe("guard_refused");
+    expect(publicErrorCode(new Error("OutLayer 503 at https://rpc.example/KEY"))).toBe("guard_error");
+    expect(publicErrorCode(new Error("Solana RPC returned HTTP 500"))).toBe("wallet_error");
+    expect(publicErrorCode("anything else 9T9nns3a5Qi6BA28jwvuaWGU2uPPdcesPMkQES7YCjM2")).toBe("internal_error");
   });
   test("a non-429 failure inside one rule's tick is reported in status().lastError", async () => {
     const { exchange, worker } = setup();
@@ -518,7 +520,7 @@ describe("worker", () => {
     worker.start(5);
     await Bun.sleep(30);
     worker.stop();
-    expect(worker.status()).toMatchObject({ lastError: { message: "OutLayer 503" }, rateLimitedUntil: null });
+    expect(worker.status()).toMatchObject({ lastError: { code: "guard_error" }, rateLimitedUntil: null });
     expect(worker.status().lastTickOkAt).not.toBeNull();   // the loop itself kept running
   });
 });

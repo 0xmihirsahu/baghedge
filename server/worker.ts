@@ -41,17 +41,18 @@ const TERMINAL = new Set(["filled", "canceled", "rejected", "marginCanceled", "v
   "tooAggressiveAtOpenInterestCapRejected", "openInterestIncreaseRejected", "insufficientSpotBalanceRejected",
   "oracleRejected", "perpMaxPositionRejected"]);
 /** Terminal if documented, or shaped like one (…Rejected / …Canceled) for statuses the venue adds later. */
-/**
- * Error text safe for a public endpoint: URLs (provider keys can sit in the path), hex ids and EVM addresses,
- * and long base58 strings (Solana addresses, NEAR keys) are elided; length capped.
- */
-export function publicError(error: unknown) {
+/** Public error categories for /api/health. Fixed strings only: no upstream text ever reaches the public. */
+export type PublicErrorCode = "rate_limited" | "venue_error" | "guard_refused" | "guard_error" | "wallet_error" | "internal_error";
+
+/** Maps an error to a fixed category. The full message stays in the server log. */
+export function publicErrorCode(error: unknown): PublicErrorCode {
+  if (error instanceof GuardRefused) return "guard_refused";
   const text = error instanceof Error ? error.message : String(error);
-  return text
-    .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, "<url>")
-    .replace(/0x[0-9a-fA-F]{16,}/g, "0x…")
-    .replace(/\b[1-9A-HJ-NP-Za-km-z]{32,}\b/g, "…")
-    .slice(0, 160);
+  if (/\b429\b/.test(text)) return "rate_limited";
+  if (/hyperliquid/i.test(text)) return "venue_error";
+  if (/outlayer|near/i.test(text)) return "guard_error";
+  if (/solana/i.test(text)) return "wallet_error";
+  return "internal_error";
 }
 const isTerminal = (status: string) => TERMINAL.has(status) || /(Rejected|Canceled)$/.test(status);
 
@@ -82,7 +83,7 @@ export function createWorker(deps: WorkerDeps) {
   let timer: ReturnType<typeof setInterval> | undefined;
   /** Loop liveness, reported by status(). */
   const loop = { lastTickAt: null as number | null, lastTickOkAt: null as number | null,
-    lastError: null as { message: string; at: number } | null, pausedUntil: 0 };
+    lastError: null as { code: PublicErrorCode; at: number } | null, pausedUntil: 0 };
   /** Last venue confirmation of each rule's recovery stop (see checkStop). */
   const stopConfirmed = new Map<string, { shortLots: bigint; at: number }>();
 
@@ -576,7 +577,7 @@ export function createWorker(deps: WorkerDeps) {
   async function tickAll() {
     for (const rule of db.activeRules(env)) {
       try { await tickRule(rule.id); } catch (error) {
-        loop.lastError = { message: publicError(error), at: Date.now() };
+        loop.lastError = { code: publicErrorCode(error), at: Date.now() };
         console.error(`worker tick failed for ${rule.id}:`, error instanceof Error ? error.message : error);
         if (String(error).includes("429")) throw error; // let the loop back off instead of hammering the venue
       }
@@ -603,7 +604,7 @@ export function createWorker(deps: WorkerDeps) {
           loop.lastTickOkAt = Date.now();
         } catch (error) {
           if (String(error).includes("429")) loop.pausedUntil = Date.now() + 30_000;
-          loop.lastError = { message: publicError(error), at: Date.now() };
+          loop.lastError = { code: publicErrorCode(error), at: Date.now() };
           console.error("worker loop error:", error instanceof Error ? error.message : error);
         }
         finally { running = false; }
