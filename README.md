@@ -49,9 +49,7 @@ Your coins never move. Nothing to deposit, nothing to bridge out of cold storage
 | **Fund** | From any of about 228 tokens on 38 chains, through NEAR Intents. The quote shows what arrives and every fee before you sign. |
 | **Hedge** | Drag the entry and recovery on the SOL chart, review, sign once. An attested guard runs it from there. |
 | **Trade** | Any of the 179 Hyperliquid perps, at the leverage you pick. |
-| **Pay out** | Back to any token and any wallet. |
-
-Every result links to the explorer it happened on: Solana, NEAR Intents, Hyperliquid, Base.
+| **Pay out** | Back to any token and any wallet. Every step links to its explorer. |
 
 <table>
   <tr>
