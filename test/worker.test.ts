@@ -380,6 +380,52 @@ describe("worker", () => {
     expect(db.unresolvedActions("r1").length).toBeLessThanOrEqual(1);
   });
 
+  test("a recovery stop filling while a resize IOC is in flight settles both instead of pausing", async () => {
+    const { v, db, tick, exchange } = setup();
+    await tick();
+    v.mark = "69.9"; v.bid = "69.8"; v.ask = "70";
+    await tick(); await tick();                           // open 0.40 with the attached stop active
+    const stopCloid = db.actionsForRule("r1").find(a => a.intent === "entry")!.stopCloid!;
+    const submit = exchange.submit;
+    exchange.submit = (async (...args: Parameters<typeof submit>) => {
+      const ret = await submit(...args);                  // the resize fills 0.15 → short 0.25 ...
+      const stop = v.orders.get(stopCloid)!;              // ... and the venue stop fills the remaining 0.25 at the same time
+      stop.filledLots = v.shortLots; stop.status = "filled"; v.shortLots = 0;
+      return ret;
+    }) as typeof submit;
+    v.lamports = 250_000_000n;                            // wallet drops to 0.25 SOL → resize 0.15
+    const rule = await tick();
+    expect(rule.state.phase).toBe("closed");
+    expect(rule.reason).toBe("recovery-stop-filled");
+    expect(rule.state.shortLots).toBe(0n);
+    expect(db.actionsForRule("r1").find(a => a.intent === "resize")!.outcome).toBe("filled");
+  });
+
+  test("a resize the venue keeps refusing backs off instead of re-signing every tick", async () => {
+    // Start the fake clock ahead of the real arm time, so the first mark is never older than the armed one.
+    let t = Date.now() + 1_000;
+    clock = () => t;
+    try {
+      const { v, db, tick, exchange } = setup();
+      await tick();
+      v.mark = "69.9"; v.bid = "69.8"; v.ask = "70";
+      t += 1000; await tick(); t += 1000; await tick();
+      const submit = exchange.submit;
+      exchange.submit = (async (...args: Parameters<typeof submit>) => {
+        const orders = (args[0] as { orders?: { r: boolean }[] }).orders;
+        if (orders?.[0]?.r) return { transport: "acked", statuses: [{ kind: "error", message: "Order must have minimum value of $10." }], raw: null } as SubmitResult;
+        return submit(...args);
+      }) as typeof submit;
+      v.lamports = 390_000_000n;                 // a one-lot imbalance the venue refuses to buy back
+      for (let i = 0; i < 6; i++) { t += 4000; await tick(); }   // 24 s of ticks
+      const resizes = db.actionsForRule("r1").filter(a => a.intent === "resize");
+      expect(resizes).toHaveLength(1);           // one paid attempt, then backoff (30 s)
+      expect(db.rule("r1")!.reason).toContain("resize-blocked: Order must have minimum value");
+      t += 30_000; await tick();
+      expect(db.actionsForRule("r1").filter(a => a.intent === "resize")).toHaveLength(2);   // retried after the backoff
+    } finally { clock = () => Date.now(); }
+  });
+
   test("a gap below the entry floor sends nothing", async () => {
     const { v, db, tick } = setup();
     await tick();
