@@ -54,6 +54,12 @@ guard("btn-connect", async () => {
   log("out-connect", { account, walletChainId: await chainId(), mode });
 });
 
+guard("btn-signin", async () => {
+  const challenge = await api("/api/session/challenge", { address: account });
+  const signature = await wallet().signMessage({ message: challenge.message });
+  log("out-connect", await api("/api/session/verify", { nonce: challenge.nonce, signature }));
+});
+
 guard("btn-agents", async () => {
   if (!account) throw new Error("Connect first");
   log("out-agents", { owner: account, agents: await info().extraAgents({ user: account }) });

@@ -9,7 +9,7 @@ This is the contract between the terminal (browser) and the Bun backend. All amo
 
 **Signing L1 actions from the browser.** For manual Trade orders, an EIP-712 domain with chainId 1337 doesn't match the wallet's active chain, and MetaMask refuses to sign it. Use the SDK's browser-wallet guidance: have the owner approve a short-lived browser agent, then sign orders with that agent. User-signed actions (`approveAgent`, `sendAsset`) sign on the wallet's current chain, so those work as is.
 
-Base path: `/api`. Errors are `{ error: <code>, message }` with an HTTP status.
+Base path: `/api`. `401 sign_in_required` means: run the sign-in flow below. Errors are `{ error: <code>, message }` with an HTTP status.
 
 ## Status
 
@@ -119,5 +119,14 @@ Server-sent events. The event types are `armed`, `reserved`, `order`, `stop`, `p
   - `transfer.type === "hypercoreSendAsset"`: the Hedge or Trade owner signs `sendAsset` with exactly these fields. Never use `usdSend`.
 - `GET /api/transfers/<id>` returns the saved quote and the NEAR Intents status. `SUCCESS` from the provider isn't proof of credit: confirm usable margin with `GET /api/accounts`, or the Base receipt.
 
-## Before a public deployment
-Rule reads and events still need an owner session (`POST /api/session/challenge|verify`, section 17). Until that ships, the API stays on localhost or behind the frontend's origin. The session work will add a cookie and won't change the request shapes above.
+## Sign-in (owner sessions)
+Rule reads (`GET /api/hedges?hedge=`, `GET /api/hedges/<id>`) and `GET /api/events` need a session for that rule's Hedge or Trade owner. Draft, arm and disarm/close don't need one: they carry their own owner signatures.
+
+1. `POST /api/session/challenge` `{ address }` → `{ message, nonce, expiresAt }`. The message is bound to the API's `APP_ORIGIN`, the environment, the address and a single-use nonce, and it expires after 5 minutes.
+2. The wallet signs `message` with `personal_sign` (viem `signMessage`). This authorizes no trades or transfers.
+3. `POST /api/session/verify` `{ nonce, signature }` → `{ address, expiresAt }`, plus an `HttpOnly; SameSite=Lax` cookie (`Secure` over HTTPS) valid for 12 hours.
+4. `GET /api/session` → `{ addresses }`. `POST /api/session/signout` clears the session.
+
+A browser holds one session cookie at a time, so signing in as another address replaces it.
+
+**Deployment shape (recommended):** proxy `/api/*` from the Vercel app to the backend with a Vercel rewrite, so the API is same-origin and the Lax cookie works. Then set the backend's `APP_ORIGIN` to the Vercel URL. If you call the backend cross-origin instead, use `fetch(..., { credentials: "include" })`. Note that a Lax cookie isn't sent on cross-site requests, so the rewrite is the supported path.

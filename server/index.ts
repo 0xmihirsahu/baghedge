@@ -7,6 +7,7 @@ import { openTransfers } from "./transfers";
 import { createVenue, readSolBalance } from "./venue";
 import { openDb } from "./db";
 import { serveOps } from "./ops/serve";
+import { createSessions } from "./session";
 import { createGuardSigner, outLayerExecutorFromEnv } from "./guard";
 import { createExchange, fallbackSigner, verifiedSigner, type HedgeSigner, type Hex } from "./exchange";
 import { createHedgeRoutes, type SignerConfig } from "./hedges";
@@ -35,8 +36,13 @@ export function createApi(config: AppConfig, request = fetch) {
   const worker = config.signer
     ? createWorker({ env: config.mode, db, exchange, readWallet, signerFor: config.signer.signerFor })
     : null;
+  const sessions = createSessions({
+    env: config.mode, db, origin: config.appOrigin ?? "http://localhost:3001",
+    secureCookie: (config.appOrigin ?? "").startsWith("https://"),
+  });
   const hedges = createHedgeRoutes({
     env: config.mode, db, exchange, readWallet, signer: config.signer ?? null,
+    sessionAddresses: req => sessions.addresses(req),
     onArmed: id => { void worker?.tickRule(id).catch(error => console.error("hedge tick failed", error)); },
   });
   if (worker && config.worker) worker.start();
@@ -122,6 +128,7 @@ export function createApi(config: AppConfig, request = fetch) {
         headers.set("Vary", "Origin");
         headers.set("Access-Control-Allow-Headers", "Content-Type");
         headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        headers.set("Access-Control-Allow-Credentials", "true");
       }
       if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
       if (req.method === "GET" && url.pathname === "/api/events") {
@@ -136,6 +143,26 @@ export function createApi(config: AppConfig, request = fetch) {
         }
       }
       try {
+        if (url.pathname.startsWith("/api/session")) {
+          if (req.method === "GET" && url.pathname === "/api/session") {
+            return Response.json({ addresses: [...sessions.addresses(req)] }, { headers });
+          }
+          if (req.method === "POST" && ["/api/session/challenge", "/api/session/verify", "/api/session/signout"].includes(url.pathname)) {
+            if (url.pathname === "/api/session/signout") {
+              const out = sessions.signOut(req);
+              headers.append("Set-Cookie", out.setCookie);
+              return Response.json(out.body, { headers });
+            }
+            if (!req.headers.get("content-type")?.startsWith("application/json")) {
+              throw new RequestError(415, "expected_json", "Send a JSON request");
+            }
+            const body: unknown = await req.json().catch(() => null);
+            if (url.pathname === "/api/session/challenge") return Response.json(sessions.challenge(body), { headers });
+            const out = await sessions.verify(body);
+            headers.append("Set-Cookie", out.setCookie);
+            return Response.json(out.body, { headers });
+          }
+        }
         return Response.json(await route(req, url), { headers });
       } catch (error) {
         if (error instanceof RequestError) {
@@ -165,9 +192,9 @@ if (import.meta.main) {
     worker: process.env.WORKER !== "0",
   });
   const host = process.env.HOST ?? "127.0.0.1";
-  if (!["127.0.0.1", "localhost", "::1"].includes(host)) {
-    // Rule reads and events have no owner session yet (section 17). Don't expose them by accident.
-    throw new Error(`Refusing to bind ${host}: owner sessions are not implemented yet. Keep the API on loopback.`);
+  if (!["127.0.0.1", "localhost", "::1"].includes(host) && !process.env.APP_ORIGIN?.startsWith("https://")) {
+    // Public binds need an HTTPS app origin: session cookies are Secure and challenges are bound to that origin.
+    throw new Error(`Refusing to bind ${host} without an https:// APP_ORIGIN.`);
   }
   const server = Bun.serve({
     hostname: host, port: Number(process.env.PORT ?? 3001), maxRequestBodySize: 8192, fetch: api.fetch,

@@ -46,8 +46,17 @@ export function createHedgeRoutes(opts: {
   env: Env; db: Db; exchange: Exchange; signer: SignerConfig | null;
   readWallet(address: string): Promise<{ lamports: string; observedAt: number }>;
   onArmed?(ruleId: string): void;
+  /** Addresses proven by the request's owner session. Rule reads and events require the Hedge or Trade owner. */
+  sessionAddresses(req: Request): Set<string>;
 }) {
   const { env, db, exchange } = opts;
+
+  function requireOwner(req: Request, rule: RuleRecord) {
+    const proven = opts.sessionAddresses(req);
+    if (!proven.has(rule.hedgeAddress) && !proven.has(rule.tradeAddress)) {
+      throw new RequestError(401, "sign_in_required", "Sign in as this rule's Hedge or Trade owner");
+    }
+  }
 
   async function json(req: Request) {
     if (!req.headers.get("content-type")?.startsWith("application/json")) {
@@ -176,9 +185,9 @@ export function createHedgeRoutes(opts: {
       if (req.method === "POST" && url.pathname === "/api/hedges/draft") return draft(await json(req));
       if (req.method === "POST" && url.pathname === "/api/hedges") return arm(await json(req));
       if (req.method === "GET" && url.pathname === "/api/hedges") {
-        // TODO(before public deploy): require an owner session (section 17) for rule reads and events.
         const hedge = url.searchParams.get("hedge")?.toLowerCase();
         if (!isEvmAddress(hedge)) throw new RequestError(400, "invalid_address", "Provide ?hedge=<Hedge account>");
+        if (!opts.sessionAddresses(req).has(hedge)) throw new RequestError(401, "sign_in_required", "Sign in as the Hedge owner");
         const rules = db.activeRules(env).filter(r => r.hedgeAddress === hedge);
         return { env, signer: opts.signer && { kind: opts.signer.kind, agentAddress: opts.signer.agentAddress, buildHash: opts.signer.buildHash },
           rules: rules.map(r => ruleView(r, db)) };
@@ -187,7 +196,7 @@ export function createHedgeRoutes(opts: {
       if (!match) return undefined;
       const rule = db.rule(match[1]!.toLowerCase());
       if (!rule || rule.env !== env) throw new RequestError(404, "rule_missing", "Hedge rule not found");
-      if (req.method === "GET" && !match[2]) return ruleView(rule, db);
+      if (req.method === "GET" && !match[2]) { requireOwner(req, rule); return ruleView(rule, db); }
       if (req.method === "POST" && match[2]) return command(rule, match[2] as "disarm" | "close", await json(req));
       return undefined;
     },
@@ -196,6 +205,9 @@ export function createHedgeRoutes(opts: {
     events(req: Request, url: URL) {
       const ruleId = url.searchParams.get("rule")?.toLowerCase();
       if (!ruleId || !/^0x[\da-f]{64}$/.test(ruleId)) throw new RequestError(400, "invalid_rule", "Provide ?rule=<rule id>");
+      const owned = db.rule(ruleId);
+      if (!owned || owned.env !== env) throw new RequestError(404, "rule_missing", "Hedge rule not found");
+      requireOwner(req, owned);
       let after = Number(req.headers.get("last-event-id") ?? url.searchParams.get("after") ?? 0) || 0;
       let unsubscribe = () => {};
       let keepAlive: ReturnType<typeof setInterval> | undefined;
