@@ -48,7 +48,7 @@ export function PortfolioPage() {
               <div className="mt-auto">
                 <ExposureDots watched={20} hedged={0} per={1} size={12} className="mb-6 w-[174px] opacity-25 [@media(max-height:860px)]:hidden" />
                 <p className="text-[20px] font-semibold tracking-[-0.02em]">No wallet yet</p>
-                <p className="mt-1 text-[14px] text-white/45">Connect one, or watch any address.</p>
+                <p className="mt-1 text-[14px] text-white/45">Connect one, or watch any address read only.</p>
                 <div className="-mx-4 -mb-4 max-w-[340px]">
                   <WalletBox />
                 </div>

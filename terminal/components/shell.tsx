@@ -125,8 +125,6 @@ export function Shell({ children }: { children: ReactNode }) {
 // connect a solana wallet or watch an address. we read the public balance, nothing else
 export function WalletBox() {
   const { wallet } = useStore();
-  const [addr, setAddr] = useState("");
-  const [bad, setBad] = useState(false);
   return (
     <div className="flex flex-col gap-2 px-4 py-4">
       {wallet.address ? (
@@ -139,28 +137,9 @@ export function WalletBox() {
           <button onClick={wallet.forget} className="ml-auto text-white/40 transition-colors hover:text-white" aria-label={wallet.connected ? "Disconnect" : "Stop watching"} title={wallet.connected ? "Disconnect" : "Stop watching"}><X size={16} /></button>
         </div>
       ) : (
-        <>
-          <button onClick={wallet.connect} disabled={wallet.connecting} className="h-11 rounded-[12px] bg-[#f0645a] text-[15px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70">
-            {wallet.connecting ? "Connecting…" : "Connect wallet"}
-          </button>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!wallet.watch(addr)) setBad(true);
-            }}
-          >
-            <input
-              value={addr}
-              onChange={(e) => {
-                setAddr(e.target.value);
-                setBad(false);
-              }}
-              placeholder="Or watch an address"
-              aria-invalid={bad}
-              className={`h-10 w-full rounded-[11px] bg-[#1c1b1a] px-3 text-[13px] outline-none ring-1 transition-shadow placeholder:text-white/35 ${bad ? "ring-[#f2554b]" : "ring-transparent focus:ring-white/15"}`}
-            />
-          </form>
-        </>
+        <button onClick={wallet.connect} disabled={wallet.connecting} className="h-11 rounded-[12px] bg-[#f0645a] text-[15px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70">
+          {wallet.connecting ? "Connecting…" : "Connect wallet"}
+        </button>
       )}
     </div>
   );
