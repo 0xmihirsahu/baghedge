@@ -58,8 +58,12 @@ export function createApi(config: AppConfig, request = fetch) {
         mode: config.mode, executableQuotesEnabled: config.mode === "mainnet",
         hedgeSigner: config.signer
           ? { kind: config.signer.kind, agentAddress: config.signer.agentAddress, buildHash: config.signer.buildHash,
-              pinnedOwner: config.signer.pinnedOwner ?? null }
+              pinnedOwner: config.signer.pinnedOwner ?? null, multiOwner: Boolean(config.signer.agentFor) }
           : null,
+        // Shown to users before they fund a Hedge account (README "Trust boundary and disclosed risks").
+        disclosures: process.env.EXECUTOR_KEY_DISCLOSURE === "1"
+          ? ["The guard's NEAR execution account key was exposed during development and has not been rotated. A holder could request extra hedge orders within a user's signed policy limits (trading the Hedge account's margin); it can never withdraw funds."]
+          : [],
         workerRunning: Boolean(worker && config.worker),
       };
     }
@@ -283,6 +287,9 @@ export function multiOwnerAgentCache(db: ReturnType<typeof openDb>, network: str
   const inflight = new Map<string, Promise<{ agentAddress: Hex; attestationTxHash?: string | null }>>();
   const lastMiss = new Map<string, number>();
   const MISS_INTERVAL_MS = 60_000;
+  // Global cap on paid discoveries (new owners) per rolling hour, so many sessions can't drain the executor.
+  const perHour = Math.max(1, Number(process.env.OUTLAYER_DISCOVERY_PER_HOUR) || 30);
+  const recent: number[] = [];
   return {
     async get(owner: Hex, discover: boolean, lookup: (o: Hex) => Promise<{ agentAddress: Hex; attestationTxHash?: string | null }>) {
       const o = owner.toLowerCase() as Hex;
@@ -293,6 +300,9 @@ export function multiOwnerAgentCache(db: ReturnType<typeof openDb>, network: str
       const pending = inflight.get(o);
       if (pending) return pending;
       if (Date.now() - (lastMiss.get(o) ?? 0) < MISS_INTERVAL_MS) throw new RequestError(429, "agent_lookup_rate_limited", "Try again in a minute");
+      while (recent.length && Date.now() - recent[0]! > 3_600_000) recent.shift();
+      if (recent.length >= perHour) throw new RequestError(429, "agent_lookup_busy", "Too many new accounts right now; try again later");
+      recent.push(Date.now());
       lastMiss.set(o, Date.now());
       const p = lookup(o).then(result => {
         db.raw.query("INSERT OR REPLACE INTO guard_agents VALUES ($n, $b, $c, $o, $a, $t, $now)")
