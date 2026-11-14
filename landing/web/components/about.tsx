@@ -10,23 +10,23 @@ const EASE = [0.16, 1, 0.3, 1] as const;
 
 const PEOPLE: { name: string; title: string; bio: string; art: Source[]; links: { label: string; href: string; icon: "x" | "in" }[] }[] = [
   {
-    name: "Vivek",
-    title: "Co-founder & CEO",
-    bio: "Builds products people can feel. Before baghedge he made musdy, a one dollar way to buy any coin on any chain from Mezo, and Liquid Components, open-code Liquid Glass components for React and shadcn/ui. Designs and animates everything you see here.",
-    art: [{ kind: "image", src: "/art/portrait-vivek.webp", scale: 1 }],
-    links: [
-      { label: "X", href: "https://x.com/vwakesahu", icon: "x" },
-      { label: "LinkedIn", href: "https://www.linkedin.com/in/vwakesahu/", icon: "in" },
-    ],
-  },
-  {
     name: "Mihir",
-    title: "Co-founder & CTO",
+    title: "Co-founder & CEO",
     bio: "Writes the parts of baghedge that hold keys: the NEAR contract that owns every hedge account, and the guard in the OutLayer enclave that is the only thing allowed to trade on it.",
     art: [{ kind: "image", src: "/art/portrait-mihir.webp", scale: 1 }],
     links: [
       { label: "X", href: "https://x.com/0xmihirsahu", icon: "x" },
       { label: "LinkedIn", href: "https://www.linkedin.com/in/0xmihirsahu/", icon: "in" },
+    ],
+  },
+  {
+    name: "Vivek",
+    title: "Co-founder & CTO",
+    bio: "Builds products people can feel. Before baghedge he made musdy, a one dollar way to buy any coin on any chain from Mezo, and Liquid Components, open-code Liquid Glass components for React and shadcn/ui. Designs and animates everything you see here.",
+    art: [{ kind: "image", src: "/art/portrait-vivek.webp", scale: 1 }],
+    links: [
+      { label: "X", href: "https://x.com/vwakesahu", icon: "x" },
+      { label: "LinkedIn", href: "https://www.linkedin.com/in/vwakesahu/", icon: "in" },
     ],
   },
   {
