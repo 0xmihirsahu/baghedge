@@ -60,14 +60,6 @@ export function createSessions(opts: { env: Env; db: Db; origin: string; secureC
       return { body: { address: row.address, expiresAt }, setCookie: cookie(token, SESSION_TTL_MS / 1000) };
     },
 
-    /** Issues a session for an address already proven by another owner signature (e.g. the hedge policy). */
-    issue(address: string) {
-      const token = random(32);
-      const expiresAt = Date.now() + SESSION_TTL_MS;
-      db.raw.query("INSERT INTO sessions VALUES ($token, $env, $address, $expiresAt)").run({ token, env, address: address.toLowerCase(), expiresAt });
-      return cookie(token, SESSION_TTL_MS / 1000);
-    },
-
     /** Addresses proven by this request's session cookie (one per sign-in; a user may sign in as Trade and Hedge). */
     addresses(req: Request): Set<string> {
       const tokens = (req.headers.get("cookie") ?? "").split(/;\s*/)

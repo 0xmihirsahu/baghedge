@@ -11,7 +11,7 @@ import { createSessions } from "./session";
 import { createOwnerActions } from "./owner";
 import { createGuardSigner, outLayerExecutorFromEnv } from "./guard";
 import { createExchange, fallbackSigner, verifiedSigner, type HedgeSigner, type Hex } from "./exchange";
-import { createHedgeRoutes, SESSION_FOR, type SignerConfig } from "./hedges";
+import { createHedgeRoutes, type SignerConfig } from "./hedges";
 import { createWorker, type SignContext } from "./worker";
 import type { RuleRecord } from "./db";
 
@@ -205,13 +205,7 @@ export function createApi(config: AppConfig, request = fetch) {
             return Response.json(out.body, { headers });
           }
         }
-        const result = await route(req, url);
-        if (result && typeof result === "object" && SESSION_FOR in result) {
-          const { [SESSION_FOR]: owner, ...body } = result as Record<string, unknown>;
-          if (typeof owner === "string") headers.append("Set-Cookie", sessions.issue(owner));
-          return Response.json(body, { headers });
-        }
-        return Response.json(result, { headers });
+        return Response.json(await route(req, url), { headers });
       } catch (error) {
         if (error instanceof RequestError) {
           return Response.json({ error: error.code, message: error.message }, { status: error.status, headers });

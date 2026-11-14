@@ -225,7 +225,6 @@ Our end-to-end mainnet run took **4 wallets** (Trade EVM, Hedge EVM, Base fundin
 
 ### What's already in the backend
 - **Fund from the wallet the user already has.** Phantom users fund with SOL or Solana USDC, so there's no Base wallet and no ETH for gas (section 2).
-- **Arming signs you in.** A successful `POST /api/hedges` sets the session cookie for the Hedge owner, so no separate sign-in is needed after arming.
 - **The watched wallet is read-only.** Phantom only needs to share its address, with no signature. A "you control this" badge is optional.
 - **One trading-agent approval** covers manual trading for up to 180 days (`validDays: 180`).
 

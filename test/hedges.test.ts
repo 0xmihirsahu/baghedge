@@ -48,9 +48,8 @@ const policy: HedgePolicy = {
 test("a signed policy arms once; case variants and resubmissions are refused even after the rule ends", async () => {
   const { db, post } = routes();
   const ownerSig = await owner.signTypedData(policyTypedData(policy, 1));
-  const armed = await post("/api/hedges", { policy, ownerSig, chainId: 1 }) as { id: string; phase: string; __sessionFor?: string };
+  const armed = await post("/api/hedges", { policy, ownerSig, chainId: 1 }) as { id: string; phase: string };
   expect(armed.phase).toBe("armed");
-  expect(armed.__sessionFor).toBe(policy.hedgeAccount);   // the HTTP layer turns this into a session cookie
   db.updateRule(armed.id, { status: "done" });
 
   const upper = { ...policy, ruleId: policy.ruleId.toUpperCase().replace("0X", "0x") };

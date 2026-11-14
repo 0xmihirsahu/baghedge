@@ -22,8 +22,6 @@ export const COMMAND_TYPES = {
 } as const;
 
 const COMMAND_MAX_AGE_MS = 5 * 60_000;
-/** Non-enumerable-in-spirit marker the HTTP layer turns into a Set-Cookie and strips from the body. */
-export const SESSION_FOR = "__sessionFor";
 
 /**
  * Margin the Hedge account should hold before arming (section 23), in USDC micro-units:
@@ -208,8 +206,7 @@ export function createHedgeRoutes(opts: {
     }
     db.emit(env, policy.ruleId, "armed", { hedgeAddress: policy.hedgeAccount });
     opts.onArmed?.(policy.ruleId);
-    // The verified policy signature already proves Hedge ownership: sign the owner in, saving a separate prompt.
-    return { ...ruleView(db.rule(policy.ruleId)!, db), [SESSION_FOR]: policy.hedgeAccount };
+    return ruleView(db.rule(policy.ruleId)!, db);
   }
 
   /** Disarm or close, authorized by the Hedge owner's EIP-712 HedgeCommand signature. */

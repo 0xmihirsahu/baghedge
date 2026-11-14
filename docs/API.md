@@ -72,8 +72,6 @@ The server refuses to arm when:
 - another rule is already active on that Hedge account (`rule_active`);
 - the Hedge account's perps `withdrawable` is below `requiredMarginUsdc` (`insufficient_margin`). Spot USDC doesn't count.
 
-A successful arm also sets the owner session cookie, so the UI can read the rule without a separate sign-in.
-
 ### `GET /api/hedges?hedge=<Hedge address>` (**changed: `hedge` is now required**)
 Response: `{ env, signer, rules: RuleView[] }`. This returns active rules only.
 
