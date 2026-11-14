@@ -41,7 +41,7 @@ export function Shell({ children }: { children: ReactNode }) {
             {NAV.map((n) => {
               const on = active(path, n.href);
               return (
-                <Link key={n.href} href={n.href} aria-current={on ? "page" : undefined} className={`flex items-center gap-3 rounded-[12px] px-2 py-2 text-[15px] font-semibold transition-colors duration-150 ${on ? "text-white" : "text-white/55 hover:text-white"}`}>
+                <Link key={n.href} href={n.href} aria-current={on ? "page" : undefined} className={`group flex items-center gap-3 rounded-[12px] px-2 py-2 text-[15px] font-semibold transition-colors duration-150 ${on ? "text-white" : "text-white/55 hover:text-white"}`}>
                   <NavTile icon={n.icon} on={on} size={30} />
                   {n.label}
                 </Link>
@@ -84,7 +84,7 @@ export function Shell({ children }: { children: ReactNode }) {
           {NAV.map((n) => {
             const on = active(path, n.href);
             return (
-              <Link key={n.href} href={n.href} aria-current={on ? "page" : undefined} className={`flex flex-col items-center justify-center gap-1 text-[11px] font-semibold ${on ? "text-white" : "text-white/50"}`}>
+              <Link key={n.href} href={n.href} aria-current={on ? "page" : undefined} className={`group flex flex-col items-center justify-center gap-1 text-[11px] font-semibold ${on ? "text-white" : "text-white/50"}`}>
                 <NavTile icon={n.icon} on={on} size={28} />
                 {n.label}
               </Link>
@@ -174,10 +174,22 @@ function WalletChip() {
 }
 
 // an app-style nav icon: a filled phosphor glyph in a rounded tile. coral when you're on it
+// one hover for every tile, in the brand's language: coral halftone dots rise through the tile, like the hedge
+// filling in the films, and the glyph turns white. active is solid coral. press sinks it a touch
 function NavTile({ icon: Icon, on, size }: { icon: typeof Wallet; on: boolean; size: number }) {
   return (
-    <span className="grid shrink-0 place-items-center rounded-[9px] transition-colors duration-150" style={{ width: size, height: size, background: on ? "#f0645a" : "#1c1b1a" }}>
-      <Icon size={Math.round(size * 0.58)} weight="fill" color={on ? "#ffffff" : "rgba(255,255,255,0.7)"} />
+    <span
+      className={`relative grid shrink-0 place-items-center overflow-hidden rounded-[9px] transition-[scale] duration-150 ease-out group-active:scale-[0.94] ${on ? "bg-[#f0645a]" : "bg-[#1c1b1a]"}`}
+      style={{ width: size, height: size }}
+    >
+      {!on && (
+        <span
+          aria-hidden
+          className="absolute inset-0 transition-[clip-path] duration-200 ease-[cubic-bezier(0.19,1,0.22,1)] [clip-path:inset(100%_0_0_0)] group-hover:[clip-path:inset(0_0_0_0)] motion-reduce:transition-none"
+          style={{ backgroundImage: "radial-gradient(circle, #f0645a 1px, transparent 1.4px)", backgroundSize: "4px 4px", backgroundPosition: "center" }}
+        />
+      )}
+      <Icon size={Math.round(size * 0.58)} weight="fill" className={`relative transition-colors duration-150 ${on ? "text-white" : "text-white/70 group-hover:text-white"}`} />
     </span>
   );
 }
