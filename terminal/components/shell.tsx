@@ -3,7 +3,6 @@
 import { ChartBar, ClockCounterClockwise, Handbag, Wallet, X } from "@phosphor-icons/react";
 import { WalletAvatar } from "./avatar";
 import { CopyAddress } from "./copy-address";
-import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -27,7 +26,6 @@ export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const { mids, markets, toasts } = useStore();
   const [splash, setSplash] = useState(true);
-  const [hover, setHover] = useState<string | null>(null);
   const prev = Object.fromEntries(markets.map((m) => [m.name, m.prevDay]));
 
   return (
@@ -39,7 +37,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <img src="/mascot.webp" alt="" className="size-6" />
             <span className="text-[18px] font-semibold tracking-[-0.03em]">baghedge</span>
           </Link>
-          <nav className="mt-6 flex flex-col gap-1" onMouseLeave={() => setHover(null)}>
+          <nav className="mt-6 flex flex-col gap-1">
             {NAV.map((n) => {
               const on = active(path, n.href);
               return (
@@ -47,12 +45,10 @@ export function Shell({ children }: { children: ReactNode }) {
                   key={n.href}
                   href={n.href}
                   aria-current={on ? "page" : undefined}
-                  onMouseEnter={() => setHover(n.href)}
-                  className={`group relative flex items-center gap-3 rounded-[12px] px-2 py-2 text-[15px] font-semibold transition-colors duration-150 ${on || hover === n.href ? "text-white" : "text-white/55"}`}
+                  className={`group relative flex items-center gap-3 rounded-[12px] px-2 py-2 text-[15px] font-semibold transition-colors duration-150 ${on ? "text-white" : "text-white/55 hover:text-white"}`}
                 >
-                  {hover === n.href && <motion.span layoutId="nav-hover" className="absolute inset-0 rounded-[12px] bg-[#141312]" transition={{ type: "spring", duration: 0.3, bounce: 0 }} />}
-                  <NavTile icon={n.icon} on={on} size={30} id="nav-on" />
-                  <span className="relative">{n.label}</span>
+                  <NavTile icon={n.icon} on={on} size={30} />
+                  {n.label}
                 </Link>
               );
             })}
@@ -94,7 +90,7 @@ export function Shell({ children }: { children: ReactNode }) {
             const on = active(path, n.href);
             return (
               <Link key={n.href} href={n.href} aria-current={on ? "page" : undefined} className={`group flex flex-col items-center justify-center gap-1 text-[11px] font-semibold ${on ? "text-white" : "text-white/50"}`}>
-                <NavTile icon={n.icon} on={on} size={28} id="tab-on" />
+                <NavTile icon={n.icon} on={on} size={28} />
                 {n.label}
               </Link>
             );
@@ -162,12 +158,29 @@ function WalletChip() {
 }
 
 // an app-style nav icon: a filled phosphor glyph in a rounded tile. coral when you're on it
-// a nav tile. the coral square is one shared element: it slides from the old page's tile to the new one.
-// press sinks the tile a touch. motion respects reduced motion through the user's system setting
-function NavTile({ icon: Icon, on, size, id }: { icon: typeof Wallet; on: boolean; size: number; id: string }) {
+// a nav tile. on hover, coral halftone dots rise through it row by row from the bottom: a 6×6 grid of
+// whole dots inset from the edge, corners left out so it follows the rounded tile and nothing is cut.
+// active is solid coral. press sinks it a touch
+const DOTS = Array.from({ length: 36 }, (_, i) => ({ r: Math.floor(i / 6), c: i % 6 })).filter(({ r, c }) => !((r === 0 || r === 5) && (c === 0 || c === 5)));
+
+function NavTile({ icon: Icon, on, size }: { icon: typeof Wallet; on: boolean; size: number }) {
   return (
-    <span className="relative grid shrink-0 place-items-center rounded-[9px] bg-[#1c1b1a] transition-[scale] duration-150 ease-out group-active:scale-[0.94]" style={{ width: size, height: size }}>
-      {on && <motion.span layoutId={id} className="absolute inset-0 rounded-[9px] bg-[#f0645a]" transition={{ type: "spring", duration: 0.35, bounce: 0.12 }} />}
+    <span className="relative grid shrink-0 place-items-center rounded-[9px] transition-[scale] duration-150 ease-out group-active:scale-[0.94]" style={{ width: size, height: size, background: on ? "#f0645a" : "#1c1b1a" }}>
+      {!on && (
+        <svg viewBox="0 0 24 24" className="absolute inset-[11%]" aria-hidden>
+          {DOTS.map(({ r, c }) => (
+            <circle
+              key={`${r}${c}`}
+              cx={2 + c * 4}
+              cy={2 + r * 4}
+              r={1.25}
+              fill="#f0645a"
+              className="origin-center scale-50 opacity-0 transition-[opacity,scale] duration-200 ease-[cubic-bezier(0.19,1,0.22,1)] [transform-box:fill-box] group-hover:scale-100 group-hover:opacity-100 motion-reduce:transition-none"
+              style={{ transitionDelay: `${(5 - r) * 25}ms` }}
+            />
+          ))}
+        </svg>
+      )}
       <Icon size={Math.round(size * 0.58)} weight="fill" className={`relative transition-colors duration-150 ${on ? "text-white" : "text-white/70 group-hover:text-white"}`} />
     </span>
   );
