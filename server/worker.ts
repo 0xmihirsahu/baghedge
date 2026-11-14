@@ -64,7 +64,8 @@ export function createWorker(deps: WorkerDeps) {
   function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
     const previous = locks.get(key) ?? Promise.resolve();
     const run = previous.catch(() => undefined).then(fn);
-    locks.set(key, run.finally(() => { if (locks.get(key) === run) locks.delete(key); }));
+    // The stored chain must never reject unhandled: one failed tick would otherwise crash the process.
+    locks.set(key, run.finally(() => { if (locks.get(key) === run) locks.delete(key); }).catch(() => undefined));
     return run;
   }
 
@@ -366,19 +367,30 @@ export function createWorker(deps: WorkerDeps) {
     for (const rule of db.activeRules(env)) {
       try { await tickRule(rule.id); } catch (error) {
         console.error(`worker tick failed for ${rule.id}:`, error instanceof Error ? error.message : error);
+        if (String(error).includes("429")) throw error; // let the loop back off instead of hammering the venue
       }
     }
   }
 
   return {
     tickRule, tickAll,
-    start(intervalMs = 2_000) {
+    /**
+     * Hyperliquid allows ~1200 request-weight per minute per IP and a tick costs ~50, so 4 s keeps us well under it.
+     * After a rate-limit (429) the loop backs off for 30 s; the venue-side recovery stop covers the gap.
+     */
+    start(intervalMs = 4_000) {
       if (timer) return;
       let running = false;
+      let pausedUntil = 0;
       timer = setInterval(async () => {
-        if (running) return;
+        if (running || Date.now() < pausedUntil) return;
         running = true;
-        try { await tickAll(); } finally { running = false; }
+        try { await tickAll(); }
+        catch (error) {
+          if (String(error).includes("429")) pausedUntil = Date.now() + 30_000;
+          console.error("worker loop error:", error instanceof Error ? error.message : error);
+        }
+        finally { running = false; }
       }, intervalMs);
     },
     stop() { if (timer) clearInterval(timer); timer = undefined; },
