@@ -7,10 +7,11 @@ import { isDecimal, isRecord } from "./http";
  *
  * Measured on mainnet (SOL, 25 s): `activeAssetCtx` about every 1 s, `bbo` about every 0.1 s, while `l2Book`
  * and `allMids` went 12 s between messages. `quote()` returns data only while both the mark and the book
- * arrived within `maxAgeMs`, and reports the older receive time. Otherwise it returns null, and callers fall
+ * arrived within `maxAgeMs`, and reports each one's receive time. Otherwise it returns null, and callers fall
  * back to HTTP, so a silent or dropped socket never feeds a stale mark.
  */
-export type StreamQuote = { markPx: string; bestBid: string | null; bestAsk: string | null; observedAt: number };
+/** `markAt` and `bookAt` are receive times. The worker uses markAt as the mark's sequence, so they stay separate. */
+export type StreamQuote = { markPx: string; bestBid: string | null; bestAsk: string | null; markAt: number; bookAt: number };
 export type MarketStream = { quote(coin: string, maxAgeMs: number): StreamQuote | null; stop(): void };
 
 type Socket = Pick<WebSocket, "send" | "close"> & {
@@ -87,7 +88,7 @@ export function createMarketStream(
       const book = books.get(coin);
       const t = now();
       if (!mark || !book || t - mark.at > maxAgeMs || t - book.at > maxAgeMs) return null;
-      return { markPx: mark.px, bestBid: book.bid, bestAsk: book.ask, observedAt: Math.min(mark.at, book.at) };
+      return { markPx: mark.px, bestBid: book.bid, bestAsk: book.ask, markAt: mark.at, bookAt: book.at };
     },
     stop() {
       stopped = true;

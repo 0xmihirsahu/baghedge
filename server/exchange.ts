@@ -214,8 +214,9 @@ export function createExchange(
 
     /**
      * Mark price (for triggers) and the top of book (for execution bounds), as decimal strings. Live from the
-     * websocket when it's fresh, otherwise from HTTP via the shared cache. `observedAt` is when the oldest
-     * input was observed, so the worker's freshness checks see the data's real age.
+     * websocket when it's fresh, otherwise from HTTP via the shared cache. `markObservedAt` and `bookObservedAt`
+     * are when each input was observed (`observedAt` is the older). They're separate because the worker uses the
+     * mark's time as its sequence: a new mark with an unchanged book must still count as a new observation.
      */
     async market(coin: string) {
       const live = opts.stream?.quote(coin, STREAM_MAX_AGE_MS) ?? null;
@@ -232,7 +233,10 @@ export function createExchange(
         throw new RequestError(502, "invalid_market_data", `Hyperliquid returned no ${coin} market`);
       }
       const base = { asset, sizeDecimals: meta.szDecimals, maxLeverage: typeof meta.maxLeverage === "number" ? meta.maxLeverage : 1 };
-      if (live) return { ...base, markPx: live.markPx, bestBid: live.bestBid, bestAsk: live.bestAsk, observedAt: live.observedAt };
+      if (live) {
+        return { ...base, markPx: live.markPx, bestBid: live.bestBid, bestAsk: live.bestAsk,
+          markObservedAt: live.markAt, bookObservedAt: live.bookAt, observedAt: Math.min(live.markAt, live.bookAt) };
+      }
       const levels = book && isRecord(book.data) && Array.isArray(book.data.levels) ? book.data.levels : null;
       const topPx = (side: unknown) => Array.isArray(side) && isRecord(side[0]) && isDecimal(side[0].px) ? side[0].px : null;
       if (!isRecord(assetCtx) || !isDecimal(assetCtx.markPx) || !levels || !book) {
@@ -240,7 +244,7 @@ export function createExchange(
       }
       return {
         ...base, markPx: assetCtx.markPx, bestBid: topPx(levels[0]), bestAsk: topPx(levels[1]),
-        observedAt: Math.min(ctx.fetchedAt, book.fetchedAt),
+        markObservedAt: ctx.fetchedAt, bookObservedAt: book.fetchedAt, observedAt: Math.min(ctx.fetchedAt, book.fetchedAt),
       };
     },
   };

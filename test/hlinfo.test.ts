@@ -82,12 +82,12 @@ describe("createMarketStream", () => {
     t = 10_500;
     ws.onmessage?.(bookMsg("SOL", "70.44", "70.46"));
     ws.onmessage?.(ctxMsg("BTC", "1"));                      // other coins ignored
-    expect(stream.quote("SOL", 3_000)).toEqual({ markPx: "70.45", bestBid: "70.44", bestAsk: "70.46", observedAt: 10_000 });
+    expect(stream.quote("SOL", 3_000)).toEqual({ markPx: "70.45", bestBid: "70.44", bestAsk: "70.46", markAt: 10_000, bookAt: 10_500 });
     t = 13_100;
     ws.onmessage?.(bookMsg("SOL", "70.43", "70.45"));
     expect(stream.quote("SOL", 3_000)).toBeNull();          // book live but mark older than 3 s
     ws.onmessage?.(ctxMsg("SOL", "70.40"));
-    expect(stream.quote("SOL", 3_000)).toEqual({ markPx: "70.40", bestBid: "70.43", bestAsk: "70.45", observedAt: 13_100 });
+    expect(stream.quote("SOL", 3_000)).toEqual({ markPx: "70.40", bestBid: "70.43", bestAsk: "70.45", markAt: 13_100, bookAt: 13_100 });
     t = 16_200;
     expect(stream.quote("SOL", 3_000)).toBeNull();          // both silent
     ws.onclose?.({});
@@ -106,20 +106,43 @@ describe("exchange.market", () => {
     const { calls, request } = fakeVenue(handler);
     let t = 50_000;
     const infoClient = createInfoClient("https://hl.invalid", request, () => t);
-    let live: ReturnType<ReturnType<typeof createMarketStream>["quote"]> = { markPx: "70.45", bestBid: "70.44", bestAsk: "70.46", observedAt: 49_900 };
+    let live: ReturnType<ReturnType<typeof createMarketStream>["quote"]> = { markPx: "70.45", bestBid: "70.44", bestAsk: "70.46", markAt: 49_900, bookAt: 49_950 };
     const stream = { quote: () => live, stop() {} };
     const exchange = createExchange("mainnet", request, { infoClient, stream });
 
     expect(await exchange.market("SOL")).toEqual({ asset: 1, sizeDecimals: 2, maxLeverage: 20,
-      markPx: "70.45", bestBid: "70.44", bestAsk: "70.46", observedAt: 49_900 });
+      markPx: "70.45", bestBid: "70.44", bestAsk: "70.46", markObservedAt: 49_900, bookObservedAt: 49_950, observedAt: 49_900 });
     t = 54_000;
     await exchange.market("SOL");
     expect(calls.map(c => c.type)).toEqual(["metaAndAssetCtxs"]);   // meta cached for a minute, mark from the stream
 
     live = null;
     t = 60_000;
-    expect(await exchange.market("SOL")).toMatchObject({ markPx: "71.00", bestBid: "70.99", bestAsk: "71.01", observedAt: 60_000 });
+    expect(await exchange.market("SOL")).toMatchObject({ markPx: "71.00", bestBid: "70.99", bestAsk: "71.01", markObservedAt: 60_000, bookObservedAt: 60_000 });
     // The meta read was 6 s old (> 1 s), so it was refetched for a fresh mark alongside the book.
     expect(calls.map(c => c.type)).toEqual(["metaAndAssetCtxs", "metaAndAssetCtxs", "l2Book"]);
+  });
+});
+
+describe("stream mark crossing (Codex review of #15)", () => {
+  test("a new mark with an unchanged book is a new observation, so the engine can see the crossing", async () => {
+    const { request } = fakeVenue(p => p.type === "metaAndAssetCtxs"
+      ? [{ universe: [{ name: "SOL", szDecimals: 2, maxLeverage: 20 }] }, [{ markPx: "70.50" }]] : null);
+    const { sockets, connect } = fakeSockets();
+    let t = 10_000;
+    const stream = createMarketStream("wss://hl.invalid/ws", ["SOL"], { connect, now: () => t, log: () => {} });
+    const exchange = createExchange("mainnet", request, { infoClient: createInfoClient("https://hl.invalid", request, () => t), stream });
+    const ws = sockets[0]!;
+    ws.onopen?.({});
+    ws.onmessage?.(bookMsg("SOL", "70.49", "70.51"));       // book at 10 000, then silent
+    ws.onmessage?.(ctxMsg("SOL", "70.50"));
+    const above = await exchange.market("SOL");
+    t = 11_000;
+    ws.onmessage?.(ctxMsg("SOL", "70.40"));                 // mark crosses below; no new book message
+    const below = await exchange.market("SOL");
+    expect([above.markPx, below.markPx]).toEqual(["70.50", "70.40"]);
+    expect(below.markObservedAt).toBeGreaterThan(above.markObservedAt);   // distinct sequence → crossing visible
+    expect(below.bookObservedAt).toBe(above.bookObservedAt);
+    stream.stop();
   });
 });

@@ -23,7 +23,8 @@ function fakeVenue() {
     network: "testnet",
     info: async () => null,
     async market() {
-      return { asset: 0, sizeDecimals: 2, markPx: v.mark, bestBid: v.bid, bestAsk: v.ask, observedAt: clock() };
+      const t = clock();
+      return { asset: 0, sizeDecimals: 2, markPx: v.mark, bestBid: v.bid, bestAsk: v.ask, markObservedAt: t, bookObservedAt: t, observedAt: t };
     },
     async position() {
       return { szi: (-v.shortLots / 100).toString(), liquidationPx: null, withdrawable: "30", accountValue: "30", observedAt: clock() };

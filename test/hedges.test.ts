@@ -11,7 +11,8 @@ const agent = "0x2222222222222222222222222222222222222222" as const;
 const buildHash = `0x${"cd".repeat(32)}` as const;
 
 const exchange = {
-  market: async () => ({ asset: 0, sizeDecimals: 2, markPx: "75", bestBid: "74.9", bestAsk: "75.1", maxLeverage: 10, observedAt: Date.now() }),
+  market: async () => ({ asset: 0, sizeDecimals: 2, markPx: "75", bestBid: "74.9", bestAsk: "75.1", maxLeverage: 10,
+    markObservedAt: Date.now(), bookObservedAt: Date.now(), observedAt: Date.now() }),
   position: async () => ({ szi: "0", liquidationPx: null, withdrawable: "30", accountValue: "30", observedAt: Date.now() }),
   openOrders: async () => [],
   usableUsdc: async () => usable,

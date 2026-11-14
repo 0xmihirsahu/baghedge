@@ -528,10 +528,10 @@ export function createWorker(deps: WorkerDeps) {
       const step = decideHedge(hedgeRule, current.state, {
         now: at,
         // Ceil the mark: entry needs mark ≤ trigger, so this never enters early.
-        mark: { price: toUnitsRounded(market.markPx, hedgeRule.priceDecimals, "ceil"), at: market.observedAt, sequence: market.observedAt },
+        mark: { price: toUnitsRounded(market.markPx, hedgeRule.priceDecimals, "ceil"), at: market.markObservedAt, sequence: market.markObservedAt },
         wallet: wallet && { eligibleLots: BigInt(wallet.lamports) / 10n ** BigInt(9 - market.sizeDecimals), at: wallet.observedAt },
         venue: { shortLots, at: position.observedAt },
-        book: { at: market.observedAt,
+        book: { at: market.bookObservedAt,
           bestBid: market.bestBid ? toUnitsRounded(market.bestBid, hedgeRule.priceDecimals, "floor") : null,
           bestAsk: market.bestAsk ? toUnitsRounded(market.bestAsk, hedgeRule.priceDecimals, "ceil") : null },
       });
