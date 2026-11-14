@@ -7,7 +7,8 @@ import { WalletAvatar } from "./avatar";
 import { CopyAddress } from "./copy-address";
 import { CoinLogo } from "./coin-logo";
 import { Tip } from "./tip";
-import { info, useAccount } from "./app/hl";
+import { explorer, info, useAccount } from "./app/hl";
+import { ArrowUpRight } from "@phosphor-icons/react";
 import { STATUS, useStore } from "./app/store";
 import { DOWN, UP, compact, pct, tone, usd } from "./app/format";
 import { isEvmAddress } from "./app/wallet";
@@ -257,6 +258,9 @@ function Accounts() {
             </div>
             <span className="flex h-8 shrink-0 items-center gap-1 rounded-[10px] bg-[#1c1b1a] pl-3 pr-1 text-[12px] text-white/70 tabular-nums">
               <CopyAddress address={address} />
+              <a href={explorer("address", address)} target="_blank" rel="noreferrer" aria-label="View on the Hyperliquid explorer" title="View on the Hyperliquid explorer" className="grid size-6 place-items-center rounded-[7px] text-white/45 transition-colors hover:bg-[#2e2c2a] hover:text-white">
+                <ArrowUpRight size={13} />
+              </a>
               {managed ? (
                 <button
                   onClick={() => {

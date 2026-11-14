@@ -27,7 +27,8 @@ export const AUTO: Partial<Record<Phase, [Phase, number]>> = {
 };
 export const FUNDING: Phase[] = ["signing", "detected", "transit", "credited"];
 
-type Toast = { id: number; title: string; status: string; kind: "replay" | "error" | "info" };
+// href: a "View" link to the transaction or account on the explorer, so a result can be checked on chain
+type Toast = { id: number; title: string; status: string; kind: "replay" | "error" | "info"; href?: string };
 type Activity = { at: number; what: string };
 
 // mode: the network the UI reads (NEXT_PUBLIC_NETWORK pins it, else the backend's). apiMode: the network the backend runs.
@@ -42,11 +43,11 @@ function useTerminal(backend: Backend) {
   const [activity, setActivity] = useState<Activity[]>([]);
 
   // a toast for every event; replay events also go to the activity list, labelled (AGENTS.md rule 15)
-  const toast = useCallback((title: string, status: string, kind: Toast["kind"] = "replay") => {
+  const toast = useCallback((title: string, status: string, kind: Toast["kind"] = "replay", href?: string) => {
     const id = Math.random();
-    setToasts((v) => [...v.slice(-2), { id, title, status, kind }]);
+    setToasts((v) => [...v.slice(-2), { id, title, status, kind, href }]);
     if (kind === "replay") setActivity((v) => [{ at: Date.now(), what: `${title} ${status.toLowerCase()}` }, ...v]);
-    setTimeout(() => setToasts((v) => v.filter((x) => x.id !== id)), kind === "error" ? 4000 : 3200);
+    setTimeout(() => setToasts((v) => v.filter((x) => x.id !== id)), href ? 6500 : kind === "error" ? 4000 : 3200);
   }, []);
   const fail = useCallback((message: string) => toast("Wallet", message, "error"), [toast]);
 
@@ -241,7 +242,7 @@ function useTerminal(backend: Backend) {
   const liveEnabled = liveCapable && !!accounts.trade && !!accounts.hedge && !!signer;
   // refused up front, before any signature: this server's guard can't sign for this Hedge account
   const ownerSupported = !backend.pinnedOwner || same(backend.pinnedOwner, accounts.hedge);
-  const liveHedge = useLiveHedge({ enabled: liveEnabled, trade: accounts.trade, hedge: accounts.hedge, solana: address, agent: backend.agentAddress, signer });
+  const liveHedge = useLiveHedge({ enabled: liveEnabled, trade: accounts.trade, hedge: accounts.hedge, solana: address, agent: backend.agentAddress, signer, notify: (t, s, href) => toast(t, s, "info", href) });
 
   const hedgeState = { phase, setPhase: go, hedge, cap, setCap, capN, entry, setEntry: setEntryKept, recovery, setRecovery: setRecoveryKept, held };
   return { backend, evm, privy, liveCapable, liveEnabled, ownerSupported, liveHedge, markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };

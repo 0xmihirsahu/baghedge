@@ -20,6 +20,9 @@ export const setNetwork = (n: Network) => {
   preferred = 0;
 };
 export const getNetwork = () => NET;
+// the Hyperliquid explorer on the current network: a transaction by hash, or an account's history
+export const explorer = (kind: "tx" | "address", id: string) =>
+  `https://app.hyperliquid${NET === "testnet" ? "-testnet" : ""}.xyz/explorer/${kind}/${id}`;
 
 export type Trade = { px: number; sz: number; side: "B" | "A"; time: number; tid: number };
 export type Candle = { t: number; o: number; h: number; l: number; c: number; v: number };
@@ -219,7 +222,7 @@ export function useCoin(coin: string | null, interval: Interval, hours: number) 
 }
 
 export type Position = { coin: string; size: number; entry: number; value: number; pnl: number; leverage: number; liq: number | null };
-export type Fill = { coin: string; px: number; sz: number; side: "B" | "A"; time: number; dir: string; pnl: number; fee: number; tid: number };
+export type Fill = { coin: string; px: number; sz: number; side: "B" | "A"; time: number; dir: string; pnl: number; fee: number; tid: number; hash: string | null };
 export type Account = { equity: number; withdrawable: number; positions: Position[]; fills: Fill[] };
 
 // a hyperliquid master account's public state, refreshed every 15 s. query with the master address, never an agent's (rule 7)
@@ -259,6 +262,8 @@ export function useAccount(address: string | null) {
               pnl: Number(x.closedPnl),
               fee: Number(x.fee),
               tid: x.tid as number,
+              // the L1 transaction that carried the fill; all-zero for some internal fills (no page to open)
+              hash: typeof x.hash === "string" && !/^0x0+$/.test(x.hash) ? x.hash : null,
             })),
           });
         })

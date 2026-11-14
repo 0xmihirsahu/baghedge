@@ -1,6 +1,6 @@
 "use client";
 
-import { CaretRight, ChartBar, ClockCounterClockwise, Handbag, SignOut, Wallet, X } from "@phosphor-icons/react";
+import { ArrowUpRight, CaretRight, ChartBar, ClockCounterClockwise, Handbag, SignOut, Wallet, X } from "@phosphor-icons/react";
 import { WalletAvatar } from "./avatar";
 import { CopyAddress } from "./copy-address";
 import Link from "next/link";
@@ -121,6 +121,11 @@ export function Shell({ children }: { children: ReactNode }) {
             <span className="shrink-0 text-[13px] text-white/50">{t.kind === "replay" ? `Replay · ${t.title}` : t.title}</span>
             <StatusText text={t.status} className="min-w-0 break-words text-[15px] font-medium" />
             {t.kind === "error" && <span className="ml-auto size-2 shrink-0 rounded-full" style={{ background: DOWN }} />}
+            {t.href && (
+              <a href={t.href} target="_blank" rel="noreferrer" className="pointer-events-auto ml-auto flex shrink-0 items-center gap-1 text-[13px] font-semibold text-white/70 transition-colors hover:text-white">
+                View <ArrowUpRight size={13} />
+              </a>
+            )}
           </div>
         ))}
       </div>

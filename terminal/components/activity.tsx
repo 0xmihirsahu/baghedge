@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useAccount } from "./app/hl";
+import { ArrowUpRight } from "@phosphor-icons/react";
+import { explorer, getNetwork, useAccount } from "./app/hl";
 import { useStore } from "./app/store";
 import { CoinLogo } from "./coin-logo";
 import { Tip } from "./tip";
@@ -20,7 +21,7 @@ export function ActivityPage() {
   // a read failed: fills may be missing. a quiet note in the subtitle's own line, so nothing moves
   const failing = (!!accounts.trade && tradeRead.error) || (!!accounts.hedge && hedgeRead.error);
 
-  type Row = { at: number; key: string; coin: string; what: string; detail: string; tag: string; color?: string; pnl?: number };
+  type Row = { at: number; key: string; coin: string; what: string; detail: string; tag: string; color?: string; pnl?: number; href?: string };
   const rows: Row[] = [
     ...activity.map((a, i) => ({ at: a.at, key: `r${i}${a.at}`, coin: "SOL", what: a.what, detail: "", tag: "Replay" })),
     ...[
@@ -33,9 +34,10 @@ export function ActivityPage() {
         coin: f.coin,
         what: `${f.dir} ${f.coin}`,
         detail: `${f.sz} at ${usd(f.px)} · ${name} account`,
-        tag: "Mainnet",
+        tag: getNetwork() === "testnet" ? "Testnet" : "Mainnet",
         color: f.side === "B" ? UP : DOWN,
         pnl: f.pnl || undefined,
+        href: f.hash ? explorer("tx", f.hash) : undefined,
       })),
     ),
   ].sort((a, b) => b.at - a.at);
@@ -63,6 +65,15 @@ export function ActivityPage() {
                   <Tip text={TAGS[r.tag]} side={i ? "top" : "bottom"} align="end">{r.tag}</Tip>
                 </span>
                 <span className="w-[64px] text-[13px] text-white/40">{time(r.at)}</span>
+                {r.href ? (
+                  <Tip text="Open this transaction on the Hyperliquid explorer." side={i ? "top" : "bottom"} align="end">
+                    <a href={r.href} target="_blank" rel="noreferrer" aria-label="View transaction" className="grid size-7 place-items-center rounded-[8px] text-white/40 transition-colors hover:bg-[#1c1b1a] hover:text-white">
+                      <ArrowUpRight size={14} />
+                    </a>
+                  </Tip>
+                ) : (
+                  <span className="size-7" />
+                )}
               </div>
             </div>
           ))
@@ -88,4 +99,5 @@ export function ActivityPage() {
 const TAGS: Record<string, string> = {
   Replay: "Simulated hedge event. Nothing was signed.",
   Mainnet: "A real fill from that Hyperliquid account.",
+  Testnet: "A fill on Hyperliquid testnet. Test money.",
 };

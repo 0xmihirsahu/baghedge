@@ -3,7 +3,7 @@
 import { getConnection, signMessage, signTypedData } from "wagmi/actions";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { evmConfig } from "./evm";
-import { info } from "./hl";
+import { explorer, info } from "./hl";
 import type { Signer } from "./privy";
 
 // the real hedge, through the baghedge backend (docs/INTEGRATION.md, docs/API.md). the backend holds no owner keys:
@@ -100,7 +100,7 @@ export function ruleLabel(r: Rule): string {
   return { armed: "Armed", opening: "Entry pending", closed: "Closed", missed: "Missed entry", expired: "Expired", paused: "Paused" }[r.phase as string] ?? "Armed";
 }
 
-export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string; solana: string | null; agent: string | null; signer: Signer | null }) {
+export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string; solana: string | null; agent: string | null; signer: Signer | null; notify?: (title: string, status: string, href?: string) => void }) {
   const [rule, setRule] = useState<Rule | null>(null);
   const [busy, setBusy] = useState<null | "signin" | "approve" | "draft" | "arm" | "close">(null);
   const [error, setError] = useState<LiveError | null>(null);
@@ -114,6 +114,10 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
   useEffect(() => {
     signerRef.current = o.signer;
   }, [o.signer]);
+  const notifyRef = useRef(o.notify);
+  useEffect(() => {
+    notifyRef.current = o.notify;
+  }, [o.notify]);
   const chainId = () => signerRef.current?.chainId() ?? 1;
   const ensureOwner = () => {
     const s = signerRef.current;
@@ -162,6 +166,8 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
     const { action, typedData } = await api<{ action: unknown; typedData: TypedData }>("/api/hl/approve-agent", { agentAddress: o.agent, chainId: chainId(), purpose: "hedge", validDays: 90 });
     const signature = await signTyped(signerRef.current, owner, typedData);
     await api("/api/hl/approve-agent/submit", { owner, action, signature });
+    // approvals are Hyperliquid actions with no tx page of their own: link the account's history, where it shows
+    notifyRef.current?.("Hedge agent", "Approved", explorer("address", owner));
   }, [o.agent, owner]);
 
   // review: sign in, approve the agent if needed, draft the policy and read the margin it needs
@@ -214,6 +220,7 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
       await api("/api/hedges", { policy: draft.policy, ownerSig, chainId: chainId() });
       setDraft(null);
       await refresh();
+      notifyRef.current?.("Hedge", "Armed", explorer("address", owner));
       return true;
     } catch (e) {
       setError(e as LiveError);
@@ -238,6 +245,7 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
       const v = await api<Rule>(`/api/hedges/${rule.id}/${command}`, { signature, issuedAt: c.issuedAt, chainId: chainId() });
       setRule(v?.status === "active" ? v : null);
       await refresh();
+      notifyRef.current?.("Hedge", v?.status === "active" ? "Closing" : command === "disarm" ? "Disarmed" : "Closed", explorer("address", owner));
     } catch (e) {
       setError(e as LiveError);
     } finally {
