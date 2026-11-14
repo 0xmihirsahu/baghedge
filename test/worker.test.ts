@@ -215,6 +215,20 @@ describe("worker", () => {
     expect(v.submissions).toBe(0);
   });
 
+  test("a refused position stop pauses the rule instead of re-requesting it every tick", async () => {
+    let calls = 0;
+    const { v, db, tick } = setupWith({ address: "0x5a272d74b33a28c540116f24433b4fb0c74e0337", kind: "guard",
+      signL1: async () => { calls++; throw new GuardRefused("stop_out_of_bounds"); } });
+    const r = db.rule("r1")!;
+    db.updateRule("r1", { state: { ...r.state, phase: "open", shortLots: 40n } });
+    v.shortLots = 40;
+    for (let i = 0; i < 4; i++) await tick();
+    const rule = db.rule("r1")!;
+    expect(rule).toMatchObject({ reason: "signer-refused", stopStatus: "missing" });
+    expect(rule.state.phase).toBe("paused");
+    expect(calls).toBe(1);
+  });
+
   test("a gap below the entry floor sends nothing", async () => {
     const { v, db, tick } = setup();
     await tick();

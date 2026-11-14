@@ -263,7 +263,13 @@ export function createWorker(deps: WorkerDeps) {
       stopCloid: null, lots: current.state.shortLots.toString(), nonce: db.nextNonce(signer.address),
       expiresAfter: now() + expiryMs, signer: signer.address, action: wire }, current.state);
     const signature = await sign(rule, signer, db.action(id)!);
-    if (!signature || signature === "unknown") return;
+    if (signature === "unknown") return;
+    if (!signature) {
+      // A refused stop would otherwise be re-requested every tick (each guard call is paid).
+      db.updateRule(rule.id, { stopStatus: "missing" });
+      pause(db.rule(rule.id)!, db.rule(rule.id)!.state, "signer-refused");
+      return;
+    }
     if (await send(rule, db.action(id)!, signature) !== "zero") await reconcile(db.rule(rule.id)!, db.action(id)!, market.sizeDecimals);
   }
 
@@ -289,6 +295,7 @@ export function createWorker(deps: WorkerDeps) {
       // 2. Recovery stop coverage for an open short.
       await checkStop(current, hedgeRule, market);
       current = db.rule(ruleId)!;
+      if (current.state.phase === "paused") return;
 
       // 3. Observe and decide.
       const [{ lots: shortLots, position }, wallet] = await Promise.all([
