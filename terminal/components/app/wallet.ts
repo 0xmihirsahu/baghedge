@@ -2,15 +2,16 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-// the watched wallet: connect phantom, or paste any solana address. we only ever read its public balance,
+// the watched wallet: connect any solana wallet, or watch an address. we only ever read its public balance,
 // through /api/balance so a paid key stays on the server
 
-type PhantomProvider = { isPhantom?: boolean; connect: () => Promise<{ publicKey: { toString(): string } }>; disconnect: () => Promise<void> };
+type Provider = { connect: () => Promise<{ publicKey: { toString(): string } } | void>; disconnect: () => Promise<void>; publicKey?: { toString(): string } | null };
 
-export function phantom(): PhantomProvider | null {
+// the injected solana wallet, whichever the browser has
+export function provider(): Provider | null {
   if (typeof window === "undefined") return null;
-  const w = window as unknown as { phantom?: { solana?: PhantomProvider }; solana?: PhantomProvider };
-  return w.phantom?.solana ?? (w.solana?.isPhantom ? w.solana : null);
+  const w = window as unknown as { phantom?: { solana?: Provider }; solflare?: Provider; backpack?: { solana?: Provider }; solana?: Provider };
+  return w.phantom?.solana ?? w.solflare ?? w.backpack?.solana ?? w.solana ?? null;
 }
 
 export const isSolAddress = (a: string) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a.trim());
@@ -18,23 +19,25 @@ export const short = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
 
 export function useWatchedWallet() {
   const [address, setAddress] = useState<string | null>(null);
-  const [source, setSource] = useState<"phantom" | "watch" | null>(null);
+  const [source, setSource] = useState<"wallet" | "watch" | null>(null);
   const [sol, setSol] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const connect = useCallback(async () => {
-    const p = phantom();
+    const p = provider();
     if (!p) {
-      setError("Phantom isn't installed in this browser. Paste an address instead.");
+      setError("No Solana wallet in this browser. Watch an address instead.");
       return;
     }
     try {
       const r = await p.connect();
-      setAddress(r.publicKey.toString());
-      setSource("phantom");
+      const key = (r && r.publicKey) ?? p.publicKey;
+      if (!key) throw new Error("no key");
+      setAddress(key.toString());
+      setSource("wallet");
       setError(null);
     } catch {
-      setError("Phantom didn't connect.");
+      setError("The wallet didn't connect.");
     }
   }, []);
 
@@ -46,7 +49,7 @@ export function useWatchedWallet() {
   }, []);
 
   const forget = useCallback(() => {
-    if (source === "phantom") phantom()?.disconnect().catch(() => {});
+    if (source === "wallet") provider()?.disconnect().catch(() => {});
     setAddress(null);
     setSource(null);
     setSol(null);
