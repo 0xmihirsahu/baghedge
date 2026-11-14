@@ -11,6 +11,7 @@ A Hyperliquid terminal that hedges the SOL you already hold, without moving it.<
   <a href="https://app.baghedge.xyz"><b>Open the app</b></a> ·
   <a href="docs/media/baghedge-mainnet-run.mp4"><b>Watch the 1:42 demo</b></a> ·
   <a href="JUDGES.md"><b>For judges</b></a> ·
+  <a href="docs/media/baghedge-deck.pdf"><b>Pitch deck (PDF)</b></a> ·
   <a href="https://baghedge.xyz">Site</a>
 </p>
 
@@ -73,65 +74,11 @@ Every result links to the explorer it happened on: Solana, NEAR Intents, Hyperli
 
 ## How it fits together
 
-```mermaid
-flowchart LR
-  subgraph You
-    W["Phantom<br/>(watched SOL, read only)"]
-    P["Privy sign-in<br/>Trade + Hedge wallets"]
-  end
-  subgraph App["app.baghedge.xyz"]
-    T["Terminal<br/>(Next.js)"]
-  end
-  subgraph Backend["baghedge backend"]
-    API["API + sessions"]
-    WK["Worker<br/>(journal, reconcile)"]
-  end
-  subgraph NEAR
-    G["Guard<br/>OutLayer TEE"]
-    NI["NEAR Intents<br/>1Click"]
-  end
-  subgraph HL["Hyperliquid"]
-    TA["Trade account"]
-    HA["Hedge account"]
-  end
-  P -->|signs every owner action| T
-  T --> API
-  W -.->|balance| WK
-  API --> WK
-  WK -->|policy-valid order| G
-  G -->|signed short or buyback| HA
-  T -->|orders via a trade-only agent| TA
-  NI <-->|USDC in and out| HA
-  NI <-->|USDC in and out| TA
-  T -->|fund and pay out| NI
-```
+<p align="center"><img src="docs/media/architecture.jpg" alt="Architecture: Phantom's balance and the Hyperliquid mark feed the worker; the guard in an OutLayer enclave signs the short; NEAR Intents 1Click moves USDC to the Hedge account" /></p>
 
 And the life of one hedge:
 
-```mermaid
-sequenceDiagram
-  autonumber
-  actor You
-  participant NI as NEAR Intents
-  participant HL as Hyperliquid
-  participant WK as baghedge worker
-  participant G as Guard (OutLayer TEE)
-  You->>NI: Fund with SOL or USDC, any chain
-  NI->>HL: USDC lands in the Hedge account
-  You->>WK: Sign the hedge policy (cap, entry, recovery, expiry)
-  loop every tick
-    WK->>HL: Read the mark
-    WK->>WK: Read the watched wallet
-  end
-  WK->>G: SOL crossed the entry: sign this order
-  G->>HL: Short + recovery stop
-  Note over WK,HL: SOL leaves the wallet: the guard signs a reduce-only buyback
-  You->>WK: Sign close
-  G->>HL: Buy back, reduce-only
-  You->>HL: Sign the payout
-  HL->>NI: USDC out
-  NI->>You: Back in your wallet
-```
+<p align="center"><img src="docs/media/sequence.jpg" alt="Sequence: fund through NEAR Intents, sign the policy, the worker watches the mark and the wallet, the guard signs the short and recovery stop, sign close, buy back reduce-only, pay out" /></p>
 
 The details:
 
