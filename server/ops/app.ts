@@ -82,17 +82,26 @@ guard("btn-connect", async () => {
 guard("btn-wc", async () => {
   const config = await fetch("/ops/config.json").then(r => r.json());
   if (!config.walletConnectProjectId) throw new Error("Set WALLETCONNECT_PROJECT_ID in the env file and restart the backend");
+  // No required chains: some wallets reject or narrow required namespaces. Use whatever the wallet approves.
   const provider = await EthereumProvider.init({
     projectId: config.walletConnectProjectId, showQrModal: true,
-    chains: [8453], optionalChains: [1, 42161, 421614],
+    optionalChains: [8453, 1, 42161, 10, 137],
     methods: ["eth_sendTransaction", "personal_sign", "eth_signTypedData_v4", "eth_chainId", "wallet_switchEthereumChain"],
     metadata: { name: "Baghedge ops", description: "Owner console", url: location.origin, icons: [] },
   });
   await provider.connect();
+  // Send requests on a chain the wallet actually approved, else every request fails with "Missing or invalid chainId".
+  const approved = (provider.session?.namespaces?.eip155?.chains ?? [])
+    .map((c: string) => Number(c.split(":")[1])).filter((n: number) => Number.isSafeInteger(n));
+  if (approved.length && !approved.includes(provider.chainId)) {
+    const target = approved.includes(8453) ? 8453 : approved[0]!;
+    // For a chain already in the session, the provider switches locally without a wallet prompt.
+    await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: `0x${target.toString(16)}` }] });
+  }
   eth = provider as unknown as Eip1193;
   const [address] = await eth.request({ method: "eth_accounts" }) as Hex[];
   account = address!.toLowerCase() as Hex;
-  log("out-connect", { account, walletChainId: await chainId(), mode, via: "WalletConnect" });
+  log("out-connect", { account, walletChainId: await chainId(), approvedChains: approved, mode, via: "WalletConnect" });
 });
 
 guard("btn-signin", async () => {
