@@ -29,7 +29,10 @@ export const FUNDING: Phase[] = ["signing", "detected", "transit", "credited"];
 type Toast = { id: number; title: string; status: string; kind: "replay" | "error" | "info" };
 type Activity = { at: number; what: string };
 
-export type Backend = { reachable: boolean; mode: Network; signer: "guard" | "fallback" | null; agentAddress: string | null };
+// mode: the network the UI reads (NEXT_PUBLIC_NETWORK pins it, else the backend's). apiMode: the network the backend runs.
+// live hedging needs both to match; otherwise the hedge stays a labelled replay
+export type Backend = { reachable: boolean; mode: Network; apiMode: Network | null; signer: "guard" | "fallback" | null; agentAddress: string | null };
+const PINNED = process.env.NEXT_PUBLIC_NETWORK === "mainnet" || process.env.NEXT_PUBLIC_NETWORK === "testnet" ? (process.env.NEXT_PUBLIC_NETWORK as Network) : null;
 
 function useTerminal(backend: Backend) {
   const { markets, mids, live } = useMarkets();
@@ -218,7 +221,7 @@ function useTerminal(backend: Backend) {
   const setRecoveryKept = useCallback((v: number) => setRecovery(Math.max(v, Math.round(entry * 1.002 * 100) / 100)), [entry]);
   // the real hedge, when the backend is up, both accounts are set and the Hedge owner's wallet is connected.
   // otherwise the hedge runs as the labelled replay above
-  const liveEnabled = backend.reachable && !!accounts.trade && !!accounts.hedge && !!evm.address && evm.address.toLowerCase() === accounts.hedge.toLowerCase();
+  const liveEnabled = backend.reachable && backend.apiMode === backend.mode && !!accounts.trade && !!accounts.hedge && !!evm.address && evm.address.toLowerCase() === accounts.hedge.toLowerCase();
   const liveHedge = useLiveHedge({ enabled: liveEnabled, trade: accounts.trade, hedge: accounts.hedge, solana: address, agent: backend.agentAddress });
 
   const hedgeState = { phase, setPhase: go, hedge, cap, setCap, capN, entry, setEntry: setEntryKept, recovery, setRecovery: setRecoveryKept, held };
@@ -277,8 +280,11 @@ export function Providers({ children }: { children: ReactNode }) {
     };
     fetch("/api/health", { signal: AbortSignal.timeout(6000) })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((h) => settle({ reachable: true, mode: h.mode === "testnet" ? "testnet" : "mainnet", signer: h.hedgeSigner?.kind ?? null, agentAddress: h.hedgeSigner?.agentAddress ?? null }))
-      .catch(() => settle({ reachable: false, mode: "mainnet", signer: null, agentAddress: null }));
+      .then((h) => {
+        const apiMode: Network = h.mode === "testnet" ? "testnet" : "mainnet";
+        settle({ reachable: true, mode: PINNED ?? apiMode, apiMode, signer: h.hedgeSigner?.kind ?? null, agentAddress: h.hedgeSigner?.agentAddress ?? null });
+      })
+      .catch(() => settle({ reachable: false, mode: PINNED ?? "mainnet", apiMode: null, signer: null, agentAddress: null }));
   }, []);
   // no adapters listed: every wallet-standard wallet (phantom, solflare, backpack…) registers itself
   const wallets = useMemo(() => [], []);

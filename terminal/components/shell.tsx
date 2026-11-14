@@ -5,13 +5,14 @@ import { WalletAvatar } from "./avatar";
 import { CopyAddress } from "./copy-address";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { LogoReveal, NumberRoll, StatusText } from "@/components/motion";
 import { useStore } from "./app/store";
 import { Tip } from "./tip";
 import { CoinLogo } from "./coin-logo";
 import { COINS, DOWN, coinHref, pct, tone, usd } from "./app/format";
 import { short } from "./app/wallet";
+import { haptic } from "@/lib/haptics";
 
 const NAV = [
   { href: "/markets", label: "Markets", icon: ChartBar },
@@ -28,6 +29,16 @@ export function Shell({ children }: { children: ReactNode }) {
   const { mids, markets, toasts } = useStore();
   const [splash, setSplash] = useState(true);
   const prev = Object.fromEntries(markets.map((m) => [m.name, m.prevDay]));
+  // an error toast (a wallet connect cancelled or failed, a balance that won't read) buzzes once when it lands
+  const buzzed = useRef(new Set<number>());
+  useEffect(() => {
+    for (const t of toasts) {
+      if (buzzed.current.has(t.id)) continue;
+      buzzed.current.add(t.id);
+      if (t.kind === "error") haptic("error");
+    }
+  }, [toasts]);
+  const tap = (on: boolean) => () => !on && haptic("select");
 
   return (
     <main className="grid h-svh overflow-hidden bg-[#0b0908] lg:grid-cols-[240px_minmax(0,1fr)]">
@@ -47,6 +58,7 @@ export function Shell({ children }: { children: ReactNode }) {
                   key={n.href}
                   href={n.href}
                   aria-current={on ? "page" : undefined}
+                  onClick={tap(on)}
                   className={`group relative flex items-center gap-3 rounded-[12px] px-2 py-2 text-[15px] font-semibold transition-colors duration-150 ${on ? "text-white" : "text-white/55 hover:text-white"}`}
                 >
                   <NavTile icon={n.icon} on={on} size={30} />
@@ -62,7 +74,7 @@ export function Shell({ children }: { children: ReactNode }) {
             const ch = px && prev[c] ? px / prev[c] - 1 : undefined;
             const on = path === coinHref(c) || path === `/markets/${c}`;
             return (
-              <Link key={c} href={coinHref(c)} className={`flex items-center gap-3 rounded-[12px] px-2.5 py-2.5 transition-colors duration-150 ${on ? "bg-[#1c1b1a]" : "hover:bg-[#141312]"}`}>
+              <Link key={c} href={coinHref(c)} onClick={tap(on)} className={`flex items-center gap-3 rounded-[12px] px-2.5 py-2.5 transition-colors duration-150 ${on ? "bg-[#1c1b1a]" : "hover:bg-[#141312]"}`}>
                 <CoinLogo coin={c} className="size-8" />
                 <span className="text-[15px] font-semibold">{c}</span>
                 <span className="ml-auto text-right leading-tight tabular-nums">
@@ -83,7 +95,7 @@ export function Shell({ children }: { children: ReactNode }) {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/mascot.webp" alt="" className="size-6" />
             <span className="text-[17px] font-semibold tracking-[-0.03em]">baghedge</span>
-            <Network />
+            <Network align="start" />
           </Link>
           <WalletChip />
         </div>
@@ -92,7 +104,7 @@ export function Shell({ children }: { children: ReactNode }) {
           {NAV.map((n) => {
             const on = active(path, n.href);
             return (
-              <Link key={n.href} href={n.href} aria-current={on ? "page" : undefined} className={`group flex flex-col items-center justify-center gap-1 text-[11px] font-semibold ${on ? "text-white" : "text-white/50"}`}>
+              <Link key={n.href} href={n.href} aria-current={on ? "page" : undefined} onClick={tap(on)} className={`group flex flex-col items-center justify-center gap-1 text-[11px] font-semibold ${on ? "text-white" : "text-white/50"}`}>
                 <NavTile icon={n.icon} on={on} size={28} />
                 {n.label}
               </Link>
@@ -133,10 +145,21 @@ export function WalletBox() {
             <p className="font-semibold tabular-nums">{wallet.sol === null ? "…" : <NumberRoll value={wallet.sol} format={(n) => `${n.toFixed(2)} SOL`} />}</p>
             <CopyAddress address={wallet.address} />
           </div>
-          <button onClick={wallet.forget} className="ml-auto text-white/40 transition-colors hover:text-white" aria-label={wallet.connected ? "Disconnect" : "Stop watching"} title={wallet.connected ? "Disconnect" : "Stop watching"}><X size={16} /></button>
+          <button
+            onClick={() => {
+              haptic("tap");
+              wallet.forget();
+            }}
+            className="ml-auto text-white/40 transition-colors hover:text-white" aria-label={wallet.connected ? "Disconnect" : "Stop watching"} title={wallet.connected ? "Disconnect" : "Stop watching"}><X size={16} /></button>
         </div>
       ) : (
-        <button onClick={wallet.connect} disabled={wallet.connecting} className="h-11 rounded-[12px] bg-[#f0645a] text-[15px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70">
+        <button
+          onClick={() => {
+            haptic("tap");
+            wallet.connect();
+          }}
+          disabled={wallet.connecting}
+          className="h-11 rounded-[12px] bg-[#f0645a] text-[15px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70">
           {wallet.connecting ? "Connecting…" : "Connect wallet"}
         </button>
       )}
@@ -148,8 +171,15 @@ function WalletChip() {
   const { wallet } = useStore();
   if (!wallet.address)
     return (
-      <button onClick={wallet.connect} className="h-9 rounded-[11px] bg-[#f0645a] px-3.5 text-[14px] font-semibold">
-        Connect wallet
+      <button
+        onClick={() => {
+          haptic("tap");
+          wallet.connect();
+        }}
+        disabled={wallet.connecting}
+        className="h-9 rounded-[11px] bg-[#f0645a] px-3.5 text-[14px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70"
+      >
+        {wallet.connecting ? "Connecting…" : "Connect wallet"}
       </button>
     );
   return (
@@ -190,19 +220,26 @@ function NavTile({ icon: Icon, on, size }: { icon: typeof Wallet; on: boolean; s
 }
 
 // which network the backend runs, and who signs hedge orders (AGENTS.md rule 15: every claim says what it is)
-function Network() {
+// the tip opens toward free space: leftward in the sidebar, rightward in the phone header (never past the screen edge)
+function Network({ align = "end" }: { align?: "start" | "end" }) {
   const { backend } = useStore();
   const label = !backend.reachable ? "Read only" : backend.mode === "testnet" ? "Testnet" : "Mainnet";
+  const behind = backend.reachable && backend.apiMode !== backend.mode;
   const tip = !backend.reachable
     ? "Backend unreachable. Prices are live; hedges run as a replay."
-    : backend.signer === "fallback"
+    : behind
+      ? `Live ${backend.mode} prices. Hedges run as a replay until the baghedge backend moves to ${backend.mode}.`
+      : backend.signer === "fallback"
       ? `Hyperliquid ${backend.mode}. Hedge orders are signed by a labelled demo key, not the attested guard yet.`
       : `Hyperliquid ${backend.mode}. Hedge orders are signed by the attested guard on NEAR.`;
   return (
-    <span className="whitespace-nowrap rounded-[7px] bg-[#1c1b1a] px-2 py-0.5 text-[11px] font-semibold text-white/70">
-      <Tip text={tip} side="bottom" align="end">
-        {label}
-        {backend.reachable && backend.signer === "fallback" ? " · Demo" : ""}
+    // nowrap sits on the label only: on the wrapper it would leak into the tip and stretch it past the screen
+    <span className="shrink-0 rounded-[7px] bg-[#1c1b1a] px-2 py-0.5 text-[11px] font-semibold text-white/70">
+      <Tip text={tip} side="bottom" align={align}>
+        <span className="whitespace-nowrap">
+          {label}
+          {behind ? " · Replay" : backend.reachable && backend.signer === "fallback" ? " · Demo" : ""}
+        </span>
       </Tip>
     </span>
   );
