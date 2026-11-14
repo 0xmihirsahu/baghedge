@@ -42,7 +42,7 @@ const CARDS: Card[] = [
   },
 ];
 
-// real SOL 4h candles drawn in dots: up candles white, down candles ink, wicks as smaller dots. draws in left to right
+// real SOL 4h candles drawn in ink dots, like every coral card: down candles solid, up candles light, wicks as smaller dots
 function Candles({ candles }: { candles: Candle[] }) {
   const ref = useRef<SVGSVGElement>(null);
   const seen = useInView(ref, { once: true, margin: "-15% 0px" });
@@ -64,7 +64,8 @@ function Candles({ candles }: { candles: Candle[] }) {
         return (
           <motion.g
             key={c.time}
-            fill={up ? "#ffffff" : INK}
+            fill={INK}
+            fillOpacity={up ? 0.38 : 1}
             initial={{ opacity: 0, y: 8 }}
             animate={seen ? { opacity: 1, y: 0 } : {}}
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1], delay: i * 0.025 }}
