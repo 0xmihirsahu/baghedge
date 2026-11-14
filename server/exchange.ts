@@ -206,6 +206,7 @@ export function createExchange(network: Network, request = fetch) {
       }
       return {
         asset, sizeDecimals: meta.szDecimals, markPx: assetCtx.markPx,
+        maxLeverage: typeof meta.maxLeverage === "number" ? meta.maxLeverage : 1,
         bestBid: topPx(levels[0]), bestAsk: topPx(levels[1]), observedAt: Date.now(),
       };
     },

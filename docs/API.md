@@ -33,12 +33,22 @@ Request:
   "maxSol": "0.4", "entryMark": "70", "entryFloor": "68.6", "recoveryMark": "80.5", "exitCeiling": "82",
   "expiresAt": 1794700000000 }
 ```
-Response: `{ policy: HedgePolicy, signerKind, market: { asset, sizeDecimals, markPx } }`.
+Optional: include `"chainId": <the wallet's current chain id>` in the request to get a ready-to-sign payload back.
+
+Response: `{ policy, signerKind, market: { asset, sizeDecimals, markPx, maxLeverage }, requiredMarginUsdc, typedData }`.
+- `requiredMarginUsdc` is the perps margin the Hedge account must hold to arm: the loss from floor to ceiling, maintenance, fees and a 5% buffer. It's signed into the policy as `minMarginE6`. Show it before funding.
+- `typedData` (only when `chainId` was sent) is the exact EIP-712 payload, with uint64 values as decimal strings. Pass it to `eth_signTypedData_v4`, or to viem/wagmi `signTypedData` without the `EIP712Domain` entry.
 - Show the policy fields to the user.
 - Prices are USD × 1e8 strings. Sizes are lots, where 1 lot = 10^-sizeDecimals SOL.
 
 ### 2. Owner signs
-Use the browser-safe helper `shared/policy.ts`:
+Easiest: sign the `typedData` from the draft response. With viem/wagmi:
+```ts
+const { EIP712Domain, ...types } = draft.typedData.types;
+const ownerSig = await walletClient.signTypedData({ account: hedgeOwner, domain: draft.typedData.domain, types,
+  primaryType: "HedgePolicy", message: draft.typedData.message });
+```
+Or use the browser-safe helper `shared/policy.ts`:
 ```ts
 import { policyTypedData } from "../shared/policy";
 const chainId = await walletClient.getChainId();
@@ -57,7 +67,8 @@ The server refuses to arm when:
 - the signed policy was already used (`duplicate_rule`; each signed policy arms one rule, ever);
 - the mark is already at or below the entry trigger, or a feed is stale (`cannot_arm`);
 - the Hedge account has a position or open orders (`cannot_arm` / `hedge_account_busy`);
-- another rule is already active on that Hedge account (`rule_active`).
+- another rule is already active on that Hedge account (`rule_active`);
+- the Hedge account's perps `withdrawable` is below `requiredMarginUsdc` (`insufficient_margin`). Spot USDC doesn't count.
 
 ### `GET /api/hedges?hedge=<Hedge address>` (**changed: `hedge` is now required**)
 Response: `{ env, signer, rules: RuleView[] }`. This returns active rules only.
@@ -66,7 +77,7 @@ Response: `{ env, signer, rules: RuleView[] }`. This returns active rules only.
 Response: a rule view, including finished rules.
 
 ### `POST /api/hedges/<ruleId>/disarm` and `POST /api/hedges/<ruleId>/close`
-The owner signs EIP-712 with domain `{ name: "Baghedge", version: "1", chainId }`:
+Get a ready-to-sign payload from `GET /api/hedges/<ruleId>?command=close&chainId=<id>` (or `command=disarm`). It needs no session and returns `{ issuedAt, chainId, typedData }`. Sign `typedData` the same way as the policy, then POST `{ signature, issuedAt, chainId }`. The structure is:
 ```ts
 types: { HedgeCommand: [{ name: "ruleId", type: "bytes32" }, { name: "command", type: "string" }, { name: "issuedAt", type: "uint64" }] }
 message: { ruleId, command: "disarm" | "close", issuedAt: BigInt(Date.now()) }
@@ -107,17 +118,19 @@ UI labels (section 12):
 | `reason: exit-price-outside-band` | **Close blocked** |
 | `reason: resize-price-outside-band` | **Resize blocked** |
 | `phase: missed` | **Missed entry** |
+| `reason: cancelling-hedge-orders` | **Closing** (flat; cancelling leftover stop orders) |
 
 An action with `transport: unknown` means **Checking order**. Show it as pending, never as filled.
 
 ### `GET /api/events?rule=<ruleId>[&after=<id>]` (**changed: `rule` is now required**)
-Server-sent events. The event types are `armed`, `reserved`, `order`, `stop`, `phase`, `paused`, `disarm` and `close`. Each event's data is `{ id, env, ruleId, kind, data, at }`. On reconnect, pass `after` (or rely on `Last-Event-ID`) and refetch `GET /api/hedges/<ruleId>`.
+Server-sent events. The event types are `armed`, `reserved`, `order`, `stop`, `phase`, `paused`, `disarm`, `close` and `cancel-leftovers`. Each event's data is `{ id, env, ruleId, kind, data, at }`. On reconnect, pass `after` (or rely on `Last-Event-ID`) and refetch `GET /api/hedges/<ruleId>`.
 
 ## Funding (unchanged)
 - `POST /api/transfers/quote` with `{ direction: "fund" | "withdraw", role, baseAddress, venueAddress, amount, dry }` returns a quote. With `dry: false` (mainnet only), it includes `depositAddress` and `transfer`.
   - `transfer.type === "baseErc20Transfer"`: the Base wallet sends USDC `transfer(to, amount)` on chain 8453.
   - `transfer.type === "hypercoreSendAsset"`: the Hedge or Trade owner signs `sendAsset` with exactly these fields. Never use `usdSend`.
-- `GET /api/transfers/<id>` returns the saved quote and the NEAR Intents status. `SUCCESS` from the provider isn't proof of credit: confirm usable margin with `GET /api/accounts`, or the Base receipt.
+- `POST /api/transfers/<id>/deposit` with `{ txHash }`: after the Base transfer (or `sendAsset`) is sent, report its hash. This speeds up 1Click and records the source transaction. It's optional but recommended.
+- `GET /api/transfers/<id>` returns the saved quote and the NEAR Intents status. For inbound `fund` transfers it also returns `recipientAccount: { withdrawableUsdc, spotUsdc }`, the live Hyperliquid balance of the credited account. `SUCCESS` from the provider isn't proof of credit: confirm usable margin with `GET /api/accounts`, or the Base receipt.
 
 ## Sign-in (owner sessions)
 Rule reads (`GET /api/hedges?hedge=`, `GET /api/hedges/<id>`) and `GET /api/events` need a session for that rule's Hedge or Trade owner. Draft, arm and disarm/close don't need one: they carry their own owner signatures.

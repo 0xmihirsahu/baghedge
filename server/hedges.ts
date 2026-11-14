@@ -1,7 +1,7 @@
 import { bytesToHex, recoverTypedDataAddress, type Hex } from "viem";
-import { isEvmAddress, isSolanaAddress, toUnits } from "../shared/amounts";
+import { fromUnits, isEvmAddress, isSolanaAddress, toUnits } from "../shared/amounts";
 import { armHedge } from "../shared/hedge";
-import { ruleFromPolicy, solanaToBytes32, verifyPolicy, type HedgePolicy } from "../shared/policy";
+import { POLICY_TYPES, ruleFromPolicy, solanaToBytes32, verifyPolicy, type HedgePolicy } from "../shared/policy";
 import type { Db, Env, RuleRecord } from "./db";
 import type { Exchange } from "./exchange";
 import { isRecord, RequestError } from "./http";
@@ -22,6 +22,33 @@ export const COMMAND_TYPES = {
 } as const;
 
 const COMMAND_MAX_AGE_MS = 5 * 60_000;
+
+/**
+ * Margin the Hedge account should hold before arming (section 23), in USDC micro-units:
+ * the loss from the entry floor up to the buyback ceiling, maintenance at the ceiling (half the initial
+ * margin at max leverage), venue fees both ways, and a 5% buffer on entry notional. Conservative on purpose.
+ */
+export function requiredMarginE6(capLots: bigint, sizeDecimals: number, floorE8: bigint, ceilingE8: bigint, maxLeverage: number) {
+  // sizes in lots (10^-sizeDecimals SOL), prices in USD × 1e8 → USDC × 1e6 = lots × priceE8 / (10^sizeDecimals × 100)
+  const toE6 = (lotsTimesE8: bigint) => lotsTimesE8 / (10n ** BigInt(sizeDecimals) * 100n);
+  const loss = toE6(capLots * (ceilingE8 - floorE8));
+  const maintenance = toE6(capLots * ceilingE8) / BigInt(2 * Math.max(1, maxLeverage));
+  const fees = toE6(capLots * ceilingE8) * 9n / 10_000n;                 // 0.045% taker, both ways
+  const buffer = toE6(capLots * floorE8) * 5n / 100n;
+  return loss + maintenance + fees + buffer;
+}
+
+/** EIP-712 payload ready for eth_signTypedData_v4 (uint64 values as decimal strings). viem callers: use shared/policy.ts. */
+function typedDataJson(policy: HedgePolicy, chainId: number) {
+  return {
+    domain: { name: "Baghedge", version: "1", chainId },
+    types: {
+      EIP712Domain: [{ name: "name", type: "string" }, { name: "version", type: "string" }, { name: "chainId", type: "uint256" }],
+      HedgePolicy: POLICY_TYPES.HedgePolicy,
+    },
+    primaryType: "HedgePolicy", message: policy,
+  };
+}
 
 /** JSON-safe view of a rule for the browser. bigints become decimal strings. */
 export function ruleView(rule: RuleRecord, db: Db) {
@@ -93,10 +120,19 @@ export function createHedgeRoutes(opts: {
       recoveryTriggerE8: e8(body.recoveryMark), buybackCeilingE8: e8(body.exitCeiling),
       entryWindowMs: "30000", expiryMs: String(body.expiresAt), minMarginE6: "0", oneCycle: true,
     };
+    policy.minMarginE6 = requiredMarginE6(BigInt(capLots), market.sizeDecimals, BigInt(policy.entryFloorE8),
+      BigInt(policy.buybackCeilingE8), market.maxLeverage).toString();
     try { ruleFromPolicy(policy, market.sizeDecimals); } catch (error) {
       throw new RequestError(400, "invalid_price", error instanceof Error ? error.message : "Price precision");
     }
-    return { policy, signerKind: opts.signer.kind, market: { asset: market.asset, sizeDecimals: market.sizeDecimals, markPx: market.markPx } };
+    const chainId = typeof body.chainId === "number" && Number.isSafeInteger(body.chainId) ? body.chainId : null;
+    return {
+      policy, signerKind: opts.signer.kind,
+      market: { asset: market.asset, sizeDecimals: market.sizeDecimals, markPx: market.markPx, maxLeverage: market.maxLeverage },
+      requiredMarginUsdc: fromUnits(BigInt(policy.minMarginE6), 6),
+      // Present when the request includes the wallet's chainId; sign exactly this with eth_signTypedData_v4.
+      typedData: chainId === null ? null : typedDataJson(policy, chainId),
+    };
   }
 
   async function arm(body: unknown) {
@@ -143,6 +179,12 @@ export function createHedgeRoutes(opts: {
     }
     const orders = await exchange.openOrders(policy.hedgeAccount);
     if (orders.length) throw new RequestError(409, "hedge_account_busy", "Hedge account has open orders");
+    // Perps margin only: spot USDC on a non-unified account can't back the short.
+    const usableE6 = toUnitsRounded(position.withdrawable, 6, "floor");
+    if (usableE6 < BigInt(policy.minMarginE6)) {
+      throw new RequestError(409, "insufficient_margin",
+        `Hedge account has ${fromUnits(usableE6, 6)} USDC usable perps margin; this rule needs ${fromUnits(BigInt(policy.minMarginE6), 6)}`);
+    }
     try {
       db.insertRule({ id: policy.ruleId, env, hedgeAddress: policy.hedgeAccount.toLowerCase(),
         tradeAddress: policy.tradeAccount.toLowerCase(), policy, ownerSig: body.ownerSig, chainId: body.chainId,
@@ -196,7 +238,24 @@ export function createHedgeRoutes(opts: {
       if (!match) return undefined;
       const rule = db.rule(match[1]!.toLowerCase());
       if (!rule || rule.env !== env) throw new RequestError(404, "rule_missing", "Hedge rule not found");
-      if (req.method === "GET" && !match[2]) { requireOwner(req, rule); return ruleView(rule, db); }
+      if (req.method === "GET" && !match[2]) {
+        const command = url.searchParams.get("command");
+        if (command === "disarm" || command === "close") {
+          // Ready-to-sign HedgeCommand. Public by design: it reveals nothing and only the owner can sign it.
+          const chainId = Number(url.searchParams.get("chainId"));
+          if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new RequestError(400, "invalid_chain", "Provide ?chainId=");
+          const issuedAt = Date.now();
+          return { issuedAt, chainId, typedData: {
+            domain: { name: "Baghedge", version: "1", chainId },
+            types: {
+              EIP712Domain: [{ name: "name", type: "string" }, { name: "version", type: "string" }, { name: "chainId", type: "uint256" }],
+              HedgeCommand: COMMAND_TYPES.HedgeCommand,
+            },
+            primaryType: "HedgeCommand", message: { ruleId: rule.id, command, issuedAt: String(issuedAt) },
+          } };
+        }
+        requireOwner(req, rule); return ruleView(rule, db);
+      }
       if (req.method === "POST" && match[2]) return command(rule, match[2] as "disarm" | "close", await json(req));
       return undefined;
     },

@@ -125,7 +125,10 @@ guard("btn-fund-send", async () => {
   const hash = await createWalletClient({ account: account!, chain: base, transport: custom(window.ethereum!) }).writeContract({
     address: quote.transfer.contract, abi: erc20Abi, functionName: "transfer", args: [quote.transfer.to, BigInt(quote.transfer.amount)],
   });
-  log("out-fund", { baseTx: hash, transferId: quote.id, next: "Use 'Check transfer' until SUCCESS, then confirm margin on Hyperliquid" });
+  const submitted = await api(`/api/transfers/${quote.id}/deposit`, { txHash: hash }).catch(e => ({ error: String(e) }));
+  ($("transfer-id") as HTMLInputElement).value = quote.id;
+  log("out-fund", { baseTx: hash, transferId: quote.id, intentsNotified: submitted,
+    next: "Use 'Check transfer' until SUCCESS; recipientAccount shows the credited Hyperliquid balance" });
 });
 
 guard("btn-payout-quote", async () => {

@@ -86,3 +86,12 @@ test("rule reads require the owner's session; challenges are single-use", async 
   const other = sessions.challenge({ address: stranger.address });
   expect(sessions.verify({ nonce: other.nonce, signature })).rejects.toThrow("does not match");
 });
+
+test("required margin matches the section 23 worked example (~$192 for a 6 SOL short, $140 → $161)", async () => {
+  const { requiredMarginE6 } = await import("../server/hedges");
+  // 6 SOL = 600 lots; floor $140, ceiling $161; SOL max leverage 20 (maintenance 2.5%).
+  const e6 = requiredMarginE6(600n, 2, 14_000_000_000n, 16_100_000_000n, 20);
+  // loss $126 + maintenance $24.15 + fees ~$0.87 + 5% buffer $42 ≈ $193
+  expect(Number(e6) / 1e6).toBeGreaterThan(190);
+  expect(Number(e6) / 1e6).toBeLessThan(196);
+});
