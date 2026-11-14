@@ -9,9 +9,18 @@ import { bytes32ToSolana, toUnitsRounded } from "./worker";
 
 export type SignerConfig = {
   kind: "guard" | "fallback";
-  agentAddress: Hex;
+  /** Single-owner builds: the one approved agent. Multi-owner builds: null (use agentFor). */
+  agentAddress: Hex | null;
   buildHash: Hex;
+  /** Multi-owner guard: the attested agent for one Hedge owner (derived per owner inside the guard). */
+  agentFor?(owner: Hex): Promise<{ agentAddress: Hex; attestationTxHash?: string | null }>;
 };
+
+/** The agent this server will use for a Hedge owner, or null when the build can't sign for that owner. */
+export async function agentForOwner(signer: SignerConfig, owner: Hex): Promise<Hex | null> {
+  if (signer.agentFor) return (await signer.agentFor(owner)).agentAddress.toLowerCase() as Hex;
+  return signer.agentAddress;
+}
 
 export const COMMAND_TYPES = {
   HedgeCommand: [
@@ -113,12 +122,14 @@ export function createHedgeRoutes(opts: {
     try { capLots = toUnits(body.maxSol, market.sizeDecimals).toString(); } catch {
       throw new RequestError(400, "invalid_size", "Size exceeds SOL lot precision");
     }
+    const guardAgent = await agentForOwner(opts.signer, body.hedgeAddress.toLowerCase() as Hex);
+    if (!guardAgent) throw new RequestError(409, "owner_unsupported", "This server's guard can't sign for that Hedge account");
     const ruleId = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
     const policy: HedgePolicy = {
       environment: env, ruleId, version: 1, policyNonce: String(Date.now()),
       tradeAccount: body.tradeAddress.toLowerCase() as Hex, hedgeAccount: body.hedgeAddress.toLowerCase() as Hex,
       watchedSolana: solanaToBytes32(body.solanaAddress), watchScope: 1, market: "SOL", assetId: market.asset,
-      priceSource: "hyperliquid-mark", guardAgent: opts.signer.agentAddress, guardBuildHash: opts.signer.buildHash,
+      priceSource: "hyperliquid-mark", guardAgent, guardBuildHash: opts.signer.buildHash,
       capLots, entryTriggerE8: e8(body.entryMark), entryFloorE8: e8(body.entryFloor),
       recoveryTriggerE8: e8(body.recoveryMark), buybackCeilingE8: e8(body.exitCeiling),
       entryWindowMs: "30000", expiryMs: String(body.expiresAt), minMarginE6: "0", oneCycle: true,
@@ -156,7 +167,8 @@ export function createHedgeRoutes(opts: {
     }
     if (db.ruleByDigest(digest)) throw new RequestError(409, "duplicate_rule", "This signed policy was already used");
     if (policy.environment !== env) throw new RequestError(409, "wrong_environment", `This server runs ${env}`);
-    if (policy.guardAgent.toLowerCase() !== opts.signer.agentAddress.toLowerCase() ||
+    const expectedAgent = await agentForOwner(opts.signer, policy.hedgeAccount.toLowerCase() as Hex);
+    if (!expectedAgent || policy.guardAgent.toLowerCase() !== expectedAgent ||
       policy.guardBuildHash.toLowerCase() !== opts.signer.buildHash.toLowerCase()) {
       throw new RequestError(409, "wrong_signer", "Policy names a different hedge signer than this server runs");
     }
@@ -254,12 +266,21 @@ export function createHedgeRoutes(opts: {
     async route(req: Request, url: URL): Promise<unknown | undefined> {
       if (req.method === "POST" && url.pathname === "/api/hedges/draft") return draft(await json(req));
       if (req.method === "POST" && url.pathname === "/api/hedges") return arm(await json(req));
+      if (req.method === "GET" && url.pathname === "/api/hedges/agent") {
+        // The agent a Hedge owner approves (once) before arming. Multi-owner builds derive one per owner.
+        if (!opts.signer) throw new RequestError(503, "signer_unconfigured", "No hedge signer is configured on this server");
+        const owner = url.searchParams.get("owner")?.toLowerCase();
+        if (!isEvmAddress(owner)) throw new RequestError(400, "invalid_address", "Provide ?owner=<Hedge account>");
+        const agentAddress = await agentForOwner(opts.signer, owner as Hex);
+        if (!agentAddress) throw new RequestError(409, "owner_unsupported", "This server's guard can't sign for that Hedge account");
+        return { owner, agentAddress, signerKind: opts.signer.kind, buildHash: opts.signer.buildHash, multiOwner: Boolean(opts.signer.agentFor) };
+      }
       if (req.method === "GET" && url.pathname === "/api/hedges") {
         const hedge = url.searchParams.get("hedge")?.toLowerCase();
         if (!isEvmAddress(hedge)) throw new RequestError(400, "invalid_address", "Provide ?hedge=<Hedge account>");
         if (!opts.sessionAddresses(req).has(hedge)) throw new RequestError(401, "sign_in_required", "Sign in as the Hedge owner");
         const rules = db.activeRules(env).filter(r => r.hedgeAddress === hedge);
-        return { env, signer: opts.signer && { kind: opts.signer.kind, agentAddress: opts.signer.agentAddress, buildHash: opts.signer.buildHash },
+        return { env, signer: opts.signer && { kind: opts.signer.kind, agentAddress: opts.signer.agentAddress, buildHash: opts.signer.buildHash, multiOwner: Boolean(opts.signer.agentFor) },
           rules: rules.map(r => ruleView(r, db)) };
       }
       const match = /^\/api\/hedges\/(0x[\da-f]{64})(?:\/(disarm|close))?$/i.exec(url.pathname);

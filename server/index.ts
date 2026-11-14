@@ -9,6 +9,7 @@ import { openDb } from "./db";
 import { serveOps } from "./ops/serve";
 import { createSessions } from "./session";
 import { createOwnerActions } from "./owner";
+import * as guardModule from "./guard";
 import { createGuardSigner, outLayerExecutorFromEnv } from "./guard";
 import { createExchange, fallbackSigner, verifiedSigner, type HedgeSigner, type Hex } from "./exchange";
 import { createHedgeRoutes, type SignerConfig } from "./hedges";
@@ -278,6 +279,34 @@ async function signerFromEnv(mode: "testnet" | "mainnet"): Promise<AppConfig["si
     const buildHash = keccak256(stringToHex("baghedge-fallback-agent-unattested"));
     console.warn(`Hedge signer: FALLBACK agent ${signer.address} (${mode}). Not an attested guard.`);
     return { kind: "fallback", agentAddress: signer.address, buildHash, signerFor: () => signer };
+  }
+  if (kind === "guard" && process.env.OUTLAYER_MULTI_OWNER === "1") {
+    // Multi-owner guard (option B): one attested build, an agent derived per Hedge owner inside the guard.
+    // server/guard.ts must export agentFor/createGuardSignerFor; until it does, refuse to start in this mode.
+    const g = guardModule as unknown as {
+      multiOwnerExecutorFromEnv?(mode: string): { buildHash: Hex };
+      agentFor?(executor: unknown, owner: Hex): Promise<{ agentAddress: Hex; attestationTxHash?: string | null }>;
+      createGuardSignerFor?(ctx: Record<string, unknown>, executor: unknown): HedgeSigner;
+    };
+    if (!g.multiOwnerExecutorFromEnv || !g.agentFor || !g.createGuardSignerFor) {
+      throw new Error("OUTLAYER_MULTI_OWNER=1 needs the multi-owner guard adapter in server/guard.ts");
+    }
+    const executor = g.multiOwnerExecutorFromEnv(mode);
+    const cache = new Map<string, Promise<{ agentAddress: Hex; attestationTxHash?: string | null }>>();
+    const agentFor = (owner: Hex) => {
+      const key = owner.toLowerCase();
+      // One attested public-key lookup per owner per process; failures aren't cached.
+      if (!cache.has(key)) cache.set(key, g.agentFor!(executor, key as Hex).catch(error => { cache.delete(key); throw error; }));
+      return cache.get(key)!;
+    };
+    console.log(`Hedge signer: OutLayer MULTI-OWNER guard build ${executor.buildHash} (${mode}).`);
+    return {
+      kind: "guard", agentAddress: null, buildHash: executor.buildHash.toLowerCase() as Hex, agentFor,
+      signerFor: (rule, context) => verifiedSigner(g.createGuardSignerFor!({
+        policy: rule.policy, ownerSig: rule.ownerSig as Hex, chainId: rule.chainId,
+        entryUntilMs: context.entryUntilMs, cancelRefs: context.cancelRefs, orderRef: context.orderRef,
+      }, executor), mode),
+    };
   }
   if (kind === "guard") {
     // Agent address and build hash come from the same pinned executor config the guard uses.

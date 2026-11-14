@@ -116,3 +116,31 @@ test("arm recomputes the margin floor: a signed minMarginE6 of 0 with a big cap 
   const ownerSig = await owner.signTypedData(policyTypedData(p, 1));
   expect(post("/api/hedges", { policy: p, ownerSig, chainId: 1 })).rejects.toThrow("this rule needs");
 });
+
+test("multi-owner guard: each Hedge owner gets their own agent; a policy naming another owner's agent is refused", async () => {
+  const db = openDb(":memory:");
+  const sessions = createSessions({ env: "testnet", db, origin: "http://localhost:5173", secureCookie: false });
+  const agentOf = (o: string) => (`0x${o.slice(2, 10)}${"a".repeat(32)}`).toLowerCase() as `0x${string}`;
+  const r = createHedgeRoutes({
+    env: "testnet", db, exchange, sessionAddresses: req => sessions.addresses(req),
+    signer: { kind: "guard", agentAddress: null, buildHash, agentFor: async o => ({ agentAddress: agentOf(o) }) },
+    readWallet: async () => ({ lamports: "1000000000", observedAt: Date.now() }),
+  });
+  const call = (method: string, path: string, body?: unknown) => r.route(new Request(`http://x${path}`, {
+    method, ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}),
+  }), new URL(`http://x${path}`));
+
+  const agent = await call("GET", `/api/hedges/agent?owner=${owner.address}`) as { agentAddress: string; multiOwner: boolean };
+  expect(agent).toMatchObject({ agentAddress: agentOf(owner.address.toLowerCase()), multiOwner: true });
+
+  // A policy carrying this owner's derived agent arms.
+  const mine = { ...policy, ruleId: `0x${"11".repeat(32)}` as `0x${string}`, guardAgent: agentOf(owner.address.toLowerCase()) };
+  const armed = await call("POST", "/api/hedges", { policy: mine, ownerSig: await owner.signTypedData(policyTypedData(mine, 1)), chainId: 1 }) as { phase: string };
+  expect(armed.phase).toBe("armed");
+
+  // The same owner's policy naming someone else's agent is refused.
+  const other = privateKeyToAccount(generatePrivateKey());
+  const wrong = { ...policy, ruleId: `0x${"22".repeat(32)}` as `0x${string}`, guardAgent: agentOf(other.address.toLowerCase()) };
+  expect(call("POST", "/api/hedges", { policy: wrong, ownerSig: await owner.signTypedData(policyTypedData(wrong, 1)), chainId: 1 }))
+    .rejects.toThrow("different hedge signer");
+});

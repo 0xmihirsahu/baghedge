@@ -77,7 +77,15 @@ guard("btn-connect", async () => {
   const [address] = await eth.request({ method: "eth_requestAccounts" }) as Hex[];
   account = address!.toLowerCase() as Hex;
   log("out-connect", { account, walletChainId: await chainId(), mode });
+  await prefillAgent();
 });
+
+/** Fills the agent field with this Hedge owner's agent (per-owner on multi-owner guard builds). */
+async function prefillAgent() {
+  if (!account) return;
+  const res = await fetch(`/api/hedges/agent?owner=${account}`).then(r => r.json()).catch(() => null);
+  if (res?.agentAddress) ($("agent") as HTMLInputElement).value = res.agentAddress;
+}
 
 guard("btn-wc", async () => {
   const config = await fetch("/ops/config.json").then(r => r.json());
@@ -102,6 +110,7 @@ guard("btn-wc", async () => {
   const [address] = await eth.request({ method: "eth_accounts" }) as Hex[];
   account = address!.toLowerCase() as Hex;
   log("out-connect", { account, walletChainId: await chainId(), approvedChains: approved, mode, via: "WalletConnect" });
+  await prefillAgent();
 });
 
 guard("btn-signin", async () => {
