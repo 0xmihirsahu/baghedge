@@ -1,0 +1,48 @@
+{
+  "total": 8075,
+  "body": {
+    "font": "Phantom",
+    "bg": "rgba(0, 0, 0, 0)",
+    "color": "rgb(60, 49, 91)"
+  },
+  "h1": {
+    "font": "Phantom",
+    "size": "80px",
+    "weight": "400",
+    "color": "rgb(255, 253, 248)",
+    "ls": "-2px",
+    "lh": "88px"
+  },
+  "h2": {
+    "font": "Phantom",
+    "size": "24px",
+    "weight": "400",
+    "color": "rgb(255, 253, 248)",
+    "ls": "-0.6px",
+    "lh": "32.4px"
+  },
+  "p": {
+    "font": "Phantom",
+    "size": "30px",
+    "weight": "400",
+    "color": "rgb(28, 28, 28)",
+    "ls": "normal",
+    "lh": "36px"
+  },
+  "a": {
+    "font": "Phantom",
+    "size": "16px",
+    "weight": "400",
+    "color": "rgb(60, 49, 91)",
+    "ls": "normal",
+    "lh": "normal"
+  },
+  "button": {
+    "font": "Phantom",
+    "size": "13.3333px",
+    "weight": "400",
+    "color": "rgb(60, 49, 91)",
+    "ls": "normal",
+    "lh": "normal"
+  }
+}
