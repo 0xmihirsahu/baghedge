@@ -310,6 +310,41 @@ export function createWorker(deps: WorkerDeps) {
     return false;
   }
 
+  /**
+   * Adopts the venue short when our own stop orders (attached child or position stop) account exactly for the
+   * difference between the journal and the venue. Returns false when the stops don't explain it.
+   */
+  async function settleStopFills(rule: RuleRecord, venueShort: bigint, sizeDecimals: number) {
+    const actions = db.actionsForRule(rule.id);
+    const stopCloids = [
+      ...actions.filter(a => a.intent === "entry" && a.stopCloid).map(a => a.stopCloid!),
+      ...actions.filter(a => a.intent === "position_stop").map(a => a.cloid),
+    ];
+    if (!stopCloids.length) return false;
+    let stopFilled = 0n;
+    const filledStops: { cloid: string; oid: number; lots: bigint }[] = [];
+    for (const cloid of stopCloids) {
+      const status = await exchange.orderStatus(rule.hedgeAddress, cloid);
+      if (!status) continue;
+      const lots = toUnitsRounded(status.origSz, sizeDecimals, "floor") - toUnitsRounded(status.remainingSz, sizeDecimals, "floor");
+      if (lots > 0n) { stopFilled += lots; filledStops.push({ cloid, oid: status.oid, lots }); }
+    }
+    const journalShort = actions.reduce((sum, a) => {
+      const filled = BigInt(a.filledLots ?? "0");
+      return a.intent === "entry" ? sum + filled : a.intent === "resize" || a.intent === "close" ? sum - filled : sum;
+    }, 0n);
+    if (stopFilled === 0n || journalShort - stopFilled !== venueShort) return false;
+    for (const stop of filledStops) {
+      const fills = await exchange.fillsForOrder(rule.hedgeAddress, stop.oid, rule.createdAt);
+      for (const fill of fills) db.recordFill(env, rule.hedgeAddress, rule.id, { ...fill, oid: stop.oid });
+    }
+    const state = { ...rule.state, shortLots: venueShort, phase: venueShort === 0n ? "closed" as const : rule.state.phase };
+    db.updateRule(rule.id, { state, reason: venueShort === 0n ? "recovery-stop-filled" : "recovery-stop-partial",
+      stopStatus: venueShort === 0n ? "none" : rule.stopStatus });
+    db.emit(env, rule.id, "stop-filled", { filledLots: stopFilled, shortLots: venueShort, stops: filledStops.map(s => s.cloid) });
+    return true;
+  }
+
   async function tickRule(ruleId: string) {
     const rule = db.rule(ruleId);
     if (!rule || rule.status !== "active") return;
@@ -329,7 +364,16 @@ export function createWorker(deps: WorkerDeps) {
       }
       if (current.state.phase === "paused") return;
 
-      // 2. Recovery stop coverage for an open short.
+      // 2a. A recovery stop that filled at the venue explains a smaller short: settle it as the designed exit,
+      // before checking coverage (otherwise we'd re-place a stop for a position that's gone). Any other
+      // unexplained change (ADL, liquidation, manual trade) still reaches the engine and pauses.
+      const venueBefore = await confirmedShortLots(current, market.sizeDecimals);
+      if (venueBefore.lots < current.state.shortLots && !current.state.pending &&
+        await settleStopFills(current, venueBefore.lots, market.sizeDecimals)) {
+        current = db.rule(ruleId)!;
+      }
+
+      // 2b. Recovery stop coverage for an open short.
       await checkStop(current, hedgeRule, market);
       current = db.rule(ruleId)!;
       if (current.state.phase === "paused") return;
