@@ -6,11 +6,12 @@ This is the in-repo source of truth for Baghedge's product, engineering, demo, a
 
 ## What runs today
 
-- **Local API:** reads Hyperliquid markets and account snapshots, reads liquid SOL, and previews a hedge. A preview doesn't sign or arm a rule. Keep the API on localhost while wallet sessions and access controls are pending.
-- **1Click:** returns Base ↔ HyperCore USDC quotes and status. In mainnet mode it can create an executable quote and return an unsigned transfer. A quote or provider status alone doesn't prove settlement.
+- **Local API:** reads Hyperliquid markets and account snapshots (including spot USDC for unified accounts), reads liquid SOL, previews and drafts hedges, arms owner-signed policies, and offers owner sign-in sessions. Public binds require an HTTPS `APP_ORIGIN`. Contract: `docs/API.md`.
+- **Worker:** journals each hedge action before signing, reconciles by cloid before deciding, confirms the recovery stop at the venue and installs a position stop when it's missing. Unit-tested against a simulated venue. **Testnet:** Trade place/cancel/fill and hedge-agent approval verified with the labeled fallback signer; the entry, stop and resize are in progress (`docs/evidence/testnet.jsonl`).
+- **1Click:** returns Base ↔ HyperCore USDC quotes and status. In mainnet mode it can create an executable quote and return an unsigned transfer. A quote or provider status alone doesn't prove settlement. No mainnet transfer has been run yet.
 - **Replay:** `bun run demo:replay` shows Trade and Wallet Hedge exposure with sample fills. It runs separately from the API.
-- **Guard:** `guard/` builds a local WASM probe for reading a build-bound public key or signing a fixed-format challenge. An attested OutLayer run and a guard-signed venue order still need proof.
-- **Planned:** live hedge worker, signed rule storage, wallet sessions, order submission, native stake reads, and payout verification. The frontend teammate owns the Vite terminal, which isn't in this checkout yet. The rest of this brief describes the target product.
+- **Guard:** `guard/` implements policy-checked `sign_order` for `wasm32-wasip2`, and `server/guard.ts` adapts it for the worker. A public-key probe run on NEAR mainnet has an independently verified attestation. The pinned trading build, its agent approval and a guard-signed venue fill still need proof.
+- **Planned:** native stake reads, mainnet funding and payout runs, and Render deployment. The frontend teammate owns the terminal.
 
 **Labels**
 - **(docs):** checked against the linked docs on Nov 14.
