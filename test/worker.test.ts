@@ -5,7 +5,7 @@ import { ruleFromPolicy, solanaToBytes32, type HedgePolicy } from "../shared/pol
 import { openDb } from "../server/db";
 import { fallbackSigner, verifiedSigner, type Exchange, type L1Action, type HedgeSigner, type OrderStatusResult, type SubmitResult } from "../server/exchange";
 import { GuardRefused } from "../server/guard";
-import { createWorker } from "../server/worker";
+import { createWorker, type SignContext } from "../server/worker";
 
 type Order = { cloid: string; oid: number; buy: boolean; reduceOnly: boolean; trigger?: string; origLots: number; filledLots: number; status: string; parent?: string };
 
@@ -79,7 +79,13 @@ const policy: HedgePolicy = {
 };
 
 function setupWith(custom: HedgeSigner) { return setup("fallback", custom); }
-function setup(signerMode: "fallback" | "guard-publishes-then-throws" | "guard-down" = "fallback", custom?: HedgeSigner) {
+function setupRecording() {
+  const contexts: SignContext[] = [];
+  const s = setup("fallback", undefined, c => contexts.push(c));
+  return { ...s, contexts };
+}
+function setup(signerMode: "fallback" | "guard-publishes-then-throws" | "guard-down" = "fallback", custom?: HedgeSigner,
+  record?: (context: SignContext) => void) {
   const { v, exchange } = fakeVenue();
   const db = openDb(":memory:");
   const local = fallbackSigner(generatePrivateKey(), "testnet");
@@ -102,7 +108,7 @@ function setup(signerMode: "fallback" | "guard-publishes-then-throws" | "guard-d
   db.insertRule({ id: "r1", env: "testnet", hedgeAddress: policy.hedgeAccount.toLowerCase(), tradeAddress: policy.tradeAccount,
     policy, ownerSig: "0x", chainId: 1, signerKind: "fallback", status: "active", state, stopStatus: "none", reason: "armed" }, "0xdigest");
   const worker = createWorker({
-    env: "testnet", db, exchange, signerFor: () => signer, now: () => clock(),
+    env: "testnet", db, exchange, signerFor: (_rule, context) => { record?.(context); return signer; }, now: () => clock(),
     readWallet: async () => ({ lamports: v.lamports.toString(), observedAt: clock() }),
   });
   const tick = async () => { await Bun.sleep(2); await worker.tickRule("r1"); return db.rule("r1")!; };
@@ -227,6 +233,17 @@ describe("worker", () => {
     expect(rule).toMatchObject({ reason: "signer-refused", stopStatus: "missing" });
     expect(rule.state.phase).toBe("paused");
     expect(calls).toBe(1);
+  });
+
+  test("each signing request carries the orderRef that derived its cloid", async () => {
+    const { v, db, tick, contexts } = setupRecording();
+    await tick();
+    v.mark = "69.9"; v.bid = "69.8"; v.fill = "half";
+    await tick(); await tick(); await tick();
+    const entry = db.actionsForRule("r1").find(a => a.intent === "entry")!;
+    const stop = db.actionsForRule("r1").find(a => a.intent === "position_stop")!;
+    expect(contexts).toContainEqual(expect.objectContaining({ intent: "entry", orderRef: { intent: "entry", seq: entry.seq } }));
+    expect(contexts).toContainEqual(expect.objectContaining({ intent: "position_stop", orderRef: { intent: "position_stop", seq: stop.seq } }));
   });
 
   test("a gap below the entry floor sends nothing", async () => {

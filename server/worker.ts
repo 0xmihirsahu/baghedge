@@ -8,6 +8,8 @@ import { canonicalAction, type Exchange, type HedgeSigner, type L1Action } from 
 
 export type SignContext = {
   intent: CloidIntent | "cancel";
+  /** Which derived cloid this order uses. An attached child uses intent "stop" at the same seq. */
+  orderRef?: { intent: "entry" | "resize" | "close" | "position_stop"; seq: number };
   entryUntilMs?: number;
   cancelRefs?: { intent: CloidIntent; seq: number }[];
 };
@@ -202,7 +204,8 @@ export function createWorker(deps: WorkerDeps) {
     const wire = canonicalAction(buildHedgeOrder(market, hedgeRule.priceDecimals, hedgeRule, engineAction,
       { order: cloid, ...(stopCloid ? { recovery: stopCloid } : {}) }));
     const signer = deps.signerFor(rule, {
-      intent, ...(intent === "entry" && state.retryUntil !== null ? { entryUntilMs: state.retryUntil } : {}),
+      intent, orderRef: { intent, seq },
+      ...(intent === "entry" && state.retryUntil !== null ? { entryUntilMs: state.retryUntil } : {}),
     });
     const nonce = db.nextNonce(signer.address);
     let expiresAfter = now() + expiryMs;
@@ -257,7 +260,7 @@ export function createWorker(deps: WorkerDeps) {
       t: { trigger: { isMarket: false, triggerPx: fromUnits(hedgeRule.recoveryMark, hedgeRule.priceDecimals), tpsl: "sl" } },
       c: cloid,
     }], grouping: "positionTpsl" });
-    const signer = deps.signerFor(rule, { intent: "position_stop" });
+    const signer = deps.signerFor(rule, { intent: "position_stop", orderRef: { intent: "position_stop", seq } });
     const id = crypto.randomUUID();
     db.reserveAction({ id, env, ruleId: rule.id, account: rule.hedgeAddress, intent: "position_stop", seq, cloid,
       stopCloid: null, lots: current.state.shortLots.toString(), nonce: db.nextNonce(signer.address),
