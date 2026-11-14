@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 const GLYPHS = "$#%&*+=/\\<>?!0123456789";
 const DOT = "#ffffff";
-const DIM = "#34302d";
+const DIM = "#3a3633";
 const HOT = "#f0645a";
 const WIPE = 0.12;
 

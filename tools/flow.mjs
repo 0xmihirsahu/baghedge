@@ -29,7 +29,7 @@ for (const [name, y] of shots) {
   await page.waitForTimeout(1600);
   await page.screenshot({ path: `${out}/${w}-${name}.png` });
 }
-for (const [i, id] of ['vision', 'about', 'launch'].entries()) {
+for (const [i, id] of ['launch'].entries()) {
   await page.evaluate((id) => window.scrollTo(0, document.getElementById(id).offsetTop), id);
   await page.waitForTimeout(3200);
   await page.screenshot({ path: `${out}/${w}-4${i}-${id}.png` });

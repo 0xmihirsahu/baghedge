@@ -2,8 +2,8 @@
 
 @theme {
   --font-sans: var(--font-figtree), ui-sans-serif, system-ui, sans-serif;
-  --color-page: #0b0908;
-  --color-coal: #1c1b1a;
+  --color-page: #1c1b1a;
+  --color-coal: #0b0908;
   --color-brand: #f0645a;
 }
 
