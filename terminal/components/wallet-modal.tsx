@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ArrowUpRight, CaretRight, ClipboardText, Eye, Wallet, X } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowUpRight, CaretRight, ClipboardText, EnvelopeSimple, Eye, Wallet, X } from "@phosphor-icons/react";
 import { WalletReadyState, type WalletName } from "@solana/wallet-adapter-base";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -27,7 +27,9 @@ const INSTALL = [
 
 export function WalletModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { wallets, select, wallet, connecting, connected } = useWallet();
-  const { wallet: store } = useStore();
+  const { wallet: store, privy } = useStore();
+  // with Privy, sign-in comes first: it brings the Trade and Hedge accounts. the SOL wallet is the second step
+  const signIn = !!privy && !privy.authenticated;
   const [view, setView] = useState<View>("home");
   const [picked, setPicked] = useState<string | null>(null);
   const [addr, setAddr] = useState("");
@@ -125,7 +127,7 @@ export function WalletModal({ open, onClose }: { open: boolean; onClose: () => v
 
   if (!mounted) return null;
 
-  const title = { home: "Connect", wallets: "Connect a wallet", watch: "Watch an address" }[view];
+  const title = { home: signIn ? "Get started" : privy ? "Add your SOL" : "Connect", wallets: "Connect a wallet", watch: "Watch an address" }[view];
 
   return (
     <div className={`fixed inset-0 z-[65] grid place-items-end bg-black/70 transition-opacity duration-200 sm:place-items-center ${open ? "opacity-100" : "pointer-events-none opacity-0"}`} onClick={onClose} aria-hidden={!open}>
@@ -165,9 +167,24 @@ export function WalletModal({ open, onClose }: { open: boolean; onClose: () => v
 
                 {view === "home" && (
                   <>
-                    <p className="mt-1 text-[14px] text-white/45">See the SOL you&apos;d hedge. Nothing moves without your signature.</p>
+                    <p className="mt-1 text-[14px] text-white/45">
+                      {signIn ? "Sign in, then add the SOL you'd hedge." : "See the SOL you'd hedge. Nothing moves without your signature."}
+                    </p>
                     <div className="mt-5 flex flex-col gap-2">
-                      <Choice icon={Wallet} title="Connect a wallet" line="Phantom, Solflare, Backpack" onClick={() => go("wallets")} primary />
+                      {signIn && (
+                        <Choice
+                          icon={EnvelopeSimple}
+                          title="Sign in"
+                          line="Email or Google. Accounts included"
+                          onClick={() => {
+                            haptic("tap");
+                            onClose();
+                            privy.login();
+                          }}
+                          primary
+                        />
+                      )}
+                      <Choice icon={Wallet} title={privy ? "Connect a Solana wallet" : "Connect a wallet"} line="Phantom, Solflare, Backpack" onClick={() => go("wallets")} primary={!signIn} />
                       <Choice icon={Eye} title="Watch an address" line="Read only. Paste any Solana address" onClick={() => go("watch")} />
                     </div>
                   </>

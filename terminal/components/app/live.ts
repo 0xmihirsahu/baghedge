@@ -4,6 +4,7 @@ import { getConnection, signMessage, signTypedData } from "wagmi/actions";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { evmConfig } from "./evm";
 import { info } from "./hl";
+import type { Signer } from "./privy";
 
 // the real hedge, through the baghedge backend (docs/INTEGRATION.md, docs/API.md). the backend holds no owner keys:
 // every owner action is signed here in the user's EVM wallet. flow: sign in → approve the hedge agent once →
@@ -58,13 +59,21 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
 
 // wallet prompts: a rejection reads as "cancelled", never a crash
 const isReject = (e: unknown) => /reject|denied|cancel/i.test(String((e as { message?: string })?.message ?? e));
-async function signTyped(owner: string, t: TypedData) {
+// an external wallet (metamask, rabby, walletconnect) through wagmi; it must be connected as the owner
+export const externalSigner: Signer = {
+  kind: "external",
+  message: (account, message) => signMessage(evmConfig, { account: account as `0x${string}`, message }),
+  // the payload comes from the backend at runtime, so viem's compile-time typed-data generics don't apply
+  typed: (account, p) => (signTypedData as unknown as (c: typeof evmConfig, p: Record<string, unknown>) => Promise<string>)(evmConfig, { account, ...p }),
+  chainId: () => getConnection(evmConfig).chainId ?? 1,
+};
+
+async function signTyped(signer: Signer | null, owner: string, t: TypedData) {
+  if (!signer) throw fail("wrong_wallet");
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { EIP712Domain, ...types } = t.types;
   try {
-    // the payload comes from the backend at runtime, so viem's compile-time typed-data generics don't apply
-    const sign = signTypedData as unknown as (c: typeof evmConfig, p: Record<string, unknown>) => Promise<string>;
-    return await sign(evmConfig, { account: owner, domain: t.domain, types, primaryType: t.primaryType, message: t.message });
+    return await signer.typed(owner, { domain: t.domain, types, primaryType: t.primaryType, message: t.message });
   } catch (e) {
     throw fail(isReject(e) ? "rejected" : "unknown", "The wallet couldn't sign.");
   }
@@ -90,7 +99,7 @@ export function ruleLabel(r: Rule): string {
   return { armed: "Armed", opening: "Entry pending", closed: "Closed", missed: "Missed entry", expired: "Expired", paused: "Paused" }[r.phase as string] ?? "Armed";
 }
 
-export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string; solana: string | null; agent: string | null }) {
+export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string; solana: string | null; agent: string | null; signer: Signer | null }) {
   const [rule, setRule] = useState<Rule | null>(null);
   const [busy, setBusy] = useState<null | "signin" | "approve" | "draft" | "arm" | "close">(null);
   const [error, setError] = useState<LiveError | null>(null);
@@ -99,10 +108,16 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
   const signedIn = useRef<string | null>(null);
 
   const owner = o.hedge;
-  const chainId = () => getConnection(evmConfig).chainId ?? 1;
+  // the signer changes identity every render; the callbacks read the latest through a ref
+  const signerRef = useRef<Signer | null>(o.signer);
+  useEffect(() => {
+    signerRef.current = o.signer;
+  }, [o.signer]);
+  const chainId = () => signerRef.current?.chainId() ?? 1;
   const ensureOwner = () => {
-    const a = getConnection(evmConfig).address;
-    if (!a || a.toLowerCase() !== owner.toLowerCase()) throw fail("wrong_wallet");
+    const s = signerRef.current;
+    if (!s) throw fail("wrong_wallet");
+    if (s.kind === "external" && getConnection(evmConfig).address?.toLowerCase() !== owner.toLowerCase()) throw fail("wrong_wallet");
   };
 
   // a session cookie, signed by the Hedge owner, to read the rule and its events
@@ -117,7 +132,8 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
     const { message, nonce } = await api<{ message: string; nonce: string }>("/api/session/challenge", { address: owner });
     let signature: string;
     try {
-      signature = await signMessage(evmConfig, { account: owner as `0x${string}`, message });
+      if (!signerRef.current) throw fail("wrong_wallet");
+      signature = await signerRef.current.message(owner, message);
     } catch (e) {
       throw fail(isReject(e) ? "rejected" : "unknown", "The wallet couldn't sign in.");
     }
@@ -143,7 +159,7 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
     if (agents.some((a) => a.address.toLowerCase() === o.agent!.toLowerCase())) return;
     setBusy("approve");
     const { action, typedData } = await api<{ action: unknown; typedData: TypedData }>("/api/hl/approve-agent", { agentAddress: o.agent, chainId: chainId(), purpose: "hedge", validDays: 90 });
-    const signature = await signTyped(owner, typedData);
+    const signature = await signTyped(signerRef.current, owner, typedData);
     await api("/api/hl/approve-agent/submit", { owner, action, signature });
   }, [o.agent, owner]);
 
@@ -193,7 +209,7 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
     setBusy("arm");
     try {
       ensureOwner();
-      const ownerSig = await signTyped(owner, draft.typedData);
+      const ownerSig = await signTyped(signerRef.current, owner, draft.typedData);
       await api("/api/hedges", { policy: draft.policy, ownerSig, chainId: chainId() });
       setDraft(null);
       await refresh();
@@ -216,7 +232,7 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
       ensureOwner();
       const command = rule.phase === "armed" ? "disarm" : "close";
       const c = await api<{ typedData: TypedData; issuedAt: number }>(`/api/hedges/${rule.id}?command=${command}&chainId=${chainId()}`);
-      const signature = await signTyped(owner, c.typedData);
+      const signature = await signTyped(signerRef.current, owner, c.typedData);
       // the status comes from the server's answer, never assumed
       const v = await api<Rule>(`/api/hedges/${rule.id}/${command}`, { signature, issuedAt: c.issuedAt, chainId: chainId() });
       setRule(v?.status === "active" ? v : null);

@@ -169,3 +169,19 @@ test("multi-owner agent cache: durable, one guard call per owner, rate-limited m
   // A different build or executor gets fresh agents.
   expect(await multiOwnerAgentCache(db, "mainnet", "0xotherbuild", "exec.near").get(o, false, lookup)).toBeNull();
 });
+
+test("a guard pinned to one Hedge owner refuses other owners at draft and arm, before any signature", async () => {
+  const db = openDb(":memory:");
+  const sessions = createSessions({ env: "testnet", db, origin: "http://localhost:5173", secureCookie: false });
+  const r = createHedgeRoutes({
+    env: "testnet", db, exchange, sessionAddresses: req => sessions.addresses(req),
+    signer: { kind: "guard", agentAddress: agent, buildHash, pinnedOwner: "0x9999999999999999999999999999999999999999" },
+    readWallet: async () => ({ lamports: "1000000000", observedAt: Date.now() }),
+  });
+  const post = (path: string, body: unknown) => r.route(new Request(`http://x${path}`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), new URL(`http://x${path}`));
+  expect(post("/api/hedges/draft", { tradeAddress: policy.tradeAccount, hedgeAddress: owner.address, solanaAddress: "So11111111111111111111111111111111111111112",
+    maxSol: "0.4", entryMark: "70", entryFloor: "68.6", recoveryMark: "80.5", exitCeiling: "82", expiresAt: Date.now() + 3_600_000 })).rejects.toThrow("only sign for its configured Hedge account");
+  const ownerSig = await owner.signTypedData(policyTypedData(policy, 1));
+  expect(post("/api/hedges", { policy, ownerSig, chainId: 1 })).rejects.toThrow("only sign for its configured Hedge account");
+});

@@ -57,7 +57,8 @@ export function createApi(config: AppConfig, request = fetch) {
       return {
         mode: config.mode, executableQuotesEnabled: config.mode === "mainnet",
         hedgeSigner: config.signer
-          ? { kind: config.signer.kind, agentAddress: config.signer.agentAddress, buildHash: config.signer.buildHash }
+          ? { kind: config.signer.kind, agentAddress: config.signer.agentAddress, buildHash: config.signer.buildHash,
+              pinnedOwner: config.signer.pinnedOwner ?? null }
           : null,
         workerRunning: Boolean(worker && config.worker),
       };
@@ -348,6 +349,8 @@ async function signerFromEnv(mode: "testnet" | "mainnet"): Promise<AppConfig["si
     console.log(`Hedge signer: OutLayer guard agent ${executor.agent} build ${executor.buildHash} (${mode}).`);
     return {
       kind: "guard", agentAddress: executor.agent.toLowerCase() as Hex, buildHash: executor.buildHash.toLowerCase() as Hex,
+      // Public: the Hedge owner compiled into this guard build (refuse other owners before they sign or fund).
+      pinnedOwner: isEvmAddress(process.env.OUTLAYER_PINNED_OWNER) ? process.env.OUTLAYER_PINNED_OWNER.toLowerCase() as Hex : undefined,
       signerFor: (rule, context) => {
         // orderRef lets the guard check the cloid against the signed rule (codex/guard-cloids).
         const guardContext = {

@@ -12,7 +12,7 @@ import { CORAL, DOWN, INK, TAKER, UP, pct, risk, usd } from "./app/format";
 // fomo's buy panel: coin row, big amount, chips, pad, summary, action, estimates.
 // Hedge (SOL only) sizes against the watched wallet; Trade sizes a market order in dollars
 export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string; mark?: number; change: number; maxLev: number; onReview: () => void }) {
-  const { wallet, hedge: h, toast, liveEnabled, liveHedge, backend } = useStore();
+  const { wallet, hedge: h, toast, liveEnabled, liveHedge, backend, privy, liveCapable } = useStore();
   const canHedge = coin === "SOL";
   const [modeState, setMode] = useState<"Hedge" | "Trade">("Hedge");
   const mode = canHedge ? modeState : "Trade";
@@ -41,8 +41,22 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
   const busy = hedgeMode && (L ? !!L.busy : !!AUTO[h.phase]);
   const BUSY = { signin: "Sign in in your wallet", approve: "Approve the hedge agent", draft: "Drafting your hedge", arm: "Sign the policy", close: "Sign to close" } as const;
   const over = hedgeMode && (Number(h.cap) || 0) > h.held + 1e-9;
+  // with Privy, the real hedge starts with one sign-in that brings the Trade and Hedge accounts
+  const signInFirst = connected && hedgeMode && !L && !!privy && liveCapable;
   const label = !connected
-    ? "Connect wallet"
+    ? privy && !privy.authenticated
+      ? "Sign in"
+      : privy
+        ? "Add your SOL"
+        : "Connect wallet"
+    : signInFirst
+      ? !privy.ready
+        ? "Loading"
+        : privy.error
+          ? "Retry account setup"
+          : privy.creating || (privy.authenticated && !privy.hedge)
+          ? "Setting up your accounts"
+          : "Sign in to hedge"
     : L
       ? L.busy
         ? BUSY[L.busy]
@@ -54,11 +68,12 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
       : ({ draft: "Review hedge", credited: "Arm", armed: "Simulate a crossing", open: "Close hedge", closed: "New hedge" } as Partial<Record<Phase, string>>)[h.phase];
   const MIN = 10;
   const belowMin = hedgeMode && !!mark && h.capN > 0 && h.capN * mark < MIN;
-  const why = !connected || !draft ? null : h.capN <= 0 ? "Enter an amount" : over ? "More than you hold" : belowMin ? `Below the $${MIN} minimum` : h.recovery <= h.entry ? "Recovery must sit above entry" : null;
-  const disabled = connected && (!label || busy || !!why);
+  const why = !connected || !draft || signInFirst ? null : h.capN <= 0 ? "Enter an amount" : over ? "More than you hold" : belowMin ? `Below the $${MIN} minimum` : h.recovery <= h.entry ? "Recovery must sit above entry" : null;
+  const disabled = connected && (!label || busy || !!why || (signInFirst && !privy.error && (!privy.ready || privy.creating || privy.authenticated)));
   const tradeBelowMin = !hedgeMode && (Number(usdIn) || 0) < MIN;
   const act = () => {
     if (!connected) return wallet.connect();
+    if (signInFirst) return privy.error ? privy.retry() : privy.login();
     if (L) {
       if (ruleOn) return L.close();
       return L.prepare({ cap: h.capN, entry: h.entry, recovery: h.recovery }).then((d) => d && onReview());

@@ -104,11 +104,13 @@ export function PortfolioPage() {
 
 // the two hyperliquid master accounts by public address, mainnet. Trade and Hedge must differ (AGENTS.md rule 8)
 function Accounts() {
-  const { accounts, setAccounts, evm } = useStore();
+  const { accounts, setAccounts, evm, privy } = useStore();
   const [role, setRole] = useState<"trade" | "hedge">("trade");
   const address = accounts[role];
   const other = accounts[role === "trade" ? "hedge" : "trade"];
   const { account, error } = useAccount(address || null);
+  // accounts that came from the Privy sign-in are managed by it: sign out instead of removing one
+  const managed = !!privy?.authenticated && !!address && [privy.trade, privy.hedge].some((a) => a?.toLowerCase() === address.toLowerCase());
   const [input, setInput] = useState("");
   const [bad, setBad] = useState<string | null>(null);
   const [clash, setClash] = useState<string | null>(null);
@@ -177,6 +179,21 @@ function Accounts() {
             </div>
             <p className="text-[20px] font-semibold tracking-[-0.02em]">Add your {role === "trade" ? "Trade" : "Hedge"} account</p>
             <p className="mt-1 text-[14px] text-white/45">{role === "trade" ? "The account you trade from by hand." : "The separate account that holds the hedge short."}</p>
+            {privy && (
+              <button
+                type="button"
+                disabled={!privy.ready || privy.creating || (privy.authenticated && !privy.error)}
+                onClick={() => {
+                  haptic("tap");
+                  if (privy.error) privy.retry();
+                  else privy.login();
+                }}
+                className="mt-5 flex h-11 items-center justify-center gap-2 rounded-[12px] bg-[#f0645a] px-4 text-[14px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70"
+              >
+                {privy.error ? "Retry account setup" : privy.creating || (privy.authenticated && !privy.hedge) ? "Setting up your accounts" : "Sign in"}
+              </button>
+            )}
+            <InlineError text={privy?.error ? "Couldn't create your accounts. Try again." : null} className="mt-1" />
             <button
               type="button"
               onClick={() => {
@@ -192,9 +209,13 @@ function Accounts() {
                 if (evm.address && !same(evm.address)) link(evm.address);
                 else evm.connect(`Connect your ${role === "trade" ? "Trade" : "Hedge"} wallet`, link);
               }}
-              className="mt-5 flex h-11 items-center justify-center gap-2 rounded-[12px] bg-[#f0645a] px-4 text-[14px] font-semibold transition-transform duration-150 active:scale-[0.98]"
+              className={
+                privy
+                  ? "mt-1 flex h-9 items-center justify-center rounded-[12px] px-4 text-[13px] font-semibold text-white/70 transition-colors duration-150 hover:text-white"
+                  : "mt-5 flex h-11 items-center justify-center gap-2 rounded-[12px] bg-[#f0645a] px-4 text-[14px] font-semibold transition-transform duration-150 active:scale-[0.98]"
+              }
             >
-              {evm.address && !same(evm.address) ? `Use ${evm.address.slice(0, 6)}…${evm.address.slice(-4)}` : "Connect EVM wallet"}
+              {evm.address && !same(evm.address) ? `Use ${evm.address.slice(0, 6)}…${evm.address.slice(-4)}` : privy ? "Or connect your own wallet" : "Connect EVM wallet"}
             </button>
             <InlineError text={clash} className="mt-1" />
             <p className="mt-1 text-[12px] text-white/40">Or paste the address to watch it, read only</p>
@@ -236,14 +257,26 @@ function Accounts() {
             </div>
             <span className="flex h-8 shrink-0 items-center gap-1 rounded-[10px] bg-[#1c1b1a] pl-3 pr-1 text-[12px] text-white/70 tabular-nums">
               <CopyAddress address={address} />
-              <button
-                onClick={() => {
-                  haptic("tap");
-                  setAccounts({ ...accounts, [role]: "" });
-                }}
-                className="grid size-6 place-items-center rounded-[7px] text-white/45 transition-colors hover:bg-[#2e2c2a] hover:text-white" aria-label="Remove account">
-                ✕
-              </button>
+              {managed ? (
+                <button
+                  onClick={() => {
+                    haptic("tap");
+                    privy!.logout().then(() => setAccounts({ trade: "", hedge: "" }));
+                  }}
+                  className="h-6 rounded-[7px] px-2 text-[12px] font-semibold text-white/55 transition-colors hover:bg-[#2e2c2a] hover:text-white"
+                >
+                  Sign out
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    haptic("tap");
+                    setAccounts({ ...accounts, [role]: "" });
+                  }}
+                  className="grid size-6 place-items-center rounded-[7px] text-white/45 transition-colors hover:bg-[#2e2c2a] hover:text-white" aria-label="Remove account">
+                  ✕
+                </button>
+              )}
             </span>
           </div>
           <div className="mt-6 flex items-center justify-between pb-1 text-[12px] text-white/40">

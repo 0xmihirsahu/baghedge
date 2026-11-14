@@ -18,12 +18,22 @@ export type SignerConfig = {
    * authenticated owner may trigger discovery.
    */
   agentFor?(owner: Hex, opts: { discover: boolean }): Promise<{ agentAddress: Hex; attestationTxHash?: string | null } | null>;
+  /** Single-owner builds: the Hedge owner compiled into the guard. Other owners are refused up front. */
+  pinnedOwner?: Hex;
 };
 
 /** The agent this server uses for a Hedge owner, or null when unknown (multi-owner: not yet discovered). */
 export async function agentForOwner(signer: SignerConfig, owner: Hex, discover = false): Promise<Hex | null> {
   if (signer.agentFor) return (await signer.agentFor(owner, { discover }))?.agentAddress.toLowerCase() as Hex ?? null;
+  if (signer.pinnedOwner && signer.pinnedOwner.toLowerCase() !== owner.toLowerCase()) return null;
   return signer.agentAddress;
+}
+
+/** Refuses a Hedge owner this server's guard can't sign for, before any signature or funds are asked for. */
+function assertOwnerSupported(signer: SignerConfig, owner: string) {
+  if (signer.pinnedOwner && signer.pinnedOwner.toLowerCase() !== owner.toLowerCase()) {
+    throw new RequestError(409, "owner_unsupported", "This server's guard can only sign for its configured Hedge account");
+  }
 }
 
 export const COMMAND_TYPES = {
@@ -126,6 +136,7 @@ export function createHedgeRoutes(opts: {
     try { capLots = toUnits(body.maxSol, market.sizeDecimals).toString(); } catch {
       throw new RequestError(400, "invalid_size", "Size exceeds SOL lot precision");
     }
+    assertOwnerSupported(opts.signer, body.hedgeAddress);
     const guardAgent = await agentForOwner(opts.signer, body.hedgeAddress.toLowerCase() as Hex);
     if (!guardAgent) {
       throw new RequestError(409, opts.signer.agentFor ? "agent_unknown" : "owner_unsupported", opts.signer.agentFor
@@ -174,6 +185,7 @@ export function createHedgeRoutes(opts: {
     }
     if (db.ruleByDigest(digest)) throw new RequestError(409, "duplicate_rule", "This signed policy was already used");
     if (policy.environment !== env) throw new RequestError(409, "wrong_environment", `This server runs ${env}`);
+    assertOwnerSupported(opts.signer, policy.hedgeAccount);
     const expectedAgent = await agentForOwner(opts.signer, policy.hedgeAccount.toLowerCase() as Hex);
     if (!expectedAgent || policy.guardAgent.toLowerCase() !== expectedAgent ||
       policy.guardBuildHash.toLowerCase() !== opts.signer.buildHash.toLowerCase()) {
