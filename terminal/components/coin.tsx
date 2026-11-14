@@ -20,7 +20,7 @@ const RANGES: Record<string, [Interval, number]> = { "1H": ["1m", 1], "1D": ["15
 // SOL also carries the hedge (entry and recovery on the chart, the hedge ticket)
 export function CoinPage({ coin }: { coin: string }) {
   const store = useStore();
-  const { markets, mids, hedge: h, wallet, accounts, liveEnabled, liveHedge, backend, canTrade, trading } = store;
+  const { markets, mids, hedge: h, accounts, liveEnabled, liveHedge, backend, canTrade, trading } = store;
   const [closing, setClosing] = useState<string | null>(null);
   const L = liveEnabled ? liveHedge : null;
   const [range, setRange] = useState("1D");
@@ -176,41 +176,46 @@ export function CoinPage({ coin }: { coin: string }) {
 
       {/* review before anything is signed */}
       <div className={`fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 transition-opacity duration-200 ${review ? "opacity-100" : "pointer-events-none opacity-0"}`} onClick={() => { setReview(false); L?.cancelDraft(); }}>
-        <div className={`w-full max-w-[400px] rounded-[24px] bg-[#141312] p-6 transition-transform duration-200 ease-out ${review ? "scale-100" : "scale-95"}`} onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between">
-            <p className="text-[18px] font-semibold">Review</p>
-            <button onClick={() => setReview(false)} className="text-white/50 hover:text-white" aria-label="Close"><X size={20} /></button>
+        <div role="dialog" aria-modal="true" aria-label="Review" className={`w-full max-w-[380px] rounded-[24px] bg-[#141312] p-5 transition-transform duration-200 ease-out ${review ? "scale-100" : "scale-95"}`} onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[36px] font-semibold leading-none tracking-[-0.03em] tabular-nums">{h.capN} SOL</p>
+              <p className="mt-2 text-[13px] text-white/45 tabular-nums">
+                {mark ? `${usd(h.capN * mark)} · ` : ""}runs once, 7 days
+              </p>
+            </div>
+            <button onClick={() => { setReview(false); L?.cancelDraft(); }} className="grid size-8 place-items-center rounded-full bg-[#1c1b1a] text-white/55 hover:text-white" aria-label="Close review"><X size={15} /></button>
           </div>
-          <p className="mt-6 text-[44px] font-semibold leading-none tracking-[-0.03em]">{h.capN} SOL</p>
-          <div className="mt-6 divide-y divide-white/[0.08] text-[14px]">
+          {/* the four numbers that matter, two by two */}
+          <div className="mt-5 grid grid-cols-2 gap-1.5 text-[13px]">
             {[
-              ["Wallet", wallet.address ? `${wallet.address.slice(0, 4)}…${wallet.address.slice(-4)}` : "—"],
-              ["Entry", usd(h.entry)],
-              ["Recovery", usd(h.recovery)],
-              ["Margin, comes back", L?.margin ? usd(L.margin.need, 2) : usd(r.margin)],
-              ["Liquidation, est.", usd(r.liq)],
-              ["Fees, est.", L ? "0.045% per fill" : usd(r.fees)],
-              ["Runs", "Once, 7 days"],
-            ].map(([k, v]) => (
-              <div key={k} className="flex justify-between py-3"><span className="text-white/50">{k}</span><span className="font-medium tabular-nums">{v}</span></div>
+              ["Entry", usd(h.entry), "Below this, the short opens."],
+              ["Recovery", usd(h.recovery), "Back above this, the short closes."],
+              ["Margin", L?.margin ? usd(L.margin.need, 2) : usd(r.margin), "Held in the Hedge account. It comes back."],
+              ["Fees", L ? "0.045%" : usd(r.fees), "Hyperliquid's fee on each fill."],
+            ].map(([k, v, tip]) => (
+              <div key={k} className="rounded-[12px] bg-[#1c1b1a] px-3 py-2.5">
+                <p className="text-white/45"><Tip text={tip} side="top" align="start">{k}</Tip></p>
+                <p className="mt-0.5 text-[15px] font-semibold tabular-nums">{v}</p>
+              </div>
             ))}
           </div>
           {L ? (
             <>
               {/* the backend's own disclosures (GET /api/health), shown before anyone funds the Hedge account */}
-              {backend.disclosures.map((d) => (
-                <p key={d} className="mt-4 rounded-[12px] bg-[#1c1b1a] px-3.5 py-3 text-[12px] leading-snug text-white/55">
-                  <span className="mb-1 block font-semibold text-white/80">Disclosure</span>
-                  {d}
-                </p>
-              ))}
+              {backend.disclosures.length > 0 && (
+                <details className="group mt-3 text-[12px] leading-snug text-white/55">
+                  <summary className="cursor-pointer list-none font-semibold text-white/70 hover:text-white">Disclosure: the guard&apos;s key <span className="text-white/40 group-open:hidden">· read</span></summary>
+                  {backend.disclosures.map((d) => <p key={d} className="mt-1.5">{d}</p>)}
+                </details>
+              )}
               {L.margin && L.margin.have === null && (
-                <p className="mt-4 rounded-[12px] bg-[#1c1b1a] px-3.5 py-3 text-[13px] leading-snug text-white/75">
+                <p className="mt-3 rounded-[12px] bg-[#1c1b1a] px-3.5 py-3 text-[13px] leading-snug text-white/75">
                   Margin unavailable right now. Arming checks it again.
                 </p>
               )}
               {L.margin && L.margin.have !== null && L.margin.have < L.margin.need && (
-                <p className="mt-4 rounded-[12px] bg-[#1c1b1a] px-3.5 py-3 text-[13px] leading-snug text-white/75">
+                <p className="mt-3 rounded-[12px] bg-[#1c1b1a] px-3.5 py-3 text-[13px] leading-snug text-white/75">
                   The Hedge account holds {usd(L.margin.have, 2)} and needs {usd(L.margin.need, 2)}.{" "}
                   <button
                     onClick={() => {
@@ -232,7 +237,7 @@ export function CoinPage({ coin }: { coin: string }) {
                     setSheet(false);
                   })
                 }
-                className="mt-5 flex h-[52px] w-full items-center justify-center gap-2 rounded-[14px] bg-[#f0645a] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70"
+                className="mt-4 flex h-[52px] w-full items-center justify-center gap-2 rounded-[14px] bg-[#f0645a] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70"
               >
                 {L.busy ? ({ signin: "Signing in", agent: "Finding your hedge agent", approve: "Approving the hedge agent", arm: "Signing the policy" } as Record<string, string>)[L.busy] ?? "Working" : "Sign and arm"}
               </button>

@@ -40,7 +40,8 @@ export function copyProfile(port) {
 // it signs in node, only when the run allows the "solana" rail, and logs what each transaction does first
 // video (on by default): one continuous recording of the whole flow, saved as <flow>.mp4 when the run ends, even on a
 // failure or an interrupt. screenshots are off; a failing step still keeps one, for debugging
-export async function open({ url, email, allow = [], slowMo = 250, video = true, shots = false, name = "run", solKey = null }) {
+// stall: seconds with no change on screen and no network answer before a step counts as stuck
+export async function open({ url, email, allow = [], slowMo = 250, video = true, shots = false, name = "run", solKey = null, stall = 20 }) {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const dir = path.join(HERE, "runs", `${stamp}-${name}`);
   fs.mkdirSync(path.join(dir, "shots"), { recursive: true });
@@ -162,7 +163,19 @@ export async function open({ url, email, allow = [], slowMo = 250, video = true,
   // the API trail: every baghedge and Hyperliquid call with its status and error code (bodies never logged whole)
   let api = [];
   let errors = [];
+  // progress = the screen changed or a request answered. in-flight requests are kept to name what a stuck step waits on
+  let lastProgress = Date.now();
+  const inflight = new Map();
+  const tracked = (u) => u.pathname.startsWith("/api/") || /hyperliquid|privy|chaindefuser|solana|onrender/.test(u.host);
   const watchPage = (p) => {
+    p.on("request", (req) => {
+      const u = new URL(req.url());
+      if (tracked(u)) inflight.set(req, { m: req.method(), p: `${u.host.includes("localhost") ? "" : u.host}${u.pathname}`, t0: Date.now() });
+    });
+    p.on("requestfinished", (req) => {
+      if (inflight.delete(req)) lastProgress = Date.now();
+    });
+    p.on("requestfailed", (req) => inflight.delete(req));
     p.on("response", async (res) => {
       const u = new URL(res.url());
       if (!u.pathname.startsWith("/api/") && !/hyperliquid/.test(u.host)) return;
@@ -207,12 +220,39 @@ export async function open({ url, email, allow = [], slowMo = 250, video = true,
       }))
       .catch(() => ({ live: [], toasts: [], dialog: null }));
 
+  // the stuck detector: while a step runs, a heartbeat every 10 s; after `stall` seconds with no progress, one loud
+  // STUCK report (what's on screen, what's still loading and for how long, console errors) plus a picture
+  let screenText = "";
+  const monitor = (label) => {
+    const t0 = Date.now();
+    let reported = false;
+    const tick = setInterval(async () => {
+      const s = await status();
+      const text = [...s.live, ...s.toasts, s.dialog ?? ""].join(" | ");
+      if (text !== screenText) {
+        screenText = text;
+        lastProgress = Date.now();
+      }
+      const idle = Math.round((Date.now() - lastProgress) / 1000);
+      const waiting = [...inflight.values()].filter((r) => Date.now() - r.t0 > 5000).map((r) => `${r.m} ${r.p} ${Math.round((Date.now() - r.t0) / 1000)}s`);
+      console.log(`  … ${label} ${Math.round((Date.now() - t0) / 1000)}s · idle ${idle}s${waiting.length ? ` · waiting on ${waiting.join(", ")}` : ""} · ${text.slice(0, 90) || "(nothing on screen)"}`);
+      if (idle >= stall && !reported) {
+        reported = true;
+        const f = await shot(`${label}-stuck`, page, true);
+        write({ type: "stuck", step: label, idle, screen: text.slice(0, 500), waiting, errors: errors.slice(-5), api: api.slice(-6), shot: f });
+        console.log(`  ⚠ STUCK ${label}: no change for ${idle}s. screen: ${text.slice(0, 160) || "nothing"}${waiting.length ? ` · still loading: ${waiting.join(", ")}` : " · nothing loading"}${errors.length ? ` · last error: ${errors.at(-1)}` : ""}`);
+      }
+    }, 10_000);
+    return () => clearInterval(tick);
+  };
+
   const steps = [];
   // one operation: run it, let the UI settle, screenshot, log what it did
   const step = async (name, fn, { settle = 900 } = {}) => {
     api = [];
     errors = [];
     const t0 = Date.now();
+    const stop = monitor(name);
     try {
       await fn(page);
       await page.waitForTimeout(settle);
@@ -220,7 +260,9 @@ export async function open({ url, email, allow = [], slowMo = 250, video = true,
       const rec = { type: "step", step: name, ok: true, ms: Date.now() - t0, url: page.url(), shot: f, status: await status(), api, errors };
       write(rec);
       steps.push(rec);
+      stop();
     } catch (e) {
+      stop();
       const f = await shot(`${name}-error`, page, true);
       const rec = { type: "step", step: name, ok: false, ms: Date.now() - t0, url: page.url(), shot: f, error: String(e.message ?? e).split("\n")[0], status: await status(), api, errors };
       write(rec);
@@ -230,9 +272,12 @@ export async function open({ url, email, allow = [], slowMo = 250, video = true,
   };
 
   // a long step (signing, arming, closing): read the status every second, screenshot each change, stop on done or a failure
+  // done(text, page) may be async: check real buttons, not only text
   const watch = async (name, done, { timeout = 120_000 } = {}) => {
     const t0 = Date.now();
     let last = "";
+    const stop = monitor(name);
+    try {
     while (Date.now() - t0 < timeout) {
       const s = await status();
       const text = [...s.live, ...s.toasts, s.dialog ?? ""].join(" | ");
@@ -247,11 +292,14 @@ export async function open({ url, email, allow = [], slowMo = 250, video = true,
         last = text;
         write({ type: "watch", step: name, text, shot: (await shot(`${name}-watch`)) ?? undefined });
       }
-      if (done(text)) return text;
+      if (await done(text, page)) return text;
       if (/failed|try again|couldn't|can't|refused|cancelled|Nothing was sent/i.test([...s.live, ...s.toasts].join(" ") + " " + (s.dialog?.match(/(Something went wrong[^|]*|You cancelled[^|]*|Refunded[^|]*)/)?.[0] ?? ""))) throw new Error(`${name}: ${text}`);
       await page.waitForTimeout(1000);
     }
     throw new Error(`${name}: timed out after ${timeout / 1000}s (last: ${last || "nothing"})`);
+    } finally {
+      stop();
+    }
   };
 
   // open every "View" link on screen (toasts, activity rows, account pills), screenshot the explorer page, close it

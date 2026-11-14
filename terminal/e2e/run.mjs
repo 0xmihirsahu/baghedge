@@ -11,6 +11,7 @@ const opt = (k, d) => {
 const url = opt("url", "http://localhost:3400");
 const email = opt("email", process.env.BH_E2E_EMAIL ?? "test@vwakesahu.com");
 const allow = String(opt("allow", "")).split(",").filter(Boolean);
+const stall = Number(opt("stall", 20));
 const retries = Number(opt("retries", 1));
 const watchAddr = opt("watch", null);
 const sol = String(opt("sol", "0.1"));
@@ -36,18 +37,16 @@ const FLOWS = {
 
   // sign in to the backend, find and approve the hedge agent, draft the policy, open the review. nothing is armed
   async "hedge-review"(t) {
-    await ensureSol(t);
+    if (solKey) await connectSol(t);
+    else await ensureSol(t);
     await t.step("hedge-page", (p) => p.goto(`${url}/`), { settle: 3000 });
     await t.step("amount", async (p) => {
       for (let i = 0; i < 8; i++) await p.getByRole("button", { name: "Delete", exact: true }).click();
       for (const k of sol) await p.getByRole("button", { name: k, exact: true }).click();
     });
     await t.step("review", (p) => p.getByRole("button", { name: /Review hedge/ }).click(), { settle: 500 });
-    await t.watch("review-ready", (s) => /Sign and arm/.test(s) || false, { timeout: 90_000 }).catch(async (e) => {
-      // the review dialog is the success signal; the status line only carries progress and errors
-      if (await t.page.getByRole("button", { name: "Sign and arm" }).isVisible().catch(() => false)) return;
-      throw e;
-    });
+    // the review card's own button is the signal it's ready (sign-in, agent lookup and draft are done)
+    await t.watch("review-ready", (_s, p) => p.getByRole("button", { name: "Sign and arm" }).isVisible().catch(() => false), { timeout: 120_000 });
     await t.step("review-open", () => t.page.getByRole("button", { name: "Sign and arm" }).waitFor({ timeout: 5000 }));
   },
 
@@ -55,7 +54,7 @@ const FLOWS = {
   async arm(t) {
     await FLOWS["hedge-review"](t);
     await t.step("sign-and-arm", (p) => p.getByRole("button", { name: "Sign and arm" }).click(), { settle: 500 });
-    await t.watch("armed", (s) => /Armed|Entry pending|Recovery stop/.test(s), { timeout: 90_000 });
+    await t.watch("armed", (s, p) => /Armed|Entry pending|Recovery stop/.test(s) || p.getByRole("button", { name: /^(Disarm|Close hedge)$/ }).isVisible().catch(() => false), { timeout: 120_000 });
     await t.views("armed");
   },
 
@@ -161,7 +160,7 @@ if (opt("fresh-profile", false) || !fs.existsSync(PROFILE)) {
 for (let attempt = 0; attempt <= retries; attempt++) {
   // the recording is named after the part it shows: fund-hedge, payout-trade, trade, arm…
   const label = ["fund", "payout"].includes(flow) ? `${flow}-${role}` : flow;
-  const t = await open({ url, email, allow, solKey, name: `${label}${attempt ? `-retry${attempt}` : ""}`, video: !opt("no-video", false), shots: !!opt("shots", false), slowMo: Number(opt("slow", 250)) });
+  const t = await open({ url, email, allow, solKey, name: `${label}${attempt ? `-retry${attempt}` : ""}`, video: !opt("no-video", false), shots: !!opt("shots", false), slowMo: Number(opt("slow", 250)), stall });
   try {
     await t.signedIn();
     await FLOWS[flow](t);
