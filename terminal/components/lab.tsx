@@ -555,6 +555,15 @@ function Ticket(p: {
         {over ? "More than you hold" : label ?? STATUS[p.phase]}
       </button>
       {hedgeMode && !draft && <StatusText text={`Replay · ${STATUS[p.phase]}`} className="mt-2 block text-center text-[13px] text-white/55" />}
+      {/* while drafting: how much of the wallet this hedge would cover, 20 dots for the whole wallet */}
+      {hedgeMode && draft && connected && p.held > 0 && (
+        <div className="mt-6 flex flex-col items-center gap-3">
+          <ExposureDots watched={p.held} hedged={-Math.min(Number(p.cap) || 0, p.held * 2)} per={p.held / 20} size={14} className="w-[203px]" />
+          <p className="text-[13px] text-white/45 tabular-nums">
+            Covers <span className="text-white">{Math.round(((Number(p.cap) || 0) / p.held) * 100)}%</span> of your SOL
+          </p>
+        </div>
+      )}
 
       <div className="mt-auto grid grid-cols-2 gap-x-4 gap-y-3 border-t border-white/[0.08] pt-4">
         {(hedgeMode
