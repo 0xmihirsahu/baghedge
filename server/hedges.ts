@@ -165,6 +165,18 @@ export function createHedgeRoutes(opts: {
     if (market.asset !== policy.assetId) throw new RequestError(409, "asset_changed", "SOL asset ID changed since review");
     const rule = ruleFromPolicy(policy, market.sizeDecimals);
     const now = Date.now();
+    // Specific reasons first, so the UI can say what to change.
+    const markUnits = toUnitsRounded(market.markPx, rule.priceDecimals, "ceil");
+    if (markUnits <= rule.entryMark) {
+      throw new RequestError(409, "entry_already_crossed",
+        `SOL mark ${market.markPx} is already at or below the entry trigger; draft a lower entry and sign again`);
+    }
+    if (BigInt(wallet.lamports) / 10n ** BigInt(9 - market.sizeDecimals) <= 0n) {
+      throw new RequestError(409, "no_eligible_sol", "The watched wallet holds no SOL at order precision");
+    }
+    if (toUnitsRounded(position.szi, market.sizeDecimals, "floor") !== 0n) {
+      throw new RequestError(409, "hedge_account_busy", "The Hedge account already has a SOL position");
+    }
     let state;
     try {
       state = armHedge(rule, {

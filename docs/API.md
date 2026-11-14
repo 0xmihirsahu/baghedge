@@ -65,7 +65,9 @@ The server refuses to arm when:
 - the Trade and Hedge accounts are the same;
 - the policy names a different environment or signer than the server runs;
 - the signed policy was already used (`duplicate_rule`; each signed policy arms one rule, ever);
-- the mark is already at or below the entry trigger, or a feed is stale (`cannot_arm`);
+- the mark is already at or below the entry trigger (`entry_already_crossed`, which includes the current mark: draft a lower entry);
+- the watched wallet holds no SOL (`no_eligible_sol`);
+- a feed is stale (`cannot_arm`);
 - the Hedge account has a position or open orders (`cannot_arm` / `hedge_account_busy`);
 - another rule is already active on that Hedge account (`rule_active`);
 - the Hedge account's perps `withdrawable` is below `requiredMarginUsdc` (`insufficient_margin`). Spot USDC doesn't count.
