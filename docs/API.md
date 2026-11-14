@@ -22,7 +22,7 @@ Base path: `/api`. `401 sign_in_required` means: run the sign-in flow below. Err
 - Approve `hedgeSigner.agentAddress` as an agent on the Hedge account. Don't approve any other address.
 
 ### `GET /api/markets`, `GET /api/accounts?trade=&hedge=`, `GET /api/wallet/sol?address=`
-These are unchanged. See the README.
+These are unchanged except for one **added** field on each account: `spotUsdc: { total, hold } | null` (null when the spot read failed). On a Hyperliquid unified account, USDC sits in spot and backs perps margin, so `withdrawableUsdc` (perps) can read 0 while the account is funded. Show both values, and label which one is usable for the account's mode.
 
 ## Hedge rules
 
