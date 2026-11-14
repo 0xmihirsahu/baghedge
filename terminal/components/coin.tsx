@@ -229,7 +229,8 @@ export function CoinPage({ coin }: { coin: string }) {
                 </p>
               )}
               <button
-                disabled={!!L.busy}
+                // never sign a policy the Hedge account can't carry: fund first
+                disabled={!!L.busy || (!!L.margin && L.margin.have !== null && L.margin.have < L.margin.need)}
                 onClick={() =>
                   L.arm().then((ok) => {
                     if (!ok) return;

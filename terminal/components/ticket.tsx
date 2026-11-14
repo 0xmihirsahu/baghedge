@@ -69,7 +69,8 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
           : "Review hedge"
       : ({ draft: "Review hedge", credited: "Arm", armed: "Simulate a crossing", open: "Close hedge", closed: "New hedge" } as Partial<Record<Phase, string>>)[h.phase];
   const MIN = 10;
-  const belowMin = hedgeMode && !!mark && h.capN > 0 && h.capN * mark < MIN;
+  // the entry order sells down to the floor (entry − 2%), so the $10 minimum must hold there, not at today's price
+  const belowMin = hedgeMode && !!mark && h.capN > 0 && h.capN * Math.min(mark, h.entry * 0.98) < MIN;
   const why = !connected || !draft || signInFirst ? null : L && !ownerSupported && !ruleOn ? "Pilot account only, for now" : h.capN <= 0 ? "Enter an amount" : over ? "More than you hold" : belowMin ? `Below the $${MIN} minimum` : h.recovery <= h.entry ? "Recovery must sit above entry" : null;
   const disabled = connected && (!label || busy || !!why || (signInFirst && !privy.error && (!privy.ready || privy.creating || privy.authenticated)));
   const tradeBelowMin = !hedgeMode && (Number(usdIn) || 0) < MIN;

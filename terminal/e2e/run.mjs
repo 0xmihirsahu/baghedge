@@ -40,7 +40,9 @@ const FLOWS = {
     if (solKey) await connectSol(t);
     else await ensureSol(t);
     await t.step("hedge-page", (p) => p.goto(`${url}/`), { settle: 3000 });
+    // --sol max: as much as the wallet holds (the ticket's Max); otherwise typed on the keypad
     await t.step("amount", async (p) => {
+      if (sol === "max") return p.getByRole("button", { name: "Max", exact: true }).click();
       for (let i = 0; i < 8; i++) await p.getByRole("button", { name: "Delete", exact: true }).click();
       for (const k of sol) await p.getByRole("button", { name: k, exact: true }).click();
     });
