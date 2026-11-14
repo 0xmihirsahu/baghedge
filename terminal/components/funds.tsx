@@ -397,7 +397,7 @@ export function FundsSheet() {
                       {!venue
                         ? `Add your ${role === "trade" ? "Trade" : "Hedge"} account first`
                         : busy === "quote"
-                          ? "Locking the quote"
+                          ? "Confirming the quote"
                           : busy === "sign"
                             ? "Signing"
                             : busy === "send"
