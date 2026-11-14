@@ -1,6 +1,17 @@
 # Baghedge backend
 
-This is the first backend slice for Baghedge. It provides live market, account, and liquid SOL reads, quote and status tracking for Base ↔ Hyperliquid perps USDC, and a replay of the wallet hedge. The replay uses sample fills. The hedge worker and its order submission path still need to be connected.
+The Baghedge backend: live market, account and liquid SOL reads; Base ↔ Hyperliquid perps USDC quotes and status through NEAR Intents 1Click; owner sign-in; and the Wallet Hedge worker, which journals, signs, submits and reconciles hedge orders. The browser API contract is in [docs/API.md](docs/API.md).
+
+**Status (Nov 14):**
+
+| Area | State |
+| --- | --- |
+| Hedge worker, journal, hedge API | Implemented and unit-tested |
+| Venue orders on testnet | Verified with the labeled fallback signer: Trade place/cancel/fill and hedge-agent approval ([evidence](docs/evidence/testnet.jsonl)). The hedge entry, recovery stop and resize are in progress. |
+| OutLayer guard | Order-signing guard and adapter implemented. A public-key probe run is independently attested on NEAR mainnet. The pinned trading build, its agent approval and a guard-signed fill still need live proof. |
+| Mainnet funding, payout, guard-signed hedge | Not yet run |
+
+`bun run demo:replay` uses sample fills, not live data.
 
 ## Run it
 
@@ -32,7 +43,7 @@ For a quote, pass `direction` (`fund` or `withdraw`), `role` (`trade` or `hedge`
 
 Review the returned recipient, refund address, amounts, and `deadline` before signing. Use the returned `transfer` fields to construct the owner-signed Base ERC-20 transfer or HyperCore `sendAsset`. The API provides intent status separately from independent checks of venue credit or recipient settlement. `depositDeadline` is the provider's deposit deadline, while `deadline` is the shorter review deadline for initiating the transfer. Amounts ending in `In` or `Out` are integer strings with the corresponding returned decimal precision.
 
-## OutLayer probe
+## OutLayer guard
 
 ```sh
 rustup target add --toolchain stable wasm32-wasip2
@@ -40,6 +51,6 @@ cargo +stable test --locked --manifest-path guard/Cargo.toml
 cargo +stable build --locked --manifest-path guard/Cargo.toml --target wasm32-wasip2 --release
 ```
 
-The probe declares a build-bound secp256k1 key for a direct OutLayer WASM run. It returns the derived public key or signs a fixed-format challenge. It has no Hyperliquid signing operation. Verify the probe through an OutLayer deployment and independently verify its attestation before adding a trade signer. [OutLayer signing keys](https://app.outlayer.ai/docs/signing-keys) · [Direct WASM execution](https://app.outlayer.ai/docs/near-integration)
+The guard declares a build-bound secp256k1 key for a direct OutLayer WASM run. It returns the derived public key, or signs a Hyperliquid order or cancel that it rebuilds from validated fields under the owner's signed policy (`sign_order`). It never signs raw bytes. The worker calls it through `server/guard.ts` and checks the recovered signer before submitting. The public-key probe build has an independently verified attestation. Only the final pinned build's own attested agent may be approved for live hedging. [OutLayer signing keys](https://app.outlayer.ai/docs/signing-keys) · [Direct WASM execution](https://app.outlayer.ai/docs/near-integration)
 
 [Hyperliquid API](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api) · [NEAR Intents Hyperliquid route](https://docs.near-intents.org/integration/distribution-channels/1click-api/hyperliquid)

@@ -41,9 +41,11 @@ export function createVenue(network: keyof typeof HYPERLIQUID_URL, request = fet
     },
 
     async account(address: string) {
-      const [state, orders] = await Promise.all([
+      const [state, orders, spot] = await Promise.all([
         info({ type: "clearinghouseState", user: address }),
         info({ type: "frontendOpenOrders", user: address }),
+        // Informational; a failed spot read reports spotUsdc: null rather than failing the account read.
+        info({ type: "spotClearinghouseState", user: address }).catch(() => null),
       ]);
       if (!isRecord(state) || !isDecimal(state.withdrawable) ||
         !Array.isArray(state.assetPositions) || !Array.isArray(orders)) {
@@ -61,7 +63,18 @@ export function createVenue(network: keyof typeof HYPERLIQUID_URL, request = fet
           unrealizedPnl: isDecimal(position.unrealizedPnl) ? position.unrealizedPnl : null,
         };
       });
-      return { address, withdrawableUsdc: state.withdrawable, positions, orders, observedAt: Date.now() };
+      // Unified accounts keep USDC in the spot balance and use it as perps collateral, so perps
+      // `withdrawable` alone can read 0 while margin is available. Report both; don't add them blindly.
+      const spotBalances = isRecord(spot) && Array.isArray(spot.balances) ? spot.balances : null;
+      const usdc = spotBalances?.find((b: unknown) => isRecord(b) && b.coin === "USDC");
+      return {
+        address, withdrawableUsdc: state.withdrawable,
+        spotUsdc: spotBalances === null ? null : {
+          total: isRecord(usdc) && isDecimal(usdc.total) ? usdc.total : "0",
+          hold: isRecord(usdc) && isDecimal(usdc.hold) ? usdc.hold : "0",
+        },
+        positions, orders, observedAt: Date.now(),
+      };
     },
   };
 }

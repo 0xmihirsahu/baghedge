@@ -1,0 +1,30 @@
+# Render Blueprint. Secrets are marked sync:false; enter them in the Render dashboard, never in Git.
+services:
+  - type: web
+    name: baghedge-api
+    runtime: docker
+    plan: starter            # a persistent disk needs a paid instance
+    numInstances: 1          # never scale out: one writer per Hedge account
+    healthCheckPath: /api/health
+    disk:
+      name: baghedge-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: APP_MODE
+        value: testnet       # switch to mainnet for the mainnet run
+      - key: APP_ORIGIN
+        sync: false          # the frontend's Vercel URL
+      - key: BAGHEDGE_DB_PATH
+        value: /var/data/baghedge.sqlite
+      - key: SOLANA_RPC_URL
+        sync: false
+      - key: INTENTS_JWT
+        sync: false
+      - key: HEDGE_SIGNER
+        value: guard
+      - key: GUARD_AGENT_ADDRESS
+        sync: false
+      - key: GUARD_BUILD_HASH
+        sync: false
+      # Guard executor variables (NEAR execution account etc.) come from Codex's server/guard.ts.

@@ -6,16 +6,16 @@ The [Baghedge brief](docs/BAGHEDGE_CONTEXT.md) is the source of truth for the pr
 
 - A Hyperliquid trading terminal with a wallet-aware SOL hedge (**Wallet Hedge** mode), built for the NEAR Hackathon.
 - **Two accounts.** The **Trade** account (manual orders) and the **Hedge** account (the hedge short) are two distinct Hyperliquid master accounts.
-- **The planned worker (`server/`) runs the hedge.**
+- **The worker (`server/`) runs the hedge.** Implemented and unit-tested. Testnet venue evidence is in `docs/evidence/testnet.jsonl`.
   - It enters on a mark crossing: a bounded IOC sell with a reduce-only recovery stop attached (`normalTpsl`).
   - It reduces the hedge when the watched SOL drops.
   - It closes on recovery, at expiry, or when the owner asks.
-- **The planned guard** runs on OutLayer as a named Hyperliquid agent with an expiry. Today's `guard/` crate is a `wasm32-wasip2` signing probe, without venue signing or policy enforcement.
+- **The guard** runs on OutLayer as a named Hyperliquid agent with an expiry. `guard/` implements policy-checked `sign_order` for `wasm32-wasip2`, and `server/guard.ts` is the worker adapter. Only a public-key probe run is attested so far. Approve only the final pinned build's attested agent.
 - **Funding** uses NEAR Intents 1Click for Base USDC ↔ HyperCore perps USDC. The API returns quotes, unsigned transfer details, and route status.
 
 ## Layout and commands
 
-- One Bun package. `server/` serves the local API, `shared/` holds browser-safe logic, `guard/` holds the Rust probe, and `scripts/` holds replay and quote checks.
+- One Bun package. `server/` serves the local API, `shared/` holds browser-safe logic, `guard/` holds the Rust guard, and `scripts/` holds replay and quote checks.
 - Run `bun install --frozen-lockfile`, then use `bun run dev:server`, `bun run check`, `bun run demo:replay`, or `bun run verify:quotes`. See the README for the local guard build.
 - The frontend teammate owns the terminal UI. Keep backend changes independent of the Vite app unless the team asks for integration work.
 
