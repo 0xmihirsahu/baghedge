@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowLeft, Backspace, ChartLineUp, ClockCounterClockwise, ShieldCheck, Wallet, X } from "@phosphor-icons/react";
+import Avatar from "boring-avatars";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BagLoader, ExposureDots, LogoReveal, NumberRoll, RuleLines, StatusText, TransferTrack } from "@/components/motion";
 import { useHyperliquid, type Candle, type Interval } from "./app/hl";
@@ -27,7 +28,10 @@ const CORAL = "#f0645a";
 const UP = "#3ecf8e";
 const DOWN = "#f2554b";
 const TAKER = 0.00045;
-const usd = (n: number, d?: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: d ?? (n < 1 ? 4 : 2), maximumFractionDigits: d ?? (n < 1 ? 4 : 2) })}`;
+const usd = (n: number, d?: number) => {
+  const f = d ?? (n !== 0 && Math.abs(n) < 1 ? 4 : 2);
+  return `$${n.toLocaleString("en-US", { minimumFractionDigits: f, maximumFractionDigits: f })}`;
+};
 const pct = (n: number) => `${n >= 0 ? "+" : "−"}${Math.abs(n * 100).toFixed(2)}%`;
 
 // section 23 of the brief: efficient margin is gap + maintenance × (1 + gap) of notional, plus a buffer, here 5%.
@@ -164,7 +168,6 @@ export function Lab() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/mascot.webp" alt="" className="size-6" />
             <span className="text-[18px] font-semibold tracking-[-0.03em]">baghedge</span>
-            <span className={`ml-auto text-[12px] ${hl.live ? "text-white/50" : "text-[#f2554b]"}`}>{hl.live ? "Live" : "Offline"}</span>
           </div>
           <nav className="mt-6 flex flex-col gap-1 text-[15px] font-medium">
             {[
@@ -242,32 +245,31 @@ export function Lab() {
           )}
         </div>
 
-        <div className="flex gap-1 px-5 py-2.5 sm:px-7">
-          {Object.keys(RANGES).map((r) => (
-            <button key={r} onClick={() => setRange(r)} className={`rounded-[10px] px-3.5 py-2 text-[13px] font-medium ${r === range ? "bg-[#1c1b1a] text-white" : "text-white/45 hover:text-white"}`}>
-              {r}
-            </button>
-          ))}
-        </div>
-
         <div className="flex h-[210px] shrink-0 flex-col border-t border-white/[0.08] lg:h-[240px]">
-          <div className="flex gap-7 border-b border-white/[0.08] px-5 sm:px-7">
+          <div className="flex items-center gap-6 border-b border-white/[0.08] px-5 sm:px-7">
             {(["Trades", "Position", "Activity"] as const).map((t) => (
               <button key={t} onClick={() => setTab(t)} className={`relative py-3.5 text-[15px] font-medium ${t === tab ? "text-white" : "text-white/45"}`}>
                 {t}
                 {t === tab && <span className="absolute inset-x-0 -bottom-px h-[2px] rounded-full bg-[#f0645a]" />}
               </button>
             ))}
+            <div className="ml-auto flex items-center gap-0.5">
+              {Object.keys(RANGES).map((r) => (
+                <button key={r} onClick={() => setRange(r)} className={`rounded-[9px] px-2.5 py-1.5 text-[13px] font-medium ${r === range ? "bg-[#1c1b1a] text-white" : "text-white/45 hover:text-white"}`}>
+                  {r}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 sm:px-7">
             {tab === "Trades" &&
               (hl.trades.length ? (
                 hl.trades.map((t) => (
-                  <div key={t.tid} className="grid grid-cols-[1fr_1fr_1fr_1fr] py-2 text-[14px] tabular-nums">
-                    <span className="text-white/45">{new Date(t.time).toLocaleTimeString("en-GB")}</span>
-                    <span className="font-medium" style={{ color: t.side === "B" ? UP : DOWN }}>{t.side === "B" ? "Buy" : "Sell"}</span>
-                    <span className="text-right">{usd(t.px)}</span>
-                    <span className="text-right text-white/70">{t.sz.toLocaleString("en-US", { maximumFractionDigits: 2 })} SOL</span>
+                  <div key={t.tid} className="flex items-center gap-4 py-[7px] text-[14px] tabular-nums">
+                    <span className="w-9 font-medium" style={{ color: t.side === "B" ? UP : DOWN }}>{t.side === "B" ? "Buy" : "Sell"}</span>
+                    <span className="text-white/80">{t.sz.toLocaleString("en-US", { maximumFractionDigits: 2 })} SOL</span>
+                    <span className="ml-auto">{usd(t.px)}</span>
+                    <span className="w-[72px] text-right text-white/40">{new Date(t.time).toLocaleTimeString("en-GB")}</span>
                   </div>
                 ))
               ) : (
@@ -375,15 +377,17 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-// connect phantom or paste an address. we read the public balance, nothing else
+// a generated avatar per address (boring-avatars, MIT), drawn locally in the brand colours
+const AVATAR = [CORAL, "#0b0908", "#2e2c2a", "#ffffff"];
+
+// connect a solana wallet or watch an address. we read the public balance, nothing else
 function WalletBox({ wallet }: { wallet: ReturnType<typeof useWatchedWallet> }) {
   const [addr, setAddr] = useState("");
   return (
     <div className="flex flex-col gap-2 px-4 py-4">
       {wallet.address ? (
         <div className="flex items-center gap-3 px-1">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/phantom.svg" alt="" className="size-9 rounded-[10px] bg-[#ab9ff2] p-1.5" />
+          <Avatar name={wallet.address} variant="marble" size={36} colors={AVATAR} />
           <div className="min-w-0 whitespace-nowrap text-[14px] leading-tight">
             <p className="font-semibold tabular-nums">{wallet.sol === null ? "…" : <NumberRoll value={wallet.sol} format={(n) => `${n.toFixed(2)} SOL`} />}</p>
             <p className="text-white/45">{short(wallet.address)}</p>
@@ -392,9 +396,9 @@ function WalletBox({ wallet }: { wallet: ReturnType<typeof useWatchedWallet> }) 
         </div>
       ) : (
         <>
-          <button onClick={wallet.connect} className="h-11 rounded-[12px] bg-[#f0645a] text-[15px] font-semibold">Connect Phantom</button>
+          <button onClick={wallet.connect} className="h-11 rounded-[12px] bg-[#f0645a] text-[15px] font-semibold">Connect wallet</button>
           <form onSubmit={(e) => { e.preventDefault(); wallet.watch(addr); }}>
-            <input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder="Or paste a Solana address" className="h-10 w-full rounded-[11px] bg-[#1c1b1a] px-3 text-[13px] outline-none placeholder:text-white/35" />
+            <input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder="Or watch an address" className="h-10 w-full rounded-[11px] bg-[#1c1b1a] px-3 text-[13px] outline-none placeholder:text-white/35" />
           </form>
           {wallet.error && <p className="text-[12px]" style={{ color: DOWN }}>{wallet.error}</p>}
         </>
@@ -442,7 +446,7 @@ function Ticket(p: {
   const over = hedgeMode && (Number(p.cap) || 0) > p.held + 1e-9;
   const label = hedgeMode
     ? !connected
-      ? "Connect Phantom"
+      ? "Connect wallet"
       : ({ draft: "Review hedge", credited: "Arm", armed: "Simulate a crossing", open: "Close hedge", closed: "New hedge" } as Partial<Record<Phase, string>>)[p.phase]
     : `${side} SOL`;
   const disabled = hedgeMode && connected && (!label || busy || over || p.recovery <= p.entry || p.capN <= 0);
@@ -485,7 +489,7 @@ function Ticket(p: {
         <img src="/tokens/SOL.png" alt="" className="size-10 rounded-full" />
         <div className="leading-tight">
           <p className="text-[16px] font-semibold">SOL</p>
-          <p className="text-[13px] text-white/45">{hedgeMode ? (connected ? `${p.held.toFixed(2)} in wallet` : "No wallet") : "Trade account"}</p>
+          <p className="text-[13px] text-white/45">{hedgeMode ? (connected ? `${p.held.toFixed(2)} in wallet` : "Not connected") : "Trade account"}</p>
         </div>
         <div className="ml-auto text-right leading-tight tabular-nums">
           <p className="text-[15px] font-semibold">{p.mark ? usd(p.mark) : "…"}</p>
@@ -496,7 +500,7 @@ function Ticket(p: {
       {!hedgeMode && (
         <div className="mt-4 grid grid-cols-2 gap-1 rounded-[12px] bg-[#1c1b1a] p-1">
           {(["Long", "Short"] as const).map((s) => (
-            <button key={s} onClick={() => setSide(s)} className={`h-9 rounded-[9px] text-[14px] font-semibold ${side === s ? "text-[#0b0908]" : "text-white/45"}`} style={{ background: side === s ? (s === "Short" ? DOWN : UP) : undefined, transition: "background-color 200ms ease" }}>
+            <button key={s} onClick={() => setSide(s)} className={`h-9 rounded-[9px] text-[14px] font-semibold ${side === s ? "bg-[#2e2c2a]" : "text-white/45"}`} style={{ color: side === s ? (s === "Short" ? DOWN : UP) : undefined }}>
               {s}
             </button>
           ))}
@@ -530,9 +534,9 @@ function Ticket(p: {
               </button>
             ))}
           </div>
-          <div className="mt-2 grid grid-cols-3">
+          <div className="mt-2 grid min-h-[200px] flex-1 auto-rows-fr grid-cols-3">
             {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "back"].map((k) => (
-              <button key={k} onClick={() => key(k)} className="flex h-12 items-center justify-center rounded-[12px] text-[20px] font-medium hover:bg-[#1c1b1a]" aria-label={k === "back" ? "Delete" : k}>
+              <button key={k} onClick={() => key(k)} className="flex items-center justify-center rounded-[12px] text-[22px] font-medium hover:bg-[#1c1b1a]" aria-label={k === "back" ? "Delete" : k}>
                 {k === "back" ? <Backspace size={22} /> : k}
               </button>
             ))}
@@ -540,7 +544,7 @@ function Ticket(p: {
         </>
       )}
 
-      <p className="mt-3 text-right text-[13px] text-white/45 tabular-nums">
+      <p className="mt-3 text-center text-[13px] text-white/45 tabular-nums">
         {hedgeMode ? (
           <>
             <span style={{ color: CORAL }}>Entry {usd(p.entry)}</span> · Recovery {usd(p.recovery)}
@@ -550,7 +554,12 @@ function Ticket(p: {
         )}
       </p>
 
-      <button disabled={disabled} onClick={press} className="mt-3 flex h-[52px] shrink-0 items-center justify-center gap-2 rounded-[14px] bg-[#f0645a] text-[16px] font-semibold disabled:bg-[#1c1b1a] disabled:text-white/60">
+      <button
+        disabled={disabled}
+        onClick={press}
+        className={`mt-3 flex h-[52px] shrink-0 items-center justify-center gap-2 rounded-[14px] text-[16px] font-semibold disabled:bg-[#1c1b1a] disabled:text-white/60 ${hedgeMode ? "bg-[#f0645a]" : "text-[#0b0908]"}`}
+        style={hedgeMode ? undefined : { background: side === "Short" ? DOWN : UP }}
+      >
         {busy && <BagLoader size={18} color="#f0645a" glyph="#ffffff" label={STATUS[p.phase]} />}
         {over ? "More than you hold" : label ?? STATUS[p.phase]}
       </button>
@@ -565,12 +574,13 @@ function Ticket(p: {
         </div>
       )}
 
-      <div className="mt-auto grid grid-cols-2 gap-x-4 gap-y-3 border-t border-white/[0.08] pt-4">
+      {(!hedgeMode || p.capN > 0) && (
+      <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-white/[0.08] pt-4">
         {(hedgeMode
           ? [
-              ["Margin, est.", p.capN ? usd(r.margin) : "—"],
-              ["Liquidation, est.", p.capN ? usd(r.liq) : "—"],
-              ["Fees, est.", p.capN ? usd(r.fees) : "—"],
+              ["Margin, est.", usd(r.margin)],
+              ["Liquidation, est.", usd(r.liq)],
+              ["Fees, est.", usd(r.fees)],
               ["Max leverage", `${p.maxLev}x`],
             ]
           : [
@@ -586,6 +596,7 @@ function Ticket(p: {
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }

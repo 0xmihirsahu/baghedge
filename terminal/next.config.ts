@@ -5,6 +5,7 @@ const backend = process.env.BACKEND_URL;
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
+  devIndicators: false,
   partialPrefetching: true,
   turbopack: {
     rules: {
