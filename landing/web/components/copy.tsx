@@ -17,7 +17,8 @@ export function Copy({
   hero?: boolean;
   children?: ReactNode;
 }) {
-  const words = title.split(" ");
+  // a "\n" in the title is a hard line break
+  const words = title.replace(/\n/g, " \n ").split(" ").filter(Boolean);
   const on = state === "in";
   return (
     <div
@@ -29,11 +30,14 @@ export function Copy({
       <h2
         className={
           hero
-            ? "max-w-[15.5ch] text-[28px] leading-[1.15] tracking-[-0.02em] text-white sm:text-[36px]"
+            ? "max-w-[18ch] text-[28px] leading-[1.15] tracking-[-0.02em] text-white sm:text-[36px]"
             : "text-[28px] leading-[1.14] tracking-[-0.02em] text-white sm:text-[40px]"
         }
       >
-        {words.map((w, i) => (
+        {words.map((w, i) =>
+          w === "\n" ? (
+            <br key={i} />
+          ) : (
           <span key={i}>
             <span className="-mb-[0.12em] inline-block overflow-hidden pb-[0.12em] align-top">
               <motion.span
@@ -45,9 +49,10 @@ export function Copy({
                 {w}
               </motion.span>
             </span>
-            {i < words.length - 1 && " "}
+            {i < words.length - 1 && words[i + 1] !== "\n" && " "}
           </span>
-        ))}
+          ),
+        )}
       </h2>
       {children && (
         <motion.div
