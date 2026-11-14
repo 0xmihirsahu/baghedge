@@ -10,7 +10,7 @@ Built at the NEAR Hackathon (track: Unstoppable DeFi).
 - **Backend API (Render):** mainnet https://baghedge-api-mainnet.onrender.com/api/health (attested guard) · testnet sandbox https://baghedge-api.onrender.com/api/health (source: [`server/`](server/))
 - **Guard (Rust, OutLayer):** [`guard/`](guard/)
 
-> **For judges:** start with [`JUDGES.md`](JUDGES.md). It maps the five criteria to evidence, lists the commands to check the repo, and links a [64 s film](docs/media/baghedge-mainnet-run.mp4) of a full mainnet run done in the app: Privy sign-in, fund from SOL through NEAR Intents, arm and disarm a hedge with a per-owner guard agent, a real trade, and payouts back to SOL, every step with its transactions.
+> **For judges:** start with [`JUDGES.md`](JUDGES.md). It maps the five criteria to evidence, lists the commands to check the repo, and links a [1:42 demo film](docs/media/baghedge-mainnet-run.mp4) of a full mainnet run done in the app: Privy sign-in, fund from SOL through NEAR Intents, arm and disarm a hedge with a per-owner guard agent, a real trade, and payouts back to SOL, every step with its transactions.
 
 ## Try it
 

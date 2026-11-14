@@ -6,7 +6,7 @@
 - Site: https://baghedge.xyz
 - Source: https://github.com/0xmihirsahu/baghedge
 - For judges: https://github.com/0xmihirsahu/baghedge/blob/main/JUDGES.md
-- Film of a full mainnet run (64 s): https://github.com/0xmihirsahu/baghedge/blob/main/docs/media/baghedge-mainnet-run.mp4
+- Demo film of a full mainnet run (1:42): https://github.com/0xmihirsahu/baghedge/blob/main/docs/media/baghedge-mainnet-run.mp4
 - Backend health: https://baghedge-api-mainnet.onrender.com/api/health
 
 ## What it does

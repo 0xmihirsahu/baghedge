@@ -8,7 +8,7 @@ Built at the NEAR Hackathon, track **Unstoppable DeFi** (`defi`).
 |---|---|
 | **Live app (mainnet)** | https://app.baghedge.xyz |
 | **Site** | https://baghedge.xyz |
-| **Film of a full mainnet run (64 s)** | [`docs/media/baghedge-mainnet-run.mp4`](docs/media/baghedge-mainnet-run.mp4) |
+| **Demo film of a full mainnet run (1:42)** | [`docs/media/baghedge-mainnet-run.mp4`](docs/media/baghedge-mainnet-run.mp4) |
 | **Backend health** | https://baghedge-api-mainnet.onrender.com/api/health |
 | **API and integration** | [`docs/API.md`](docs/API.md) · [`docs/INTEGRATION.md`](docs/INTEGRATION.md) |
 | **Evidence, raw** | [`docs/evidence/mainnet.jsonl`](docs/evidence/mainnet.jsonl) |
