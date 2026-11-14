@@ -10,7 +10,8 @@ import { EvmProviders } from "./evm";
 import { WalletModal } from "../wallet-modal";
 import { risk, usd } from "./format";
 import { setNetwork, useMarkets, type Network } from "./hl";
-import { useLiveHedge } from "./live";
+import { externalSigner, useLiveHedge } from "./live";
+import { PrivyWallets, usePrivyBridge } from "./privy";
 import { isSolAddress, short, useSolBalance } from "./wallet";
 
 // everything the pages share: live markets, the wallet, toasts, activity, the hyperliquid accounts and the hedge.
@@ -219,13 +220,28 @@ function useTerminal(backend: Backend) {
 
   const setEntryKept = useCallback((v: number) => setEntry(Math.min(v, Math.round(recovery * 0.998 * 100) / 100)), [recovery]);
   const setRecoveryKept = useCallback((v: number) => setRecovery(Math.max(v, Math.round(entry * 1.002 * 100) / 100)), [entry]);
-  // the real hedge, when the backend is up, both accounts are set and the Hedge owner's wallet is connected.
+  // Privy: after sign-in, the embedded index-0 and index-1 wallets are the Trade and Hedge accounts
+  const privy = usePrivyBridge();
+  useEffect(() => {
+    if (!privy?.trade || !privy.hedge) return;
+    if (accounts.trade.toLowerCase() === privy.trade.toLowerCase() && accounts.hedge.toLowerCase() === privy.hedge.toLowerCase()) return;
+    const t = setTimeout(() => setAccounts({ trade: privy.trade!, hedge: privy.hedge! }), 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [privy?.trade, privy?.hedge]);
+
+  // who can sign for the Hedge account: its Privy embedded wallet, or an external wallet connected as it
+  const same = (a?: string | null, b?: string | null) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+  const signer = privy?.authenticated && same(privy.hedge, accounts.hedge) ? privy.signer : same(evm.address, accounts.hedge) ? externalSigner : null;
+
+  // the real hedge, when the backend is up, both accounts are set and someone can sign for the Hedge account.
   // otherwise the hedge runs as the labelled replay above
-  const liveEnabled = backend.reachable && backend.apiMode === backend.mode && !!accounts.trade && !!accounts.hedge && !!evm.address && evm.address.toLowerCase() === accounts.hedge.toLowerCase();
-  const liveHedge = useLiveHedge({ enabled: liveEnabled, trade: accounts.trade, hedge: accounts.hedge, solana: address, agent: backend.agentAddress });
+  const liveCapable = backend.reachable && backend.apiMode === backend.mode;
+  const liveEnabled = liveCapable && !!accounts.trade && !!accounts.hedge && !!signer;
+  const liveHedge = useLiveHedge({ enabled: liveEnabled, trade: accounts.trade, hedge: accounts.hedge, solana: address, agent: backend.agentAddress, signer });
 
   const hedgeState = { phase, setPhase: go, hedge, cap, setCap, capN, entry, setEntry: setEntryKept, recovery, setRecovery: setRecoveryKept, held };
-  return { backend, evm, liveEnabled, liveHedge, markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };
+  return { backend, evm, privy, liveCapable, liveEnabled, liveHedge, markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };
 }
 
 const Ctx = createContext<ReturnType<typeof useTerminal> | null>(null);
@@ -293,7 +309,7 @@ export function Providers({ children }: { children: ReactNode }) {
     <EvmProviders>
     <ConnectionProvider endpoint="https://solana-rpc.publicnode.com">
       <WalletProvider wallets={wallets} autoConnect onError={(e) => onWalletError?.(e)}>
-        {backend ? <Store backend={backend}>{children}</Store> : <div className="h-svh bg-[#0b0908]" />}
+        <PrivyWallets>{backend ? <Store backend={backend}>{children}</Store> : <div className="h-svh bg-[#0b0908]" />}</PrivyWallets>
       </WalletProvider>
     </ConnectionProvider>
     </EvmProviders>
