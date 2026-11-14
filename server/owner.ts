@@ -71,7 +71,8 @@ export function createOwnerActions(network: Network, request = fetch) {
      * Relays an owner-signed action after checking who signed it. `expectedSigner` binds the relay to the account
      * the action is for (the Hedge/Trade owner); `allowDestination` pins sendAsset to a deposit address we quoted.
      */
-    async submit(body: unknown, opts: { expectedSigner: string; allowDestination?: (destination: string) => boolean }) {
+    async submit(body: unknown, opts: { expectedSigner: string; allowDestination?: (destination: string) => boolean;
+      expectedTransfer?: Record<string, unknown> | null; deadline?: string }) {
       if (!isRecord(body) || !isRecord(body.action) || typeof body.signature !== "string") {
         throw new RequestError(400, "invalid_request", "Provide action and signature");
       }
@@ -83,6 +84,20 @@ export function createOwnerActions(network: Network, request = fetch) {
       }
       if (type === "sendAsset" && !opts.allowDestination?.(String(action.destination).toLowerCase())) {
         throw new RequestError(403, "destination_not_quoted", "sendAsset destination must be the quoted deposit address");
+      }
+      if (type === "sendAsset") {
+        // Bind the relay to the reviewed quote: every signed transfer field must equal it, before its deadline.
+        const t = opts.expectedTransfer;
+        if (!t) throw new RequestError(403, "quote_required", "sendAsset is only relayed for a stored payout quote");
+        const same = (a: unknown, b: unknown) => String(a ?? "") === String(b ?? "");
+        if (String(action.destination).toLowerCase() !== String(t.destination).toLowerCase() || !same(action.token, t.token) ||
+          !same(action.amount, t.amount) || !same(action.sourceDex, t.sourceDex) || !same(action.destinationDex, t.destinationDex) ||
+          !same(action.fromSubAccount, t.fromSubAccount)) {
+          throw new RequestError(403, "transfer_mismatch", "Signed sendAsset doesn't match the reviewed quote");
+        }
+        if (opts.deadline && !(Date.parse(opts.deadline) > Date.now())) {
+          throw new RequestError(409, "quote_expired", "The payout quote's review deadline passed; get a new quote");
+        }
       }
       const typed = userTypedData(action) as unknown as Parameters<typeof recoverTypedDataAddress>[0];
       const signer = await recoverTypedDataAddress({ ...typed, signature: body.signature as Hex }).catch(() => null);

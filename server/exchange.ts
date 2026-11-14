@@ -189,13 +189,15 @@ export function createExchange(network: Network, request = fetch) {
       const [mode, state, spot] = await Promise.all([
         info({ type: "userAbstraction", user }).catch(() => null),
         info({ type: "clearinghouseState", user }),
-        info({ type: "spotClearinghouseState", user }),
+        info({ type: "spotClearinghouseState", user }).catch(() => null),
       ]);
       const perps = isRecord(state) && isDecimal(state.withdrawable) ? state.withdrawable : "0";
       const pairs = isRecord(spot) && Array.isArray(spot.tokenToAvailableAfterMaintenance) ? spot.tokenToAvailableAfterMaintenance : [];
       const usdc = pairs.find((p: unknown) => Array.isArray(p) && p[0] === 0); // token 0 = USDC
       const spotAvailable = Array.isArray(usdc) && isDecimal(usdc[1]) ? usdc[1] : "0";
       const unified = mode === "unifiedAccount" || (mode === null && pairs.length > 0);
+      // Standard accounts don't need the spot read; a unified account can't be sized without it.
+      if (unified && spot === null) throw new RequestError(503, "margin_unavailable", "Couldn't read unified-account margin; try again");
       return { mode: unified ? "unified" as const : "standard" as const, usableUsdc: unified ? spotAvailable : perps,
         perpsWithdrawable: perps, spotAvailable, observedAt: Date.now() };
     },

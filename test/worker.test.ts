@@ -362,6 +362,24 @@ describe("worker", () => {
     expect(v.submissions).toBe(1);
   });
 
+  test("a lost response followed by a documented terminal status (oracleRejected) resolves instead of hanging", async () => {
+    const { v, db, tick, exchange } = setup();
+    await tick();
+    const submit = exchange.submit;
+    exchange.submit = (async (...args: Parameters<typeof submit>) => {
+      const ret = await submit(...args);
+      const entry = [...v.orders.values()].find(o => !o.trigger)!;
+      v.shortLots = 0; entry.filledLots = 0; entry.status = "oracleRejected";
+      return { ...ret, transport: "unknown", message: "network disconnect" } as SubmitResult;
+    }) as typeof submit;
+    v.mark = "69.9"; v.bid = "69.8"; v.ask = "70";
+    await tick(); await tick();
+    const entries = db.actionsForRule("r1").filter(a => a.intent === "entry");
+    expect(entries[0]!.outcome).toBe("zero");          // resolved, not stuck "awaiting reconciliation"
+    expect(entries.length).toBeGreaterThan(1);          // and the rule moved on: a fresh attempt inside the window
+    expect(db.unresolvedActions("r1").length).toBeLessThanOrEqual(1);
+  });
+
   test("a gap below the entry floor sends nothing", async () => {
     const { v, db, tick } = setup();
     await tick();

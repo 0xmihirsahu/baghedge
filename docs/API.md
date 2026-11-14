@@ -24,7 +24,7 @@ Base path: `/api`. `401 sign_in_required` means: run the sign-in flow below. Err
 ### `GET /api/markets`, `GET /api/accounts?trade=&hedge=`, `GET /api/wallet/sol?address=`
 Each account in `/api/accounts` also includes:
 - `spotUsdc: { total, hold } | null` (null when the spot read failed);
-- **`accountMode: "standard" | "unified"`**;
+- **`accountMode: "standard" | "unified" | "unknown"`**: `unknown` (with `usableUsdc`/`maxPayoutUsdc` null) means the margin read failed. The rest of the account still loads; show "margin unavailable".
 - **`usableUsdc`**: the margin to show. On standard accounts that's perps `withdrawable`; on unified accounts, Hyperliquid keeps USDC in spot and backs perps with it, so it's the spot USDC available after maintenance.
 - **`maxPayoutUsdc`**: `usableUsdc` − 1.2, leaving room for the 1 USDC `sendAsset` fee. Use it as the payout maximum. On a Hyperliquid unified account, USDC sits in spot and backs perps margin, so `withdrawableUsdc` (perps) can read 0 while the account is funded. Show both values, and label which one is usable for the account's mode.
 
@@ -74,7 +74,8 @@ The server refuses to arm when:
 - a feed is stale (`cannot_arm`);
 - the Hedge account has a position or open orders (`cannot_arm` / `hedge_account_busy`);
 - another rule is already active on that Hedge account (`rule_active`);
-- the Hedge account's usable margin is below `requiredMarginUsdc` (`insufficient_margin`). Usable margin is perps `withdrawable` on standard accounts and spot USDC available on unified accounts.
+- the Hedge account's usable margin is below the required margin (`insufficient_margin`). The server recomputes the minimum from current venue data and uses the larger of that and the signed `minMarginE6`;
+- unified-account margin couldn't be read (`margin_unavailable`, HTTP 503: retry). Usable margin is perps `withdrawable` on standard accounts and spot USDC available on unified accounts.
 
 ### `GET /api/hedges?hedge=<Hedge address>` (**changed: `hedge` is now required**)
 Response: `{ env, signer, rules: RuleView[] }`. This returns active rules only.
@@ -91,6 +92,7 @@ message: { ruleId, command: "disarm" | "close", issuedAt: BigInt(Date.now()) }
 Request: `{ signature, issuedAt, chainId }`. The signature must be less than 5 minutes old.
 - **Flat rule:** it ends immediately.
 - **Open short:** the rule moves to `closing`, and the worker buys back with reduce-only orders inside the signed ceiling.
+- Disarm and close wait for any worker step already in flight for that account. **Show "disarmed" or "closing" only from the response's `status`/`phase`**, not optimistically.
 
 ### Rule view
 ```jsonc
@@ -147,7 +149,7 @@ The server builds the canonical action plus its EIP-712 `typedData`. The owner's
 - `POST /api/hl/approve-agent` with `{ agentAddress, chainId, purpose: "hedge" | "trade", validDays? }` returns `{ action, typedData }`.
 - `POST /api/hl/approve-agent/submit` with `{ owner, action, signature }` returns `{ ok, signer, venue }`. It's refused unless `owner` signed it.
 - `POST /api/transfers/:id/send-asset` with `{ chainId }` returns `{ action, typedData }` for a `withdraw` quote. The action is exactly the quoted transfer.
-- `POST /api/transfers/:id/send-asset/submit` with `{ action, signature }`. It must be signed by the quote's `venueAddress`, and it's only relayed to the quote's deposit address.
+- `POST /api/transfers/:id/send-asset/submit` with `{ action, signature }`. It must be signed by the quote's `venueAddress`, and **every signed field must equal the stored quote** (destination, token, amount, DEXes, sub-account) before the quote's `deadline`. Errors: `transfer_mismatch`, `quote_expired` (get a new quote).
 
 For a `fund` quote, `transfer` now also includes `data`: the ERC-20 `transfer(depositAddress, amountIn)` calldata. Send `{ to: transfer.contract, data: transfer.data, value: 0 }` on chain 8453.
 

@@ -36,12 +36,19 @@ test("the relay refuses a wrong signer, an unquoted destination, the wrong netwo
   const signature = await sign(typedData);
   const allow = (d: string) => d === transfer.destination;
 
-  expect(actions.submit({ action, signature }, { expectedSigner: "0x1111111111111111111111111111111111111111", allowDestination: allow })).rejects.toThrow("account owner");
-  expect(actions.submit({ action, signature }, { expectedSigner: owner.address, allowDestination: () => false })).rejects.toThrow("quoted deposit");
+  const bound = { allowDestination: allow, expectedTransfer: transfer, deadline: new Date(Date.now() + 60_000).toISOString() };
+  expect(actions.submit({ action, signature }, { expectedSigner: "0x1111111111111111111111111111111111111111", ...bound })).rejects.toThrow("account owner");
+  expect(actions.submit({ action, signature }, { expectedSigner: owner.address, ...bound, allowDestination: () => false })).rejects.toThrow("quoted deposit");
   expect(actions.submit({ action: { ...action, type: "withdraw3" }, signature }, { expectedSigner: owner.address })).rejects.toThrow("Only approveAgent");
-  expect(createOwnerActions("testnet", fakeFetch).submit({ action, signature }, { expectedSigner: owner.address, allowDestination: allow })).rejects.toThrow("runs testnet");
+  expect(createOwnerActions("testnet", fakeFetch).submit({ action, signature }, { expectedSigner: owner.address, ...bound })).rejects.toThrow("runs testnet");
+  expect(actions.submit({ action, signature }, { expectedSigner: owner.address, allowDestination: allow })).rejects.toThrow("stored payout quote");
+  // A correctly signed action for a different amount than the reviewed quote is refused (Codex: 250 vs 25).
+  const bigger = actions.sendAsset({ ...transfer, amount: "10" }, 8453);
+  const biggerSig = await sign(bigger.typedData);
+  expect(actions.submit({ action: bigger.action, signature: biggerSig }, { expectedSigner: owner.address, ...bound })).rejects.toThrow("doesn't match the reviewed quote");
+  expect(actions.submit({ action, signature }, { expectedSigner: owner.address, ...bound, deadline: new Date(Date.now() - 1000).toISOString() })).rejects.toThrow("deadline passed");
 
-  const ok = await actions.submit({ action, signature }, { expectedSigner: owner.address, allowDestination: allow });
+  const ok = await actions.submit({ action, signature }, { expectedSigner: owner.address, ...bound });
   expect(ok.signer).toBe(owner.address.toLowerCase());
   expect(calls).toHaveLength(1);
   expect((calls[0] as { signature: { v: number } }).signature.v).toBeOneOf([27, 28]);

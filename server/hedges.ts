@@ -32,7 +32,8 @@ export function requiredMarginE6(capLots: bigint, sizeDecimals: number, floorE8:
   // sizes in lots (10^-sizeDecimals SOL), prices in USD × 1e8 → USDC × 1e6 = lots × priceE8 / (10^sizeDecimals × 100)
   const toE6 = (lotsTimesE8: bigint) => lotsTimesE8 / (10n ** BigInt(sizeDecimals) * 100n);
   const loss = toE6(capLots * (ceilingE8 - floorE8));
-  const maintenance = toE6(capLots * ceilingE8) / BigInt(2 * Math.max(1, maxLeverage));
+  const leverage = Number.isInteger(maxLeverage) && maxLeverage > 0 ? maxLeverage : 1; // unknown → most conservative
+  const maintenance = toE6(capLots * ceilingE8) / BigInt(2 * leverage);
   const fees = toE6(capLots * ceilingE8) * 9n / 10_000n;                 // 0.045% taker, both ways
   const buffer = toE6(capLots * floorE8) * 5n / 100n;
   return loss + maintenance + fees + buffer;
@@ -196,9 +197,13 @@ export function createHedgeRoutes(opts: {
     // Standard accounts: perps withdrawable. Unified accounts: spot USDC available after maintenance.
     const margin = await exchange.usableUsdc(policy.hedgeAccount);
     const usableE6 = toUnitsRounded(margin.usableUsdc, 6, "floor");
-    if (usableE6 < BigInt(policy.minMarginE6)) {
+    // The owner's signature is consent, not proof the minimum was computed: recompute it from current venue data.
+    const recomputed = requiredMarginE6(BigInt(policy.capLots), market.sizeDecimals, BigInt(policy.entryFloorE8),
+      BigInt(policy.buybackCeilingE8), market.maxLeverage);
+    const requiredE6 = recomputed > BigInt(policy.minMarginE6) ? recomputed : BigInt(policy.minMarginE6);
+    if (usableE6 < requiredE6) {
       throw new RequestError(409, "insufficient_margin",
-        `Hedge account (${margin.mode}) has ${fromUnits(usableE6, 6)} USDC usable margin; this rule needs ${fromUnits(BigInt(policy.minMarginE6), 6)}`);
+        `Hedge account (${margin.mode}) has ${fromUnits(usableE6, 6)} USDC usable margin; this rule needs ${fromUnits(requiredE6, 6)}`);
     }
     try {
       db.insertRule({ id: policy.ruleId, env, hedgeAddress: policy.hedgeAccount.toLowerCase(),
