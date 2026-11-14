@@ -1,5 +1,6 @@
 // Localhost-only owner console for verification runs. Runs in the browser; signs with the injected wallet.
 import { ExchangeClient, HttpTransport, InfoClient } from "@nktkas/hyperliquid";
+import { EthereumProvider } from "@walletconnect/ethereum-provider";
 import { createWalletClient, custom, erc20Abi, type Hex } from "viem";
 import { base } from "viem/chains";
 import { policyTypedData, type HedgePolicy } from "../../shared/policy";
@@ -20,19 +21,41 @@ const api = async (path: string, body?: unknown) => {
 
 declare global { interface Window { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<unknown> } } }
 
+type Eip1193 = { request(args: { method: string; params?: unknown[] }): Promise<unknown> };
 let account: Hex | null = null;
+// The connected wallet: a browser extension (window.ethereum) or a phone wallet over WalletConnect.
+let eth: Eip1193 | null = null;
 let mode: "testnet" | "mainnet" = "testnet";
 const wallet = () => {
-  if (!window.ethereum || !account) throw new Error("Connect a wallet first");
-  return createWalletClient({ account, transport: custom(window.ethereum) });
+  if (!eth || !account) throw new Error("Connect a wallet first");
+  return createWalletClient({ account, transport: custom(eth) });
 };
-const chainId = async () => Number(await window.ethereum!.request({ method: "eth_chainId" }));
+const chainId = async () => Number(await eth!.request({ method: "eth_chainId" }));
 const exchange = () => new ExchangeClient({ transport: new HttpTransport({ isTestnet: mode === "testnet" }), wallet: wallet() });
 const info = () => new InfoClient({ transport: new HttpTransport({ isTestnet: mode === "testnet" }) });
 
+// Polyfills some WalletConnect dependencies expect in the browser.
+(globalThis as Record<string, unknown>).global ??= globalThis;
+(globalThis as Record<string, unknown>).process ??= { env: {} };
+
+// Show any uncaught error on the page instead of failing silently.
+const showError = (message: string) => {
+  const box = document.getElementById("out-connect");
+  if (box) box.textContent = `ERROR: ${message}`;
+};
+window.addEventListener("error", e => showError(e.message));
+window.addEventListener("unhandledrejection", e => showError(String((e as PromiseRejectionEvent).reason)));
+
+const OUTPUT_FOR: Record<string, string> = {
+  "btn-wc": "out-connect", "btn-signin": "out-connect", "btn-connect": "out-connect",
+  "btn-disarm": "out-rule", "btn-close": "out-rule",
+  "btn-fund-quote": "out-fund", "btn-fund-send": "out-fund",
+  "btn-payout-quote": "out-payout", "btn-payout-send": "out-payout",
+};
+
 function guard(id: string, fn: () => Promise<void>) {
   $(id).addEventListener("click", async () => {
-    const out = id.replace(/^btn-/, "out-");
+    const out = OUTPUT_FOR[id] ?? id.replace(/^btn-/, "out-");
     log(out, "working… check your wallet");
     try { await fn(); } catch (error) { log(out, `ERROR: ${error instanceof Error ? error.message : String(error)}`); }
   });
@@ -49,9 +72,36 @@ async function boot() {
 }
 
 guard("btn-connect", async () => {
-  const [address] = await window.ethereum!.request({ method: "eth_requestAccounts" }) as Hex[];
+  if (!window.ethereum) throw new Error("No browser wallet found. Use 'Connect phone wallet (WalletConnect)'.");
+  eth = window.ethereum;
+  const [address] = await eth.request({ method: "eth_requestAccounts" }) as Hex[];
   account = address!.toLowerCase() as Hex;
   log("out-connect", { account, walletChainId: await chainId(), mode });
+});
+
+guard("btn-wc", async () => {
+  const config = await fetch("/ops/config.json").then(r => r.json());
+  if (!config.walletConnectProjectId) throw new Error("Set WALLETCONNECT_PROJECT_ID in the env file and restart the backend");
+  // No required chains: some wallets reject or narrow required namespaces. Use whatever the wallet approves.
+  const provider = await EthereumProvider.init({
+    projectId: config.walletConnectProjectId, showQrModal: true,
+    optionalChains: [8453, 1, 42161, 10, 137],
+    methods: ["eth_sendTransaction", "personal_sign", "eth_signTypedData_v4", "eth_chainId", "wallet_switchEthereumChain"],
+    metadata: { name: "Baghedge ops", description: "Owner console", url: location.origin, icons: [] },
+  });
+  await provider.connect();
+  // Send requests on a chain the wallet actually approved, else every request fails with "Missing or invalid chainId".
+  const approved = (provider.session?.namespaces?.eip155?.chains ?? [])
+    .map((c: string) => Number(c.split(":")[1])).filter((n: number) => Number.isSafeInteger(n));
+  if (approved.length && !approved.includes(provider.chainId)) {
+    const target = approved.includes(8453) ? 8453 : approved[0]!;
+    // For a chain already in the session, the provider switches locally without a wallet prompt.
+    await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: `0x${target.toString(16)}` }] });
+  }
+  eth = provider as unknown as Eip1193;
+  const [address] = await eth.request({ method: "eth_accounts" }) as Hex[];
+  account = address!.toLowerCase() as Hex;
+  log("out-connect", { account, walletChainId: await chainId(), approvedChains: approved, mode, via: "WalletConnect" });
 });
 
 guard("btn-signin", async () => {
@@ -121,8 +171,8 @@ guard("btn-fund-send", async () => {
   const quote = (window as unknown as Record<string, any>).fundQuote;
   if (!quote?.transfer || quote.transfer.type !== "baseErc20Transfer") throw new Error("Get an executable fund quote first");
   if (Date.parse(quote.deadline) <= Date.now()) throw new Error("Quote deadline passed; get a new quote");
-  if (await chainId() !== base.id) await window.ethereum!.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
-  const hash = await createWalletClient({ account: account!, chain: base, transport: custom(window.ethereum!) }).writeContract({
+  if (await chainId() !== base.id) await eth!.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
+  const hash = await createWalletClient({ account: account!, chain: base, transport: custom(eth!) }).writeContract({
     address: quote.transfer.contract, abi: erc20Abi, functionName: "transfer", args: [quote.transfer.to, BigInt(quote.transfer.amount)],
   });
   const submitted = await api(`/api/transfers/${quote.id}/deposit`, { txHash: hash }).catch(e => ({ error: String(e) }));

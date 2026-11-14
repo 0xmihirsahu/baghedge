@@ -65,7 +65,9 @@ The server refuses to arm when:
 - the Trade and Hedge accounts are the same;
 - the policy names a different environment or signer than the server runs;
 - the signed policy was already used (`duplicate_rule`; each signed policy arms one rule, ever);
-- the mark is already at or below the entry trigger, or a feed is stale (`cannot_arm`);
+- the mark is already at or below the entry trigger (`entry_already_crossed`, which includes the current mark: draft a lower entry);
+- the watched wallet holds no SOL (`no_eligible_sol`);
+- a feed is stale (`cannot_arm`);
 - the Hedge account has a position or open orders (`cannot_arm` / `hedge_account_busy`);
 - another rule is already active on that Hedge account (`rule_active`);
 - the Hedge account's perps `withdrawable` is below `requiredMarginUsdc` (`insufficient_margin`). Spot USDC doesn't count.
@@ -131,6 +133,18 @@ Server-sent events. The event types are `armed`, `reserved`, `order`, `stop`, `p
   - `transfer.type === "hypercoreSendAsset"`: the Hedge or Trade owner signs `sendAsset` with exactly these fields. Never use `usdSend`.
 - `POST /api/transfers/<id>/deposit` with `{ txHash }`: after the Base transfer (or `sendAsset`) is sent, report its hash. This speeds up 1Click and records the source transaction. It's optional but recommended.
 - `GET /api/transfers/<id>` returns the saved quote and the NEAR Intents status. For inbound `fund` transfers it also returns `recipientAccount: { withdrawableUsdc, spotUsdc }`, the live Hyperliquid balance of the credited account. `SUCCESS` from the provider isn't proof of credit: confirm usable margin with `GET /api/accounts`, or the Base receipt.
+
+## Owner-signed Hyperliquid actions (no SDK needed in the browser)
+The server builds the canonical action plus its EIP-712 `typedData`. The owner's wallet signs it, and the server checks the recovered signer before relaying to Hyperliquid. Signatures are byte-identical to the official SDK's (tested).
+
+- `POST /api/hl/approve-agent` with `{ agentAddress, chainId, purpose: "hedge" | "trade", validDays? }` returns `{ action, typedData }`.
+- `POST /api/hl/approve-agent/submit` with `{ owner, action, signature }` returns `{ ok, signer, venue }`. It's refused unless `owner` signed it.
+- `POST /api/transfers/:id/send-asset` with `{ chainId }` returns `{ action, typedData }` for a `withdraw` quote. The action is exactly the quoted transfer.
+- `POST /api/transfers/:id/send-asset/submit` with `{ action, signature }`. It must be signed by the quote's `venueAddress`, and it's only relayed to the quote's deposit address.
+
+For a `fund` quote, `transfer` now also includes `data`: the ERC-20 `transfer(depositAddress, amountIn)` calldata. Send `{ to: transfer.contract, data: transfer.data, value: 0 }` on chain 8453.
+
+Integration walkthrough: [INTEGRATION.md](INTEGRATION.md).
 
 ## Sign-in (owner sessions)
 Rule reads (`GET /api/hedges?hedge=`, `GET /api/hedges/<id>`) and `GET /api/events` need a session for that rule's Hedge or Trade owner. Draft, arm and disarm/close don't need one: they carry their own owner signatures.

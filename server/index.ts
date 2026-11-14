@@ -8,6 +8,7 @@ import { createVenue, readSolBalance } from "./venue";
 import { openDb } from "./db";
 import { serveOps } from "./ops/serve";
 import { createSessions } from "./session";
+import { createOwnerActions } from "./owner";
 import { createGuardSigner, outLayerExecutorFromEnv } from "./guard";
 import { createExchange, fallbackSigner, verifiedSigner, type HedgeSigner, type Hex } from "./exchange";
 import { createHedgeRoutes, type SignerConfig } from "./hedges";
@@ -36,6 +37,7 @@ export function createApi(config: AppConfig, request = fetch) {
   const worker = config.signer
     ? createWorker({ env: config.mode, db, exchange, readWallet, signerFor: config.signer.signerFor })
     : null;
+  const owner = createOwnerActions(config.mode, request);
   const sessions = createSessions({
     env: config.mode, db, origin: config.appOrigin ?? "http://localhost:3001",
     secureCookie: (config.appOrigin ?? "").startsWith("https://"),
@@ -99,14 +101,35 @@ export function createApi(config: AppConfig, request = fetch) {
       const id = quote.dry ? null : transfers.save(config.mode, quote);
       return { id, mode: "mainnet", ...quote };
     }
+    // Owner-signed Hyperliquid actions: build → wallet signs → relay (signer checked server-side).
+    if (req.method === "POST" && (url.pathname === "/api/hl/approve-agent" || url.pathname === "/api/hl/approve-agent/submit")) {
+      if (!req.headers.get("content-type")?.startsWith("application/json")) throw new RequestError(415, "expected_json", "Send a JSON request");
+      const body: unknown = await req.json().catch(() => null);
+      if (url.pathname === "/api/hl/approve-agent") return owner.approveAgent(body);
+      const signerAddr = (body as { owner?: unknown })?.owner;
+      if (!isEvmAddress(signerAddr)) throw new RequestError(400, "invalid_owner", "Provide owner (the account approving the agent)");
+      return owner.submit(body, { expectedSigner: signerAddr });
+    }
     const hedgeResult = await hedges.route(req, url);
     if (hedgeResult !== undefined) return hedgeResult;
-    const transferMatch = /^\/api\/transfers\/([\da-f-]{36})(\/deposit)?$/.exec(url.pathname);
+    const transferMatch = /^\/api\/transfers\/([\da-f-]{36})(\/deposit|\/send-asset|\/send-asset\/submit)?$/.exec(url.pathname);
     const transferId = transferMatch?.[1];
     if (transferId) {
       const transfer = transfers.get(config.mode, transferId);
       if (!transfer?.quote.depositAddress) throw new RequestError(404, "transfer_missing", "Transfer not found");
-      if (req.method === "POST" && transferMatch?.[2]) {
+      if (req.method === "POST" && (url.pathname.endsWith("/send-asset") || url.pathname.endsWith("/send-asset/submit"))) {
+        if (!req.headers.get("content-type")?.startsWith("application/json")) throw new RequestError(415, "expected_json", "Send a JSON request");
+        const body: unknown = await req.json().catch(() => null);
+        if (url.pathname.endsWith("/send-asset")) {
+          return { id: transferId, ...owner.sendAsset(transfer.quote.transfer ?? {}, Number((body as { chainId?: unknown })?.chainId)) };
+        }
+        // Debits the venue account in the quote; only to this quote's deposit address.
+        return { id: transferId, ...await owner.submit(body, {
+          expectedSigner: transfer.quote.venueAddress,
+          allowDestination: d => d === transfer.quote.depositAddress?.toLowerCase(),
+        }) };
+      }
+      if (req.method === "POST" && transferMatch?.[2] === "/deposit") {
         if (!req.headers.get("content-type")?.startsWith("application/json")) {
           throw new RequestError(415, "expected_json", "Send a JSON request");
         }
@@ -194,26 +217,26 @@ export function createApi(config: AppConfig, request = fetch) {
 }
 
 if (import.meta.main) {
-  const mode = process.env.APP_MODE ?? "testnet";
+  const mode = process.env.APP_MODE || "testnet";
   if (mode !== "mainnet" && mode !== "testnet") throw new Error("APP_MODE must be testnet or mainnet");
   const api = createApi({
     mode,
-    appOrigin: process.env.APP_ORIGIN,
-    dbPath: process.env.BAGHEDGE_DB_PATH ?? "data/baghedge.sqlite",
-    solanaRpc: process.env.SOLANA_RPC_URL ??
+    appOrigin: process.env.APP_ORIGIN || undefined,
+    dbPath: process.env.BAGHEDGE_DB_PATH || "data/baghedge.sqlite",
+    solanaRpc: process.env.SOLANA_RPC_URL ||
       (mode === "mainnet" ? "https://api.mainnet-beta.solana.com" : "https://api.devnet.solana.com"),
-    intentsUrl: process.env.INTENTS_BASE_URL,
-    intentsJwt: process.env.INTENTS_JWT,
+    intentsUrl: process.env.INTENTS_BASE_URL || undefined,
+    intentsJwt: process.env.INTENTS_JWT || undefined,
     signer: await signerFromEnv(mode),
     worker: process.env.WORKER !== "0",
   });
-  const host = process.env.HOST ?? "127.0.0.1";
+  const host = process.env.HOST || "127.0.0.1";
   if (!["127.0.0.1", "localhost", "::1"].includes(host) && !process.env.APP_ORIGIN?.startsWith("https://")) {
     // Public binds need an HTTPS app origin: session cookies are Secure and challenges are bound to that origin.
     throw new Error(`Refusing to bind ${host} without an https:// APP_ORIGIN.`);
   }
   const server = Bun.serve({
-    hostname: host, port: Number(process.env.PORT ?? 3001), maxRequestBodySize: 8192, fetch: api.fetch,
+    hostname: host, port: Number(process.env.PORT || 3001), maxRequestBodySize: 8192, fetch: api.fetch,
   });
   console.log(`Baghedge API (${mode}) listening at ${server.url}`);
 }
