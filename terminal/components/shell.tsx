@@ -167,7 +167,7 @@ function NavTile({ icon: Icon, on, size }: { icon: typeof Wallet; on: boolean; s
   return (
     <span className="relative grid shrink-0 place-items-center rounded-[9px] transition-[scale] duration-150 ease-out group-active:scale-[0.94]" style={{ width: size, height: size, background: on ? "#f0645a" : "#1c1b1a" }}>
       {!on && (
-        <svg viewBox="0 0 24 24" className="absolute inset-[11%]" aria-hidden>
+        <svg viewBox="0 0 24 24" className="absolute inset-[5%]" aria-hidden>
           {DOTS.map(({ r, c }) => (
             <circle
               key={`${r}${c}`}
