@@ -238,7 +238,7 @@ export function CoinPage({ coin }: { coin: string }) {
                     setSheet(false);
                   })
                 }
-                className="mt-4 flex h-[52px] w-full items-center justify-center gap-2 rounded-[14px] bg-[#f0645a] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70"
+                className="mt-4 flex h-[52px] w-full items-center justify-center gap-2 rounded-[14px] bg-[#f0645a] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:bg-[#1c1b1a] disabled:text-white/60"
               >
                 {L.busy ? ({ signin: "Signing in", agent: "Finding your hedge agent", approve: "Approving the hedge agent", arm: "Signing the policy" } as Record<string, string>)[L.busy] ?? "Working" : "Sign and arm"}
               </button>
