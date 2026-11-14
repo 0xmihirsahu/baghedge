@@ -11,7 +11,7 @@ const opt = (k, d) => {
 const url = opt("url", "http://localhost:3400");
 const email = opt("email", process.env.BH_E2E_EMAIL ?? "test@vwakesahu.com");
 const allow = String(opt("allow", "")).split(",").filter(Boolean);
-const stall = Number(opt("stall", 20));
+const stall = Number(opt("stall", 25));
 const retries = Number(opt("retries", 1));
 const watchAddr = opt("watch", null);
 const sol = String(opt("sol", "0.1"));
@@ -82,7 +82,8 @@ const FLOWS = {
     await t.watch("quote", (s) => /You get/.test(s), { timeout: 30_000 });
     await t.step("quote-shown", () => Promise.resolve());
     await t.step("send", (p) => p.getByRole("button", { name: new RegExp(`^Add to ${role === "trade" ? "Trade" : "Hedge"}$`) }).click(), { settle: 500 });
-    await t.watch("funding", (s) => /\bDone\b/.test(s), { timeout: 600_000 });
+    // money in transit can sit on one step for minutes: a longer stall here, and done is the Done button itself
+    await t.watch("funding", (_s, p) => p.getByRole("button", { name: "Done", exact: true }).isVisible().catch(() => false), { timeout: 900_000, stallAfter: 240 });
     await t.views("funded", 6);
     await t.step("track-links", async (p) => {
       for (const a of await p.locator('[role="dialog"] a').all()) t.log({ type: "link", text: (await a.textContent())?.trim(), href: await a.getAttribute("href") });
@@ -99,7 +100,7 @@ const FLOWS = {
     await t.watch("quote", (s) => /They get/.test(s), { timeout: 30_000 });
     await t.step("quote-shown", () => Promise.resolve());
     await t.step("send", (p) => p.getByRole("button", { name: /^Send \$/ }).click(), { settle: 500 });
-    await t.watch("payout", (s) => /\bDone\b/.test(s), { timeout: 600_000 });
+    await t.watch("payout", (_s, p) => p.getByRole("button", { name: "Done", exact: true }).isVisible().catch(() => false), { timeout: 900_000, stallAfter: 240 });
     await t.views("paid", 6);
   },
 
@@ -119,6 +120,12 @@ const FLOWS = {
     await t.step("close", (p) => p.getByRole("button", { name: "Close", exact: true }).first().click(), { settle: 500 });
     await t.watch("closed", (s) => /closed/i.test(s), { timeout: 90_000 });
     await t.views("closed");
+  },
+
+  // proves the stuck detector: waits on something that never comes, must end as STUCK in about 10 s
+  async selftest(t) {
+    await t.step("markets", (p) => p.goto(`${url}/markets`), { settle: 1500 });
+    await t.watch("never", () => false, { timeout: 60_000, stallAfter: 10 });
   },
 
   // every fill's explorer link

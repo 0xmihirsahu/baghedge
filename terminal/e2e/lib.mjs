@@ -172,9 +172,7 @@ export async function open({ url, email, allow = [], slowMo = 250, video = true,
       const u = new URL(req.url());
       if (tracked(u)) inflight.set(req, { m: req.method(), p: `${u.host.includes("localhost") ? "" : u.host}${u.pathname}`, t0: Date.now() });
     });
-    p.on("requestfinished", (req) => {
-      if (inflight.delete(req)) lastProgress = Date.now();
-    });
+    p.on("requestfinished", (req) => inflight.delete(req));
     p.on("requestfailed", (req) => inflight.delete(req));
     p.on("response", async (res) => {
       const u = new URL(res.url());
@@ -223,8 +221,11 @@ export async function open({ url, email, allow = [], slowMo = 250, video = true,
   // the stuck detector: while a step runs, a heartbeat every 10 s; after `stall` seconds with no progress, one loud
   // STUCK report (what's on screen, what's still loading and for how long, console errors) plus a picture
   let screenText = "";
-  const monitor = (label) => {
+  // a stuck step ends the run: the report is written, the video finished, the reason printed, and the flow fails
+  let stuckError = null;
+  const monitor = (label, limit = stall) => {
     const t0 = Date.now();
+    lastProgress = Date.now();
     let reported = false;
     const tick = setInterval(async () => {
       const s = await status();
@@ -236,13 +237,14 @@ export async function open({ url, email, allow = [], slowMo = 250, video = true,
       const idle = Math.round((Date.now() - lastProgress) / 1000);
       const waiting = [...inflight.values()].filter((r) => Date.now() - r.t0 > 5000).map((r) => `${r.m} ${r.p} ${Math.round((Date.now() - r.t0) / 1000)}s`);
       console.log(`  … ${label} ${Math.round((Date.now() - t0) / 1000)}s · idle ${idle}s${waiting.length ? ` · waiting on ${waiting.join(", ")}` : ""} · ${text.slice(0, 90) || "(nothing on screen)"}`);
-      if (idle >= stall && !reported) {
+      if (idle >= limit && !reported) {
         reported = true;
         const f = await shot(`${label}-stuck`, page, true);
         write({ type: "stuck", step: label, idle, screen: text.slice(0, 500), waiting, errors: errors.slice(-5), api: api.slice(-6), shot: f });
-        console.log(`  ⚠ STUCK ${label}: no change for ${idle}s. screen: ${text.slice(0, 160) || "nothing"}${waiting.length ? ` · still loading: ${waiting.join(", ")}` : " · nothing loading"}${errors.length ? ` · last error: ${errors.at(-1)}` : ""}`);
+        stuckError = `STUCK ${label}: the screen hasn't changed for ${idle}s. screen: ${text.slice(0, 160) || "nothing"}${waiting.length ? ` · still loading: ${waiting.join(", ")}` : " · nothing loading"}${errors.length ? ` · last error: ${errors.at(-1)}` : ""}`;
+        console.log(`  ⚠ ${stuckError}`);
       }
-    }, 10_000);
+    }, 5_000);
     return () => clearInterval(tick);
   };
 
@@ -251,10 +253,16 @@ export async function open({ url, email, allow = [], slowMo = 250, video = true,
   const step = async (name, fn, { settle = 900 } = {}) => {
     api = [];
     errors = [];
+    stuckError = null;
     const t0 = Date.now();
     const stop = monitor(name);
     try {
-      await fn(page);
+      await Promise.race([
+        fn(page),
+        new Promise((_, no) => {
+          const t = setInterval(() => stuckError && (clearInterval(t), no(new Error(stuckError))), 1000);
+        }),
+      ]);
       await page.waitForTimeout(settle);
       const f = await shot(name);
       const rec = { type: "step", step: name, ok: true, ms: Date.now() - t0, url: page.url(), shot: f, status: await status(), api, errors };
@@ -273,10 +281,11 @@ export async function open({ url, email, allow = [], slowMo = 250, video = true,
 
   // a long step (signing, arming, closing): read the status every second, screenshot each change, stop on done or a failure
   // done(text, page) may be async: check real buttons, not only text
-  const watch = async (name, done, { timeout = 120_000 } = {}) => {
+  const watch = async (name, done, { timeout = 120_000, stallAfter = stall } = {}) => {
     const t0 = Date.now();
     let last = "";
-    const stop = monitor(name);
+    stuckError = null;
+    const stop = monitor(name, stallAfter);
     try {
     while (Date.now() - t0 < timeout) {
       const s = await status();
@@ -293,6 +302,7 @@ export async function open({ url, email, allow = [], slowMo = 250, video = true,
         write({ type: "watch", step: name, text, shot: (await shot(`${name}-watch`)) ?? undefined });
       }
       if (await done(text, page)) return text;
+      if (stuckError) throw new Error(stuckError);
       if (/failed|try again|couldn't|can't|refused|cancelled|Nothing was sent/i.test([...s.live, ...s.toasts].join(" ") + " " + (s.dialog?.match(/(Something went wrong[^|]*|You cancelled[^|]*|Refunded[^|]*)/)?.[0] ?? ""))) throw new Error(`${name}: ${text}`);
       await page.waitForTimeout(1000);
     }
