@@ -24,6 +24,41 @@
   }
 }
 
+/* the black cards carry a faint halftone grid, the same dots the art is made of */
+.bg-coal {
+  background-image: radial-gradient(circle, rgb(255 255 255 / 0.055) 0.9px, transparent 1.25px);
+  background-size: 7px 7px;
+  background-position: 3px 3px;
+}
+
+/* long-form text on the legal pages */
+.legal h2 {
+  margin-top: 48px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.legal p,
+.legal li {
+  margin-top: 14px;
+  font-size: 16px;
+  line-height: 1.65;
+  color: rgb(255 255 255 / 0.75);
+}
+.legal ul {
+  margin-top: 6px;
+  padding-left: 20px;
+  list-style: disc;
+}
+.legal li {
+  margin-top: 8px;
+}
+.legal a {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .no-scrollbar {
   scrollbar-width: none;
 }

@@ -4,7 +4,7 @@ import { Footer } from "@/components/footer";
 
 export const metadata: Metadata = {
   title: "About | baghedge",
-  description: "baghedge is built by Vivek and Mihir, who both build at Inco.",
+  description: "baghedge started with one bad night. Built by Vivek and Mihir, in India, on NEAR and Hyperliquid.",
 };
 
 export default function Page() {
