@@ -117,7 +117,7 @@ function setup(signerMode: "fallback" | "guard-publishes-then-throws" | "guard-d
     readWallet: async () => ({ lamports: v.lamports.toString(), observedAt: clock() }),
   });
   const tick = async () => { await Bun.sleep(2); await worker.tickRule("r1"); return db.rule("r1")!; };
-  return { v, db, tick };
+  return { v, db, tick, exchange };
 }
 
 describe("worker", () => {
@@ -285,6 +285,81 @@ describe("worker", () => {
     const rule = await tick();
     expect(rule.state.phase).toBe("paused");
     expect(rule.reason).toBe("unexpected-position");
+  });
+
+  // Regressions from Codex's review (reproductions adapted; expectations are the fixed behavior).
+  test("a transient venue error after a fill doesn't strand the rule: the action stays resumable and settles next tick", async () => {
+    const { v, db, tick, exchange } = setup();
+    await tick();
+    const position = exchange.position;
+    let failOnce = true;
+    exchange.position = (async (...args: Parameters<typeof position>) => {
+      if (v.shortLots > 0 && failOnce) { failOnce = false; throw new Error("transient venue 429"); }
+      return position(...args);
+    }) as typeof position;
+    v.mark = "69.9"; v.bid = "69.8"; v.ask = "70";
+    await expect(tick()).rejects.toThrow("transient venue 429");
+    expect(db.actionsForRule("r1")[0]!.outcome).toBeNull();          // nothing half-written
+    expect(db.unresolvedActions("r1")).toHaveLength(1);
+    const rule = await tick();
+    expect(rule.state).toMatchObject({ phase: "open", shortLots: 40n, pending: null });
+    expect(db.actionsForRule("r1")[0]!.outcome).toBe("filled");
+    expect(v.submissions).toBe(1);
+  });
+
+  test("an owner disarm while a tick is fetching the market can't be overwritten by that tick", async () => {
+    const { v, db, tick, exchange } = setup();
+    await tick();
+    const market = exchange.market;
+    let release!: () => void, started!: () => void;
+    const gate = new Promise<void>(r => { release = r; }), inFlight = new Promise<void>(r => { started = r; });
+    exchange.market = (async (...args: Parameters<typeof market>) => { started(); await gate; return market(...args); }) as typeof market;
+    v.mark = "69.9"; v.bid = "69.8"; v.ask = "70";
+    const flight = tick();
+    await inFlight;
+    const r = db.rule("r1")!;
+    db.updateRule("r1", { status: "done", reason: "disarmed", state: { ...r.state, phase: "closed" } });
+    release();
+    await flight;
+    expect(v.submissions).toBe(0);
+    expect(db.rule("r1")!.status).toBe("done");
+  });
+
+  test("an owner disarm during the last read before the entry decision stops the entry", async () => {
+    const { v, db, tick, exchange } = setup();
+    await tick();
+    const position = exchange.position;
+    let calls = 0, release!: () => void, started!: () => void;
+    const gate = new Promise<void>(r => { release = r; }), inFlight = new Promise<void>(r => { started = r; });
+    // The second position read in a tick is the one right before decideHedge/execute.
+    exchange.position = (async (...args: Parameters<typeof position>) => {
+      if (++calls === 2) { started(); await gate; }
+      return position(...args);
+    }) as typeof position;
+    v.mark = "69.9"; v.bid = "69.8"; v.ask = "70";
+    const flight = tick();
+    await inFlight;
+    const r = db.rule("r1")!;
+    db.updateRule("r1", { status: "done", reason: "disarmed", state: { ...r.state, phase: "closed" } });
+    release();
+    await flight;
+    expect(v.submissions).toBe(0);
+    expect(v.shortLots).toBe(0);
+    expect(db.rule("r1")!.status).toBe("done");
+  });
+
+  test("a rule left half-written by an older build (journal filled, engine pending) is repaired from the venue", async () => {
+    const { v, db, tick } = setup();
+    await tick();
+    v.mark = "69.9"; v.bid = "69.8"; v.ask = "70";
+    await tick();
+    // Recreate the old split: engine back to pending with shortLots 0, while the journal says filled.
+    const r = db.rule("r1")!;
+    db.updateRule("r1", { state: { ...r.state, phase: "opening", shortLots: 0n,
+      pending: { kind: "entry", lots: 40n, limit: 686000n, reduceOnly: false } } });
+    const rule = await tick();
+    expect(rule.state).toMatchObject({ phase: "open", shortLots: 40n, pending: null });
+    expect(v.submissions).toBe(1);
   });
 
   test("a gap below the entry floor sends nothing", async () => {

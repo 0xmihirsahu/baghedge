@@ -13,8 +13,12 @@ export type RuleRecord = {
   id: string; env: Env; hedgeAddress: string; tradeAddress: string;
   policy: HedgePolicy; ownerSig: string; chainId: number; signerKind: "guard" | "fallback";
   status: "active" | "done"; state: HedgeState; stopStatus: StopStatus; reason: string;
-  createdAt: number; updatedAt: number;
+  createdAt: number; updatedAt: number; rev: number;
 };
+
+export class StaleRuleError extends Error {
+  constructor(ruleId: string) { super(`Rule ${ruleId} changed since this decision; dropped`); }
+}
 
 export type ActionRecord = {
   id: string; env: Env; ruleId: string; account: string;
@@ -41,6 +45,8 @@ export function openDb(path: string) {
     policy TEXT NOT NULL, owner_sig TEXT NOT NULL, chain_id INTEGER NOT NULL, signer_kind TEXT NOT NULL,
     status TEXT NOT NULL, state TEXT NOT NULL, stop_status TEXT NOT NULL, reason TEXT NOT NULL,
     created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, policy_digest TEXT NOT NULL UNIQUE)`);
+  // Revision counter: bumps on every rule write so a stale decision can't overwrite a newer owner command.
+  try { db.run("ALTER TABLE rules ADD COLUMN rev INTEGER NOT NULL DEFAULT 0"); } catch { /* already present */ }
   // One active hedge rule per Hedge account and environment.
   db.run("CREATE UNIQUE INDEX IF NOT EXISTS rules_one_active ON rules(env, hedge_address) WHERE status = 'active'");
   db.run(`CREATE TABLE IF NOT EXISTS actions (
@@ -64,7 +70,7 @@ export function openDb(path: string) {
     ownerSig: row.owner_sig as string, chainId: row.chain_id as number,
     signerKind: row.signer_kind as RuleRecord["signerKind"], status: row.status as RuleRecord["status"],
     state: decode(row.state as string), stopStatus: row.stop_status as StopStatus, reason: row.reason as string,
-    createdAt: row.created_at as number, updatedAt: row.updated_at as number,
+    createdAt: row.created_at as number, updatedAt: row.updated_at as number, rev: Number(row.rev ?? 0),
   };
   const actionRow = (row: Record<string, unknown> | null): ActionRecord | null => row && {
     id: row.id as string, env: row.env as Env, ruleId: row.rule_id as string, account: row.account as string,
@@ -83,9 +89,11 @@ export function openDb(path: string) {
   const api = {
     raw: db,
     /** policyDigest is UNIQUE: a signed policy can arm at most one rule, ever. */
-    insertRule(rule: Omit<RuleRecord, "createdAt" | "updatedAt">, policyDigest: string) {
+    insertRule(rule: Omit<RuleRecord, "createdAt" | "updatedAt" | "rev">, policyDigest: string) {
       const now = Date.now();
-      db.query(`INSERT INTO rules VALUES ($id, $env, $hedge, $trade, $policy, $sig, $chain, $kind, $status, $state, $stop, $reason, $now, $now, $digest)`)
+      db.query(`INSERT INTO rules (id, env, hedge_address, trade_address, policy, owner_sig, chain_id, signer_kind, status, state,
+        stop_status, reason, created_at, updated_at, policy_digest) VALUES ($id, $env, $hedge, $trade, $policy, $sig, $chain, $kind,
+        $status, $state, $stop, $reason, $now, $now, $digest)`)
         .run({ digest: policyDigest.toLowerCase(), id: rule.id, env: rule.env, hedge: rule.hedgeAddress, trade: rule.tradeAddress,
           policy: JSON.stringify(rule.policy), sig: rule.ownerSig, chain: rule.chainId, kind: rule.signerKind,
           status: rule.status, state: encode(rule.state), stop: rule.stopStatus, reason: rule.reason, now });
@@ -100,9 +108,9 @@ export function openDb(path: string) {
       const current = api.rule(id);
       if (!current) throw new Error("rule missing");
       const next = { ...current, ...patch };
-      db.query("UPDATE rules SET state = $state, status = $status, stop_status = $stop, reason = $reason, updated_at = $now WHERE id = $id")
+      db.query("UPDATE rules SET state = $state, status = $status, stop_status = $stop, reason = $reason, updated_at = $now, rev = rev + 1 WHERE id = $id")
         .run({ id, state: encode(next.state), status: next.status, stop: next.stopStatus, reason: next.reason, now: Date.now() });
-      return next;
+      return { ...next, rev: current.rev + 1 };
     },
 
     /** Monotonic per-signer nonce: max(now, last + 1), persisted before use. */
@@ -116,18 +124,29 @@ export function openDb(path: string) {
     },
 
     /** Records a reservation and the rule state that produced it in one transaction. */
-    reserveAction(action: Omit<ActionRecord, "createdAt" | "updatedAt" | "signature" | "outcome" | "oid" | "filledLots" | "error" | "transport">, state: HedgeState) {
+    /**
+     * Records a reservation and the rule state that produced it in one transaction. With `expectedRev`, it only
+     * reserves if the rule is still active and unchanged since the decision; otherwise it throws StaleRuleError.
+     */
+    reserveAction(action: Omit<ActionRecord, "createdAt" | "updatedAt" | "signature" | "outcome" | "oid" | "filledLots" | "error" | "transport">, state: HedgeState, expectedRev?: number) {
       const now = Date.now();
       db.transaction(() => {
+        if (expectedRev !== undefined) {
+          const row = db.query("SELECT status, rev FROM rules WHERE id = $id").get({ id: action.ruleId }) as { status: string; rev: number } | null;
+          if (!row || row.status !== "active" || Number(row.rev) !== expectedRev) throw new StaleRuleError(action.ruleId);
+        }
         db.query(`INSERT INTO actions (id, env, rule_id, account, intent, seq, cloid, stop_cloid, lots, nonce, expires_after,
           signer, action, transport, created_at, updated_at) VALUES ($id, $env, $rule, $account, $intent, $seq, $cloid, $stop,
           $lots, $nonce, $expires, $signer, $action, 'reserved', $now, $now)`)
           .run({ id: action.id, env: action.env, rule: action.ruleId, account: action.account, intent: action.intent,
             seq: action.seq, cloid: action.cloid, stop: action.stopCloid, lots: action.lots, nonce: action.nonce,
             expires: action.expiresAfter, signer: action.signer, action: JSON.stringify(action.action), now });
-        db.query("UPDATE rules SET state = $state, updated_at = $now WHERE id = $id").run({ id: action.ruleId, state: encode(state), now });
+        db.query("UPDATE rules SET state = $state, updated_at = $now, rev = rev + 1 WHERE id = $id").run({ id: action.ruleId, state: encode(state), now });
       })();
     },
+
+    /** Runs several journal/rule writes as one transaction (e.g. an action's outcome and the rule state it settles). */
+    atomically<T>(fn: () => T): T { return db.transaction(fn)(); },
     updateAction(id: string, patch: Partial<Pick<ActionRecord, "signature" | "transport" | "outcome" | "oid" | "filledLots" | "error">>) {
       const sets: string[] = [];
       const params: Record<string, string | number | null> = { id, now: Date.now() };
