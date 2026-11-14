@@ -21,6 +21,8 @@ type Live = {
   h: number;
   pointer: { x: number; y: number } | null;
   visible: boolean;
+  // true once enough of the field is on screen for its intro to start
+  ready: boolean;
   introAt: number;
   dirty: boolean;
 };
@@ -34,6 +36,7 @@ export function Field({
   at,
   pitch,
   intro,
+  introAt = 0,
   hover,
   dim,
   color = DOT,
@@ -50,6 +53,8 @@ export function Field({
   at?: () => number;
   pitch: [number, number];
   intro?: boolean;
+  // how much of the field (0 to 1) has to be on screen before the intro plays. it plays once
+  introAt?: number;
   hover?: boolean;
   dim?: boolean;
   className?: string;
@@ -69,6 +74,7 @@ export function Field({
     h: 0,
     pointer: null,
     visible: false,
+    ready: false,
     introAt: -1,
     dirty: true,
   });
@@ -121,9 +127,13 @@ export function Field({
     let lastS = -1;
     let lastDraw = 0;
 
-    const io = new IntersectionObserver(([e]) => {
-      L.visible = e.isIntersecting;
-    });
+    const io = new IntersectionObserver(
+      ([e]) => {
+        L.visible = e.isIntersecting;
+        if (e.isIntersecting && e.intersectionRatio >= introAt) L.ready = true;
+      },
+      { threshold: [0, introAt] },
+    );
     io.observe(el);
 
     const move = (e: PointerEvent) => {
@@ -145,8 +155,9 @@ export function Field({
       raf = requestAnimationFrame(frame);
       if (!L.visible || !L.layers.length || !L.none) return;
       const s = atRef.current?.() ?? 0;
-      if (intro && L.introAt < 0) L.introAt = reduced || s > m0 ? 0 : now;
-      const introT = L.introAt > 0 ? clamp((now - L.introAt) / 1800) : 1;
+      if (intro && L.introAt < 0 && L.ready) L.introAt = reduced || s > m0 ? 0 : now;
+      // before the intro starts the field stays empty, so it decodes in front of the viewer, not off screen
+      const introT = intro && L.introAt < 0 ? 0 : L.introAt > 0 ? clamp((now - L.introAt) / 1800) : 1;
       const busy = s !== lastS || introT < 1 || L.dirty;
       // idle frames only need the glyph flicker, so draw them at a film-ish rate
       if (!busy && now - lastDraw < 90) return;
@@ -233,7 +244,7 @@ export function Field({
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerleave", leave);
     };
-  }, [intro, hover, dim, m0, m1, color, accent, square]);
+  }, [intro, introAt, hover, dim, m0, m1, color, accent, square]);
 
   return <canvas ref={ref} aria-hidden className={cn("block h-full w-full", className)} />;
 }
