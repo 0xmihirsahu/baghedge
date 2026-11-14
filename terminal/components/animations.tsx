@@ -6,6 +6,7 @@ import { BagLoader, ExposureDots, LogoReveal, NumberRoll, RuleLines, StatusText,
 import { ArrowLeft } from "@phosphor-icons/react";
 import { STATUS, type Phase } from "./app/store";
 import { DOWN, UP, usd } from "./app/format";
+import { NavLab } from "./nav-lab";
 
 // a gallery of every animation in the terminal, live, with the real components and demo values
 export function Animations() {
@@ -25,6 +26,9 @@ export function Animations() {
       <div className="mx-auto max-w-[1240px] px-4 pt-10 sm:px-6">
         <h1 className="text-[34px] font-semibold leading-none tracking-[-0.03em]">Animations</h1>
         <p className="mt-3 text-[15px] text-white/50">Every motion in the terminal, live. Demo values.</p>
+        <div className="mt-8">
+          <NavLab />
+        </div>
         <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <Loader />
           <Reveal />
