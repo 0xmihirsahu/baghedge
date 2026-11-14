@@ -17,7 +17,7 @@ The [Baghedge brief](docs/BAGHEDGE_CONTEXT.md) is the source of truth for the pr
 
 - One Bun package. `server/` serves the local API, `shared/` holds browser-safe logic, `guard/` holds the Rust guard, and `scripts/` holds replay and quote checks.
 - Run `bun install --frozen-lockfile`, then use `bun run dev:server`, `bun run check`, `bun run demo:replay`, or `bun run verify:quotes`. See the README for the local guard build.
-- The frontend teammate owns the terminal UI. Keep backend changes independent of the Vite app unless the team asks for integration work.
+- The frontend teammate owns the terminal UI. It lives in `terminal/` (Next.js). Keep backend changes independent of it unless the team asks for integration work.
 
 ## Hard rules
 
