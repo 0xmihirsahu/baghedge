@@ -161,7 +161,7 @@ if (!FLOWS[flow]) {
   process.exit(1);
 }
 if (opt("fresh-profile", false) || !fs.existsSync(PROFILE)) {
-  copyProfile(new URL(url).port || "80");
+  copyProfile(url);
   console.log("copied the Chrome session into", PROFILE);
 }
 

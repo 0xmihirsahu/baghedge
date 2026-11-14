@@ -23,7 +23,8 @@ export const RAILS = {
 };
 
 // copies only the storage that holds the session (never the whole profile), into a 0700 folder outside the repo
-export function copyProfile(port) {
+// origin: the app's URL; its IndexedDB folder is <scheme>_<host>_<port or 0>
+export function copyProfile(origin) {
   fs.rmSync(PROFILE, { recursive: true, force: true });
   fs.mkdirSync(path.join(PROFILE, "Default", "IndexedDB"), { recursive: true, mode: 0o700 });
   fs.chmodSync(path.dirname(PROFILE), 0o700);
@@ -31,7 +32,8 @@ export function copyProfile(port) {
     const from = path.join(CHROME, part);
     if (fs.existsSync(from)) fs.cpSync(from, path.join(PROFILE, "Default", part), { recursive: true });
   }
-  const idb = path.join(CHROME, "IndexedDB", `http_localhost_${port}.indexeddb.leveldb`);
+  const u = new URL(origin);
+  const idb = path.join(CHROME, "IndexedDB", `${u.protocol.slice(0, -1)}_${u.hostname}_${u.port || 0}.indexeddb.leveldb`);
   if (fs.existsSync(idb)) fs.cpSync(idb, path.join(PROFILE, "Default", "IndexedDB", path.basename(idb)), { recursive: true });
   execSync(`find "${PROFILE}" -name LOCK -delete`);
 }
