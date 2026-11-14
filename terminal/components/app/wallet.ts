@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getNetwork } from "./hl";
 
 // solana address helpers and the watched wallet's balance. we only ever read the public balance,
 // through /api/balance so the rpc key stays on the server
@@ -22,10 +23,13 @@ export function useSolBalance(address: string | null, onError: (message: string)
     } catch {}
     const read = () => {
       if (document.hidden) return;
-      fetch(`/api/balance?address=${address}`)
+      // mainnet: our own /api/balance (alchemy, server side). testnet: the backend's devnet read, in lamports
+      const testnet = getNetwork() === "testnet";
+      fetch(testnet ? `/api/wallet/sol?address=${address}` : `/api/balance?address=${address}`)
         .then((r) => r.json())
         .then((j) => {
           if (gone) return;
+          if (testnet && j.lamports != null) j.sol = Number(j.lamports) / 1e9;
           if (typeof j.sol !== "number") throw new Error();
           failed = false;
           setSol({ address, value: j.sol });

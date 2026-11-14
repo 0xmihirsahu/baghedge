@@ -6,7 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { MomentCard, type Moment, type MomentKind } from "../moment";
 import { WalletModal } from "../wallet-modal";
 import { risk, usd } from "./format";
-import { useMarkets } from "./hl";
+import { setNetwork, useMarkets, type Network } from "./hl";
 import { isSolAddress, short, useSolBalance } from "./wallet";
 
 // everything the pages share: live markets, the wallet, toasts, activity, the hyperliquid accounts and the hedge.
@@ -25,7 +25,9 @@ export const FUNDING: Phase[] = ["signing", "detected", "transit", "credited"];
 type Toast = { id: number; title: string; status: string; kind: "replay" | "error" | "info" };
 type Activity = { at: number; what: string };
 
-function useTerminal() {
+export type Backend = { reachable: boolean; mode: Network; signer: "guard" | "fallback" | null; agentAddress: string | null };
+
+function useTerminal(backend: Backend) {
   const { markets, mids, live } = useMarkets();
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [activity, setActivity] = useState<Activity[]>([]);
@@ -197,7 +199,7 @@ function useTerminal() {
   const setEntryKept = useCallback((v: number) => setEntry(Math.min(v, Math.round(recovery * 0.998 * 100) / 100)), [recovery]);
   const setRecoveryKept = useCallback((v: number) => setRecovery(Math.max(v, Math.round(entry * 1.002 * 100) / 100)), [entry]);
   const hedgeState = { phase, setPhase: go, hedge, cap, setCap, capN, entry, setEntry: setEntryKept, recovery, setRecovery: setRecoveryKept, held };
-  return { markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };
+  return { backend, markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };
 }
 
 const Ctx = createContext<ReturnType<typeof useTerminal> | null>(null);
@@ -206,8 +208,8 @@ export const useStore = () => useContext(Ctx)!;
 // the wallet provider sits above the store, so its errors reach the toasts through this one handler
 let onWalletError: ((e: WalletError) => void) | null = null;
 
-function Store({ children }: { children: ReactNode }) {
-  const value = useTerminal();
+function Store({ children, backend }: { children: ReactNode; backend: Backend }) {
+  const value = useTerminal(backend);
   const { toast } = value;
   // wallet adapter errors become short toasts, never raw text on the page
   useEffect(() => {
@@ -232,13 +234,27 @@ function Store({ children }: { children: ReactNode }) {
 }
 
 export function Providers({ children }: { children: ReactNode }) {
+  const [backend, setBackend] = useState<Backend | null>(null);
+  useEffect(() => {
+    let done = false;
+    const settle = (b: Backend) => {
+      if (done) return;
+      done = true;
+      setNetwork(b.mode);
+      setBackend(b);
+    };
+    fetch("/api/health", { signal: AbortSignal.timeout(6000) })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((h) => settle({ reachable: true, mode: h.mode === "testnet" ? "testnet" : "mainnet", signer: h.hedgeSigner?.kind ?? null, agentAddress: h.hedgeSigner?.agentAddress ?? null }))
+      .catch(() => settle({ reachable: false, mode: "mainnet", signer: null, agentAddress: null }));
+  }, []);
   // no adapters listed: every wallet-standard wallet (phantom, solflare, backpack…) registers itself
   const wallets = useMemo(() => [], []);
   return (
     // a keyless public endpoint; nothing in the browser sends transactions or holds an rpc key
     <ConnectionProvider endpoint="https://solana-rpc.publicnode.com">
       <WalletProvider wallets={wallets} autoConnect onError={(e) => onWalletError?.(e)}>
-        <Store>{children}</Store>
+        {backend ? <Store backend={backend}>{children}</Store> : <div className="h-svh bg-[#0b0908]" />}
       </WalletProvider>
     </ConnectionProvider>
   );

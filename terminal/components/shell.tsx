@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { LogoReveal, NumberRoll, StatusText } from "@/components/motion";
 import { useStore } from "./app/store";
+import { Tip } from "./tip";
 import { CoinLogo } from "./coin-logo";
 import { COINS, DOWN, coinHref, pct, tone, usd } from "./app/format";
 import { short } from "./app/wallet";
@@ -36,6 +37,7 @@ export function Shell({ children }: { children: ReactNode }) {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/mascot.webp" alt="" className="size-6" />
             <span className="text-[18px] font-semibold tracking-[-0.03em]">baghedge</span>
+            <span className="ml-auto"><Network /></span>
           </Link>
           <nav className="mt-6 flex flex-col gap-1">
             {NAV.map((n) => {
@@ -55,7 +57,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </nav>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto border-y border-white/[0.08] px-4 py-2">
-          {COINS.map((c) => {
+          {COINS.filter((c) => !markets.length || markets.some((m) => m.name === c)).map((c) => {
             const px = mids[c];
             const ch = px && prev[c] ? px / prev[c] - 1 : undefined;
             const on = path === coinHref(c) || path === `/markets/${c}`;
@@ -81,6 +83,7 @@ export function Shell({ children }: { children: ReactNode }) {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/mascot.webp" alt="" className="size-6" />
             <span className="text-[17px] font-semibold tracking-[-0.03em]">baghedge</span>
+            <Network />
           </Link>
           <WalletChip />
         </div>
@@ -182,6 +185,25 @@ function NavTile({ icon: Icon, on, size }: { icon: typeof Wallet; on: boolean; s
         </svg>
       )}
       <Icon size={Math.round(size * 0.58)} weight="fill" className={`relative transition-colors duration-150 ${on ? "text-white" : "text-white/70 group-hover:text-white"}`} />
+    </span>
+  );
+}
+
+// which network the backend runs, and who signs hedge orders (AGENTS.md rule 15: every claim says what it is)
+function Network() {
+  const { backend } = useStore();
+  const label = !backend.reachable ? "Read only" : backend.mode === "testnet" ? "Testnet" : "Mainnet";
+  const tip = !backend.reachable
+    ? "Backend unreachable. Prices are live; hedges run as a replay."
+    : backend.signer === "fallback"
+      ? `Hyperliquid ${backend.mode}. Hedge orders are signed by a labelled demo key, not the attested guard yet.`
+      : `Hyperliquid ${backend.mode}. Hedge orders are signed by the attested guard on NEAR.`;
+  return (
+    <span className="whitespace-nowrap rounded-[7px] bg-[#1c1b1a] px-2 py-0.5 text-[11px] font-semibold text-white/70">
+      <Tip text={tip} side="bottom" align="end">
+        {label}
+        {backend.reachable && backend.signer === "fallback" ? " · Demo" : ""}
+      </Tip>
     </span>
   );
 }

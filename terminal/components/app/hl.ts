@@ -8,8 +8,18 @@ import { useEffect, useState } from "react";
 // - useAccount: a hyperliquid account's equity, positions and fills, by its public address
 // fallbacks so the screen never stalls: info tries the api host, then the ui host (both public, both tested);
 // whenever the socket is down, the hooks poll info instead until it's back
-const INFO = ["https://api.hyperliquid.xyz/info", "https://api-ui.hyperliquid.xyz/info"];
-const WS = "wss://api.hyperliquid.xyz/ws";
+// the network follows the baghedge backend (GET /api/health → mode), set once at start before any hook runs
+export type Network = "mainnet" | "testnet";
+const HOSTS: Record<Network, { info: string[]; ws: string }> = {
+  mainnet: { info: ["https://api.hyperliquid.xyz/info", "https://api-ui.hyperliquid.xyz/info"], ws: "wss://api.hyperliquid.xyz/ws" },
+  testnet: { info: ["https://api.hyperliquid-testnet.xyz/info"], ws: "wss://api.hyperliquid-testnet.xyz/ws" },
+};
+let NET: Network = "mainnet";
+export const setNetwork = (n: Network) => {
+  NET = n;
+  preferred = 0;
+};
+export const getNetwork = () => NET;
 
 export type Trade = { px: number; sz: number; side: "B" | "A"; time: number; tid: number };
 export type Candle = { t: number; o: number; h: number; l: number; c: number; v: number };
@@ -28,6 +38,7 @@ const merge = (add: Trade[], old: Trade[]) => {
 let preferred = 0;
 export async function info<T>(body: unknown): Promise<T> {
   let last: unknown;
+  const INFO = HOSTS[NET].info;
   for (let i = 0; i < INFO.length; i++) {
     const at = (preferred + i) % INFO.length;
     try {
@@ -67,7 +78,7 @@ function socket(subs: object[], onMessage: (m: { channel: string; data: never })
   let retry: ReturnType<typeof setTimeout> | undefined;
   let closed = false;
   const open = () => {
-    ws = new WebSocket(WS);
+    ws = new WebSocket(HOSTS[NET].ws);
     ws.onopen = () => {
       onLive(true);
       for (const s of subs) ws!.send(JSON.stringify({ method: "subscribe", subscription: s }));
