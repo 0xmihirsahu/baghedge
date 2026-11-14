@@ -139,9 +139,16 @@ function Accounts() {
         >
           {/* one centred group: the art, what this account is, and the field to add it */}
           <div key={role} className="flex flex-col [animation:toast-in_300ms_cubic-bezier(0.19,1,0.22,1)]">
-            {/* halftone art (codex, the landing's style); its black drops out on the card */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={role === "trade" ? "/art/trade-account.webp" : "/art/hedge-account.webp"} alt="" className="-mb-10 -ml-8 -mt-6 w-[300px] mix-blend-screen [@media(max-height:760px)]:hidden" />
+            {/* halftone art (codex, the landing's style), white dots on transparent. both load up front so a switch never waits */}
+            {(["trade", "hedge"] as const).map((r) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={r}
+                src={`/art/${r}-account.webp`}
+                alt=""
+                className={`-mb-[72px] -ml-[56px] -mt-[40px] w-[520px] max-w-[calc(100%+56px)] [@media(max-height:820px)]:hidden ${r === role ? "" : "hidden"}`}
+              />
+            ))}
             <p className="text-[20px] font-semibold tracking-[-0.02em]">Add your {role === "trade" ? "Trade" : "Hedge"} account</p>
             <p className="mt-1 text-[14px] text-white/45">{role === "trade" ? "The account you trade from by hand." : "The separate account that holds the hedge short."} Read only.</p>
             <div className="mt-5 flex w-full gap-2">
