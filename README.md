@@ -51,6 +51,10 @@ Your coins never move. Nothing to deposit, nothing to bridge out of cold storage
 | **Trade** | Any of the 179 Hyperliquid perps, at the leverage you pick. |
 | **Pay out** | Back to any token and any wallet. Every step links to its explorer. |
 
+<details>
+<summary><b>Screens from the app</b></summary>
+<br/>
+
 <table>
   <tr>
     <td><img src="docs/media/07-add-funds-quote.jpg" alt="Add funds: the quote with every fee" /></td>
@@ -69,6 +73,8 @@ Your coins never move. Nothing to deposit, nothing to bridge out of cold storage
     <td align="center"><sub>A real trade, filled at $70.008</sub></td>
   </tr>
 </table>
+
+</details>
 
 ## How it fits together
 
