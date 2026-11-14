@@ -98,7 +98,7 @@ export function PortfolioPage() {
 
 // the two hyperliquid master accounts by public address, mainnet. Trade and Hedge must differ (AGENTS.md rule 8)
 function Accounts() {
-  const { accounts, setAccounts } = useStore();
+  const { accounts, setAccounts, evm } = useStore();
   const [role, setRole] = useState<"trade" | "hedge">("trade");
   const address = accounts[role];
   const other = accounts[role === "trade" ? "hedge" : "trade"];
@@ -153,10 +153,23 @@ function Accounts() {
               ))}
             </div>
             <p className="text-[20px] font-semibold tracking-[-0.02em]">Add your {role === "trade" ? "Trade" : "Hedge"} account</p>
-            <p className="mt-1 text-[14px] text-white/45">{role === "trade" ? "The account you trade from by hand." : "The separate account that holds the hedge short."}{" "}
-              <Tip text="We only read this account. We never move funds.">Read only.</Tip>
-            </p>
-            <div className="mt-5 flex w-full gap-2">
+            <p className="mt-1 text-[14px] text-white/45">{role === "trade" ? "The account you trade from by hand." : "The separate account that holds the hedge short."}</p>
+            <button
+              type="button"
+              onClick={() => {
+                const link = (addr: string) => {
+                  if (other && addr.toLowerCase() === other.toLowerCase()) return setBad("This wallet is your other account. Switch accounts in your wallet.");
+                  setAccounts({ ...accounts, [role]: addr });
+                };
+                if (evm.address && !(other && evm.address.toLowerCase() === other.toLowerCase())) link(evm.address);
+                else evm.connect(`Connect your ${role === "trade" ? "Trade" : "Hedge"} wallet`, link);
+              }}
+              className="mt-5 flex h-11 items-center justify-center gap-2 rounded-[12px] bg-[#f0645a] px-4 text-[14px] font-semibold transition-transform duration-150 active:scale-[0.98]"
+            >
+              {evm.address && !(other && evm.address.toLowerCase() === other.toLowerCase()) ? `Use ${evm.address.slice(0, 6)}…${evm.address.slice(-4)}` : "Connect EVM wallet"}
+            </button>
+            <p className="mt-4 text-[12px] text-white/40">Or paste the address to watch it, read only</p>
+            <div className="mt-2 flex w-full gap-2">
               <input
                 value={input}
                 onChange={(e) => {
@@ -168,7 +181,7 @@ function Accounts() {
                 spellCheck={false}
                 className={`h-11 min-w-0 flex-1 rounded-[12px] bg-[#1c1b1a] px-3 text-[14px] outline-none ring-1 placeholder:text-white/35 ${bad ? "ring-[#f2554b]" : "ring-transparent focus:ring-white/15"}`}
               />
-              <button className="h-11 rounded-[12px] bg-[#f0645a] px-4 text-[14px] font-semibold transition-transform duration-150 active:scale-[0.98]">Add</button>
+              <button className="h-11 rounded-[12px] bg-[#1c1b1a] px-4 text-[14px] font-semibold transition-colors duration-150 hover:bg-[#2e2c2a]">Add</button>
             </div>
             <p className="mt-2 h-4 text-[12px] text-[#f2554b]">{bad}</p>
           </div>
