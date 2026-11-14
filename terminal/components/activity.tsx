@@ -6,13 +6,19 @@ import { useStore } from "./app/store";
 import { CoinLogo } from "./coin-logo";
 import { Tip } from "./tip";
 import { DOWN, UP, time, tone, usd } from "./app/format";
+import { haptic } from "@/lib/haptics";
+import { Offline } from "./offline";
 
 // one list: the hedge replay's events and real fills from the Trade and Hedge accounts, newest first.
 // every row says what it is, replay or mainnet (AGENTS.md rule 15)
 export function ActivityPage() {
   const { activity, accounts } = useStore();
-  const trade = useAccount(accounts.trade || null).account;
-  const hedge = useAccount(accounts.hedge || null).account;
+  const tradeRead = useAccount(accounts.trade || null);
+  const hedgeRead = useAccount(accounts.hedge || null);
+  const trade = tradeRead.account;
+  const hedge = hedgeRead.account;
+  // a read failed: fills may be missing. a quiet note in the subtitle's own line, so nothing moves
+  const failing = (!!accounts.trade && tradeRead.error) || (!!accounts.hedge && hedgeRead.error);
 
   type Row = { at: number; key: string; coin: string; what: string; detail: string; tag: string; color?: string; pnl?: number };
   const rows: Row[] = [
@@ -38,7 +44,9 @@ export function ActivityPage() {
     <section className="flex h-full min-h-0 flex-col">
       <header className="px-5 pb-4 pt-5 sm:px-7">
         <h1 className="text-[26px] font-semibold tracking-[-0.03em]">Activity</h1>
-        <p className="text-[13px] text-white/45">Hedge events and fills from your Hyperliquid accounts</p>
+        <p className="truncate text-[13px] text-white/45">
+          {failing && rows.length ? <span className="inline-error-in">Couldn&apos;t reach Hyperliquid. Fills may be missing. Retrying.</span> : "Hedge events and fills from your Hyperliquid accounts"}
+        </p>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto border-t border-white/[0.08]">
         {rows.length ? (
@@ -58,12 +66,16 @@ export function ActivityPage() {
               </div>
             </div>
           ))
+        ) : failing && !trade && !hedge ? (
+          <div className="grid h-full min-h-[280px] place-items-center">
+            <Offline line="Your fills show here once it answers." />
+          </div>
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <p className="text-[15px] text-white/55">Nothing yet</p>
             <div className="flex gap-2">
-              <Link href="/" className="rounded-[12px] bg-[#1c1b1a] px-4 py-2.5 text-[14px] font-semibold hover:bg-[#2e2c2a]">Set up a hedge</Link>
-              <Link href="/portfolio" className="rounded-[12px] bg-[#1c1b1a] px-4 py-2.5 text-[14px] font-semibold hover:bg-[#2e2c2a]">Add an account</Link>
+              <Link href="/" onClick={() => haptic("select")} className="rounded-[12px] bg-[#1c1b1a] px-4 py-2.5 text-[14px] font-semibold hover:bg-[#2e2c2a]">Set up a hedge</Link>
+              <Link href="/portfolio" onClick={() => haptic("select")} className="rounded-[12px] bg-[#1c1b1a] px-4 py-2.5 text-[14px] font-semibold hover:bg-[#2e2c2a]">Add an account</Link>
             </div>
           </div>
         )}

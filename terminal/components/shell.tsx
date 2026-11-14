@@ -114,7 +114,7 @@ export function Shell({ children }: { children: ReactNode }) {
       </div>
 
       {/* toasts size to their text and wrap: top-centre on a phone, top-right on desktop, never past the edge */}
-      <div className="pointer-events-none fixed inset-x-4 top-4 z-[60] flex flex-col items-center gap-2 lg:inset-x-auto lg:right-4 lg:items-end">
+      <div className="pointer-events-none fixed inset-x-4 top-4 z-[68] flex flex-col items-center gap-2 lg:inset-x-auto lg:right-4 lg:items-end">
         {toasts.map((t) => (
           <div key={t.id} className="toast-in relative flex min-w-[220px] max-w-[min(360px,100%)] items-center gap-3 rounded-[14px] bg-[#1c1b1a] px-4 py-3">
             <span className="shrink-0 text-[13px] text-white/50">{t.kind === "replay" ? `Replay · ${t.title}` : t.title}</span>

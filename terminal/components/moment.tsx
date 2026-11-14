@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { reducedMotion } from "./motion/dots";
+import { haptic } from "@/lib/haptics";
 
 // a key moment in the terminal: a short dot film over the page, a title, one quiet line. it plays once, then leaves.
 // films are in public/moments, rendered from films/baghedge-moments in the video harness, black screened onto the card
@@ -27,6 +28,14 @@ function Card({ m, onDone }: { m: Moment; onDone: () => void }) {
     clearTimeout(timer.current);
     timer.current = setTimeout(dismiss, ms);
   }, [dismiss]);
+
+  // the card lands with a buzz: a warning for a buyback (the hedge shrank), success for the rest. once per card
+  const buzzed = useRef(false);
+  useEffect(() => {
+    if (buzzed.current) return;
+    buzzed.current = true;
+    haptic(m.kind === "buyback" ? "warning" : "success");
+  }, [m.kind]);
 
   // reduced motion shows the poster for less time; otherwise a fallback in case the film never ends (autoplay refused)
   useEffect(() => {
