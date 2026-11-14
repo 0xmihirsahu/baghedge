@@ -2,10 +2,8 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { CoinRoute } from "@/components/coin-route";
 
-export async function generateMetadata({ params }: PageProps<"/markets/[coin]">): Promise<Metadata> {
-  const { coin } = await params;
-  return { title: decodeURIComponent(coin) };
-}
+// a fixed title: reading the coin from the url here would block the route's metadata under cache components
+export const metadata: Metadata = { title: "Market" };
 
 export default function Page({ params }: PageProps<"/markets/[coin]">) {
   return (

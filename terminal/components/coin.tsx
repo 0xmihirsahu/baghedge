@@ -10,6 +10,7 @@ import { CoinLogo } from "./coin-logo";
 import { Tip } from "./tip";
 import { useCoin, useAccount, type Interval, type Trade } from "./app/hl";
 import { FUNDING, STATUS, useStore } from "./app/store";
+import { ruleLabel as ruleLabelText } from "./app/live";
 import { DOWN, UP, compact, pct, priceDecimals, risk, time, tone, usd } from "./app/format";
 
 const RANGES: Record<string, [Interval, number]> = { "1H": ["1m", 1], "1D": ["15m", 24], "1W": ["1h", 168], "1M": ["4h", 720] };
@@ -18,7 +19,8 @@ const RANGES: Record<string, [Interval, number]> = { "1H": ["1m", 1], "1D": ["15
 // SOL also carries the hedge (entry and recovery on the chart, the hedge ticket)
 export function CoinPage({ coin }: { coin: string }) {
   const store = useStore();
-  const { markets, mids, hedge: h, wallet, accounts } = store;
+  const { markets, mids, hedge: h, wallet, accounts, liveEnabled, liveHedge, backend } = store;
+  const L = liveEnabled ? liveHedge : null;
   const [range, setRange] = useState("1D");
   const market = markets.find((m) => m.name === coin);
   const { ctx, trades, candles } = useCoin(market ? coin : null, ...RANGES[range]);
@@ -99,7 +101,16 @@ export function CoinPage({ coin }: { coin: string }) {
           <div className="hidden min-h-0 flex-col border-l border-white/[0.08] md:flex">
             <p className="px-5 pb-2 pt-3.5 text-[14px] font-semibold">Positions</p>
             <div className="min-h-0 flex-1 overflow-y-auto px-5">
-              {isSol && h.hedge !== 0 && (
+              {isSol && L?.rule && L.rule.status === "active" && Number(L.rule.shortLots) > 0 && (
+                <Row
+                  title="Short"
+                  sub={`${backend.mode === "testnet" ? "Testnet" : "Mainnet"} · Hedge account`}
+                  value={`${(Number(L.rule.shortLots) / 10 ** (market?.szDecimals ?? 2)).toFixed(market?.szDecimals ?? 2)} SOL`}
+                  note={ruleLabelText(L.rule)}
+                  coin={coin}
+                />
+              )}
+              {isSol && !L && h.hedge !== 0 && (
                 <Row
                   title="Short"
                   sub={<><Tip text="Simulated hedge. Nothing is signed or sent." side="bottom" align="start">Replay</Tip> · <StatusText text={STATUS[h.phase]} tone="plain" /></>}
@@ -111,7 +122,7 @@ export function CoinPage({ coin }: { coin: string }) {
               {positions.map((p) => (
                 <Row key={p.coin} title={p.size < 0 ? "Short" : "Long"} sub={`Trade account · ${p.leverage}x`} value={`${p.size} ${coin}`} note={<span style={{ color: tone(p.pnl) }}>{usd(p.pnl, 2)}</span>} coin={coin} />
               ))}
-              {!(isSol && h.hedge !== 0) && !positions.length && (
+              {!(isSol && (L ? L.rule && Number(L.rule.shortLots) > 0 : h.hedge !== 0)) && !positions.length && (
                 <div className="flex h-full flex-col items-center justify-center gap-2 pb-6 text-center">
                   <p className="text-[14px] text-white/45">No {coin} position</p>
                   {!accounts.trade && <Link href="/portfolio" className="text-[13px] font-medium text-white/70 hover:text-white">Add a Hyperliquid account</Link>}
@@ -137,7 +148,7 @@ export function CoinPage({ coin }: { coin: string }) {
       </div>
 
       {/* review before anything is signed */}
-      <div className={`fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 transition-opacity duration-200 ${review ? "opacity-100" : "pointer-events-none opacity-0"}`} onClick={() => setReview(false)}>
+      <div className={`fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 transition-opacity duration-200 ${review ? "opacity-100" : "pointer-events-none opacity-0"}`} onClick={() => { setReview(false); L?.cancelDraft(); }}>
         <div className={`w-full max-w-[400px] rounded-[24px] bg-[#141312] p-6 transition-transform duration-200 ease-out ${review ? "scale-100" : "scale-95"}`} onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between">
             <p className="text-[18px] font-semibold">Review</p>
@@ -149,7 +160,7 @@ export function CoinPage({ coin }: { coin: string }) {
               ["Wallet", wallet.address ? `${wallet.address.slice(0, 4)}…${wallet.address.slice(-4)}` : "—"],
               ["Entry", usd(h.entry)],
               ["Recovery", usd(h.recovery)],
-              ["Margin, est.", usd(r.margin)],
+              ["Margin, est.", L?.margin ? usd(L.margin.need, 2) : usd(r.margin)],
               ["Liquidation, est.", usd(r.liq)],
               ["Fees, est.", usd(r.fees)],
               ["Runs", "Once, 7 days"],
@@ -157,10 +168,47 @@ export function CoinPage({ coin }: { coin: string }) {
               <div key={k} className="flex justify-between py-3"><span className="text-white/50">{k}</span><span className="font-medium tabular-nums">{v}</span></div>
             ))}
           </div>
-          <button onClick={() => { setReview(false); setSheet(false); h.setPhase("signing"); }} className="mt-6 h-[52px] w-full rounded-[14px] bg-[#f0645a] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98]">
-            Sign and fund
-          </button>
-          <p className="mt-3 text-center text-[12px] text-white/40">Replay. Nothing is signed.</p>
+          {L ? (
+            <>
+              {L.margin && L.margin.have < L.margin.need && (
+                <p className="mt-4 rounded-[12px] bg-[#1c1b1a] px-3.5 py-3 text-[13px] leading-snug text-white/75">
+                  The Hedge account holds {usd(L.margin.have, 2)} and needs {usd(L.margin.need, 2)}.{" "}
+                  {backend.mode === "testnet" ? (
+                    <a href="https://app.hyperliquid-testnet.xyz/drip" target="_blank" rel="noreferrer" className="font-semibold text-white underline underline-offset-2">
+                      Get testnet USDC
+                    </a>
+                  ) : (
+                    "Fund it from Base first."
+                  )}
+                </p>
+              )}
+              <button
+                disabled={!!L.busy}
+                onClick={() =>
+                  L.arm().then((ok) => {
+                    if (!ok) return;
+                    setReview(false);
+                    setSheet(false);
+                  })
+                }
+                className="mt-5 flex h-[52px] w-full items-center justify-center gap-2 rounded-[14px] bg-[#f0645a] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70"
+              >
+                {L.busy === "arm" ? "Sign the policy in your wallet" : "Sign and arm"}
+              </button>
+              <p aria-live="polite" className="mt-2 min-h-[18px] text-center text-[12px] leading-snug text-[#f2554b]">{L.error?.message ?? ""}</p>
+              <p className="text-center text-[12px] text-white/40">
+                {backend.mode === "testnet" ? "Testnet" : "Mainnet"}
+                {backend.signer === "fallback" ? " · demo signer, not the attested guard" : " · signed by the attested guard"}
+              </p>
+            </>
+          ) : (
+            <>
+              <button onClick={() => { setReview(false); setSheet(false); h.setPhase("signing"); }} className="mt-6 h-[52px] w-full rounded-[14px] bg-[#f0645a] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98]">
+                Sign and fund
+              </button>
+              <p className="mt-3 text-center text-[12px] text-white/40">Replay. Nothing is signed.</p>
+            </>
+          )}
         </div>
       </div>
     </div>
