@@ -32,7 +32,8 @@ type Activity = { at: number; what: string };
 
 // mode: the network the UI reads (NEXT_PUBLIC_NETWORK pins it, else the backend's). apiMode: the network the backend runs.
 // live hedging needs both to match; otherwise the hedge stays a labelled replay
-export type Backend = { reachable: boolean; mode: Network; apiMode: Network | null; signer: "guard" | "fallback" | null; agentAddress: string | null };
+// pinnedOwner: a single-owner guard build signs for that one Hedge account only (docs/API.md, owner_unsupported)
+export type Backend = { reachable: boolean; mode: Network; apiMode: Network | null; signer: "guard" | "fallback" | null; agentAddress: string | null; pinnedOwner: string | null };
 const PINNED = process.env.NEXT_PUBLIC_NETWORK === "mainnet" || process.env.NEXT_PUBLIC_NETWORK === "testnet" ? (process.env.NEXT_PUBLIC_NETWORK as Network) : null;
 
 function useTerminal(backend: Backend) {
@@ -250,10 +251,12 @@ function useTerminal(backend: Backend) {
   // otherwise the hedge runs as the labelled replay above
   const liveCapable = backend.reachable && backend.apiMode === backend.mode;
   const liveEnabled = liveCapable && !!accounts.trade && !!accounts.hedge && !!signer;
+  // refused up front, before any signature: this server's guard can't sign for this Hedge account
+  const ownerSupported = !backend.pinnedOwner || same(backend.pinnedOwner, accounts.hedge);
   const liveHedge = useLiveHedge({ enabled: liveEnabled, trade: accounts.trade, hedge: accounts.hedge, solana: address, agent: backend.agentAddress, signer });
 
   const hedgeState = { phase, setPhase: go, hedge, cap, setCap, capN, entry, setEntry: setEntryKept, recovery, setRecovery: setRecoveryKept, held };
-  return { backend, evm, privy, liveCapable, liveEnabled, liveHedge, markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };
+  return { backend, evm, privy, liveCapable, liveEnabled, ownerSupported, liveHedge, markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };
 }
 
 const Ctx = createContext<ReturnType<typeof useTerminal> | null>(null);
@@ -310,9 +313,9 @@ export function Providers({ children }: { children: ReactNode }) {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((h) => {
         const apiMode: Network = h.mode === "testnet" ? "testnet" : "mainnet";
-        settle({ reachable: true, mode: PINNED ?? apiMode, apiMode, signer: h.hedgeSigner?.kind ?? null, agentAddress: h.hedgeSigner?.agentAddress ?? null });
+        settle({ reachable: true, mode: PINNED ?? apiMode, apiMode, signer: h.hedgeSigner?.kind ?? null, agentAddress: h.hedgeSigner?.agentAddress ?? null, pinnedOwner: h.hedgeSigner?.pinnedOwner ?? null });
       })
-      .catch(() => settle({ reachable: false, mode: PINNED ?? "mainnet", apiMode: null, signer: null, agentAddress: null }));
+      .catch(() => settle({ reachable: false, mode: PINNED ?? "mainnet", apiMode: null, signer: null, agentAddress: null, pinnedOwner: null }));
   }, []);
   // no adapters listed: every wallet-standard wallet (phantom, solflare, backpack…) registers itself
   const wallets = useMemo(() => [], []);

@@ -12,7 +12,7 @@ import { CORAL, DOWN, INK, TAKER, UP, pct, risk, usd } from "./app/format";
 // fomo's buy panel: coin row, big amount, chips, pad, summary, action, estimates.
 // Hedge (SOL only) sizes against the watched wallet; Trade sizes a market order in dollars
 export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string; mark?: number; change: number; maxLev: number; onReview: () => void }) {
-  const { wallet, hedge: h, toast, liveEnabled, liveHedge, backend, privy, liveCapable } = useStore();
+  const { wallet, hedge: h, toast, liveEnabled, liveHedge, backend, privy, liveCapable, ownerSupported } = useStore();
   const canHedge = coin === "SOL";
   const [modeState, setMode] = useState<"Hedge" | "Trade">("Hedge");
   const mode = canHedge ? modeState : "Trade";
@@ -68,7 +68,7 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
       : ({ draft: "Review hedge", credited: "Arm", armed: "Simulate a crossing", open: "Close hedge", closed: "New hedge" } as Partial<Record<Phase, string>>)[h.phase];
   const MIN = 10;
   const belowMin = hedgeMode && !!mark && h.capN > 0 && h.capN * mark < MIN;
-  const why = !connected || !draft || signInFirst ? null : h.capN <= 0 ? "Enter an amount" : over ? "More than you hold" : belowMin ? `Below the $${MIN} minimum` : h.recovery <= h.entry ? "Recovery must sit above entry" : null;
+  const why = !connected || !draft || signInFirst ? null : L && !ownerSupported && !ruleOn ? "Pilot account only, for now" : h.capN <= 0 ? "Enter an amount" : over ? "More than you hold" : belowMin ? `Below the $${MIN} minimum` : h.recovery <= h.entry ? "Recovery must sit above entry" : null;
   const disabled = connected && (!label || busy || !!why || (signInFirst && !privy.error && (!privy.ready || privy.creating || privy.authenticated)));
   const tradeBelowMin = !hedgeMode && (Number(usdIn) || 0) < MIN;
   const act = () => {
@@ -225,6 +225,14 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
       {hedgeMode && L && (
         <p aria-live="polite" className="mt-2 min-h-[18px] text-center text-[12px] leading-snug text-[#f2554b]">
           {L.error?.message ?? ""}
+          {!L.error && !ownerSupported && !ruleOn && (
+            <span className="text-white/45">
+              The mainnet guard signs for one pilot account.{" "}
+              <a href="https://testnet.baghedge.xyz" className="font-semibold text-white underline underline-offset-2">
+                Try it on testnet
+              </a>
+            </span>
+          )}
         </p>
       )}
 

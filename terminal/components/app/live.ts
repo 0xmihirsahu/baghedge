@@ -37,6 +37,7 @@ const MESSAGES: Record<string, string> = {
   hedge_account_busy: "The Hedge account has an open position or orders. Clear them first.",
   no_eligible_sol: "The watched wallet has no SOL to hedge.",
   account_alias: "Trade and Hedge must be different accounts.",
+  owner_unsupported: "Mainnet hedging is open to the pilot account only, for now.",
   invalid_policy: "The policy changed or was signed by the wrong wallet. Review it again.",
   sign_in_required: "Sign in again to read your hedge.",
   rejected: "You cancelled the signature.",
@@ -87,8 +88,8 @@ const px = (v: number, szDecimals = 2) => {
 
 export function ruleLabel(r: Rule): string {
   if (r.actions?.some((a) => a.transport === "unknown")) return "Checking order";
-  if (r.reason === "exit-price-outside-band") return "Close blocked";
-  if (r.reason === "resize-price-outside-band") return "Resize blocked";
+  if (r.reason === "exit-price-outside-band" || r.reason?.startsWith("close-blocked")) return "Close blocked";
+  if (r.reason === "resize-price-outside-band" || r.reason?.startsWith("resize-blocked")) return "Resize blocked";
   if (r.reason === "cancelling-hedge-orders") return "Closing";
   if (r.reason === "recovery-stop-filled") return "Closed by recovery stop";
   if (r.reason === "recovery-stop-partial") return "Recovery stop partially filled";
