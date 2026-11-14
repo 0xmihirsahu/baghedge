@@ -30,10 +30,10 @@ const PEOPLE: { name: string; title: string; bio: string; art: Source[]; links: 
     ],
   },
   {
-    name: "Claude × ChatGPT",
+    name: "Claude & ChatGPT",
     title: "100x employee",
     bio: "Never sleeps, never asks for equity. Wrote half the code, drew the diagrams, and argued with us about easing curves. Lost most of those.",
-    art: [{ kind: "image", src: "/art/team-ai.webp", scale: 0.78 }],
+    art: [{ kind: "image", src: "/art/portrait-robot.webp", scale: 1 }],
     links: [
       { label: "X", href: "https://x.com/claudeai", icon: "x" },
       { label: "X", href: "https://x.com/OpenAI", icon: "x" },
