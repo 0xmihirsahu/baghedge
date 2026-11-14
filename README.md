@@ -28,9 +28,7 @@ A Hyperliquid terminal that hedges the SOL you already hold, without moving it.<
 
 Built at the NEAR Hackathon, track **Unstoppable DeFi**. Live on mainnet.
 
-- **App:** https://app.baghedge.xyz (source: [`terminal/`](terminal/))
-- **Backend:** mainnet https://baghedge-api-mainnet.onrender.com/api/health (attested guard) · testnet sandbox https://baghedge-api.onrender.com/api/health (source: [`server/`](server/))
-- **Guard (Rust, OutLayer):** [`guard/`](guard/)
+Backend health: [mainnet](https://baghedge-api-mainnet.onrender.com/api/health) (attested guard) · [testnet sandbox](https://baghedge-api.onrender.com/api/health)
 
 ## The idea
 
@@ -171,7 +169,7 @@ Every row links to on-chain or venue evidence. Raw records: [`docs/evidence/main
 | **Multi-owner guard: full cycle for a per-owner agent** (public service, release `6d85a8f`) | **Mainnet** | Hedge `0x59c3…85cc` approves its own derived agent `0x96fd5f5a…c65a` → guard ([`CcWtZNNA…rRiG`](https://api.outlayer.ai/attestations/by-tx/CcWtZNNAkvZzGojji6YHbtNq7WCviW6o4FmPeu8MrRiG), build `1a847d88…`, `sign_order`/entry) → IOC sell `605392198623` **filled 0.2 SOL @ 70.573**, recovery stop `605392198624` open → owner close, guard ([`Dt7F2RmA…JCS`](https://api.outlayer.ai/attestations/by-tx/Dt7F2RmAmFXzEcZFMpG48hPAua4aZ6hX5BujUuZJDJCS)) → reduce-only `605394485511` **filled 0.2 @ 70.238**, stop `reduceOnlyCanceled`, Trade untouched → `sendAsset` 8.69 USDC → Base tx [`0x94e83167…5bf3`](https://basescan.org/tx/0x94e83167a29a80a405909f554529370ee5d438b62bf39343f09cabee7b075bf3): **8.486894 USDC received** | ✅ |
 | Rule expiry without a crossing ends flat | Hyperliquid testnet | rule `0x243019ab…3b1a`: low 64.794 vs entry 64.76, expired with 0 actions | ✅ |
 
-**And again, through the app.** On 2026-11-14 a fresh Privy account ran the whole thing in the UI on mainnet: fund from SOL, arm and disarm a hedge with its own guard agent, a real long and close, and payouts back to SOL. Every transaction is in [`JUDGES.md`](JUDGES.md#the-full-flow-on-mainnet-through-the-ui), and the [1:42 film](docs/media/baghedge-mainnet-run.mp4) shows it.
+The same flow ran again through the app on 2026-11-14 with a fresh Privy account; its transactions are in [`JUDGES.md`](JUDGES.md#the-full-flow-on-mainnet-through-the-ui).
 
 ## Trust boundary and disclosed risks
 - **The owner keeps control:** funding, agent approval, the policy, disarm, close and payout are all owner wallet signatures. The guard agent can't withdraw or transfer, because Hyperliquid forbids it for agents.
@@ -182,8 +180,6 @@ Every row links to on-chain or venue evidence. Raw records: [`docs/evidence/main
 - **Platform trust:** Hyperliquid (venue and mark price), OutLayer/Intel TDX, NEAR Intents, and Solana RPC data. Auto-deleveraging and funding can change the outcome.
 
 ## Try it
-
-**In the browser:** open https://app.baghedge.xyz. Markets and charts need no sign-in.
 
 **No wallet at all, a replay:**
 ```sh
