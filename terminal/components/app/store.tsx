@@ -3,7 +3,10 @@
 import { WalletReadyState, type WalletError } from "@solana/wallet-adapter-base";
 import { ConnectionProvider, WalletProvider, useWallet } from "@solana/wallet-adapter-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useConnection, useDisconnect } from "wagmi";
+import { EvmModal } from "../evm-modal";
 import { MomentCard, type Moment, type MomentKind } from "../moment";
+import { EvmProviders } from "./evm";
 import { WalletModal } from "../wallet-modal";
 import { risk, usd } from "./format";
 import { setNetwork, useMarkets, type Network } from "./hl";
@@ -100,6 +103,20 @@ function useTerminal(backend: Backend) {
         localStorage.removeItem("bh:watch");
       } catch {}
     },
+  };
+
+  // the EVM wallet that owns the hyperliquid accounts (Trade, Hedge) and signs their actions in the browser
+  const conn = useConnection();
+  const disconnectEvm = useDisconnect();
+  const [evmAsk, setEvmAsk] = useState<{ title: string; then: (a: string) => void } | null>(null);
+  const evm = {
+    address: conn.address ?? null,
+    chainId: conn.chainId ?? null,
+    name: conn.connector?.name ?? null,
+    connect: (title: string, then: (a: string) => void) => setEvmAsk({ title, then }),
+    disconnect: () => disconnectEvm.mutate(),
+    ask: evmAsk,
+    closeAsk: () => setEvmAsk(null),
   };
 
   // the two hyperliquid master accounts, read by public address. they must differ (AGENTS.md rule 8)
@@ -199,7 +216,7 @@ function useTerminal(backend: Backend) {
   const setEntryKept = useCallback((v: number) => setEntry(Math.min(v, Math.round(recovery * 0.998 * 100) / 100)), [recovery]);
   const setRecoveryKept = useCallback((v: number) => setRecovery(Math.max(v, Math.round(entry * 1.002 * 100) / 100)), [entry]);
   const hedgeState = { phase, setPhase: go, hedge, cap, setCap, capN, entry, setEntry: setEntryKept, recovery, setRecovery: setRecoveryKept, held };
-  return { backend, markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };
+  return { backend, evm, markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };
 }
 
 const Ctx = createContext<ReturnType<typeof useTerminal> | null>(null);
@@ -228,6 +245,15 @@ function Store({ children, backend }: { children: ReactNode; backend: Backend })
     <Ctx.Provider value={value}>
       {children}
       <WalletModal open={value.wallet.picker} onClose={value.wallet.closePicker} />
+      <EvmModal
+        open={!!value.evm.ask}
+        title={value.evm.ask?.title ?? "Connect wallet"}
+        onClose={value.evm.closeAsk}
+        onConnected={(a) => {
+          value.evm.ask?.then(a);
+          value.evm.closeAsk();
+        }}
+      />
       <MomentCard moment={value.momentNow} onDone={value.clearMoment} />
     </Ctx.Provider>
   );
@@ -252,11 +278,13 @@ export function Providers({ children }: { children: ReactNode }) {
   const wallets = useMemo(() => [], []);
   return (
     // a keyless public endpoint; nothing in the browser sends transactions or holds an rpc key
+    <EvmProviders>
     <ConnectionProvider endpoint="https://solana-rpc.publicnode.com">
       <WalletProvider wallets={wallets} autoConnect onError={(e) => onWalletError?.(e)}>
         {backend ? <Store backend={backend}>{children}</Store> : <div className="h-svh bg-[#0b0908]" />}
       </WalletProvider>
     </ConnectionProvider>
+    </EvmProviders>
   );
 }
 
