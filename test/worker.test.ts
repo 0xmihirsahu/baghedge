@@ -4,6 +4,7 @@ import { armHedge } from "../shared/hedge";
 import { ruleFromPolicy, solanaToBytes32, type HedgePolicy } from "../shared/policy";
 import { openDb } from "../server/db";
 import { fallbackSigner, verifiedSigner, type Exchange, type L1Action, type HedgeSigner, type OrderStatusResult, type SubmitResult } from "../server/exchange";
+import { GuardRefused } from "../server/guard";
 import { createWorker } from "../server/worker";
 
 type Order = { cloid: string; oid: number; buy: boolean; reduceOnly: boolean; trigger?: string; origLots: number; filledLots: number; status: string; parent?: string };
@@ -77,11 +78,12 @@ const policy: HedgePolicy = {
   buybackCeilingE8: "8200000000", entryWindowMs: "30000", expiryMs: String(Date.now() + 3_600_000), minMarginE6: "1", oneCycle: true,
 };
 
-function setup(signerMode: "fallback" | "guard-publishes-then-throws" | "guard-down" = "fallback") {
+function setupWith(custom: HedgeSigner) { return setup("fallback", custom); }
+function setup(signerMode: "fallback" | "guard-publishes-then-throws" | "guard-down" = "fallback", custom?: HedgeSigner) {
   const { v, exchange } = fakeVenue();
   const db = openDb(":memory:");
   const local = fallbackSigner(generatePrivateKey(), "testnet");
-  const signer: HedgeSigner = signerMode === "fallback" ? verifiedSigner(local, "testnet")
+  const signer: HedgeSigner = custom ? custom : signerMode === "fallback" ? verifiedSigner(local, "testnet")
     : signerMode === "guard-down" ? { address: local.address, kind: "guard", signL1: async () => { throw new Error("OutLayer 503"); } } : {
     address: local.address, kind: "guard",
     async signL1(action, nonce, expiresAfter) {
@@ -192,10 +194,25 @@ describe("worker", () => {
       const rule = db.rule("r1")!;
       expect(rule.state.phase).toBe("paused");
       expect(rule.reason).toBe("guard-unavailable");
-      // resize and position-stop attempts both count; each failed without a signature and expired unresolved
-      expect(db.actionsForRule("r1").filter(a => a.signature === null && a.outcome === "zero")).toHaveLength(3);
+      // Paused at the third expired guard failure (resize and position-stop attempts both count).
+      const attempts = db.actionsForRule("r1").length;
+      expect(attempts).toBeLessThanOrEqual(4);      // at most one attempt was already in flight
+      for (let i = 0; i < 4; i++) { t += 13_000; await tick(); }
+      expect(db.actionsForRule("r1")).toHaveLength(attempts);   // nothing new after the pause
       expect(v.submissions).toBe(0);
     } finally { clock = () => Date.now(); }
+  });
+
+  test("an explicit guard refusal is a confirmed zero and pauses the rule immediately", async () => {
+    const { v, db, tick } = setupWith({ address: "0x5a272d74b33a28c540116f24433b4fb0c74e0337", kind: "guard",
+      signL1: async () => { throw new GuardRefused("price_out_of_bounds"); } });
+    await tick();
+    v.mark = "69.9"; v.bid = "69.8";
+    const rule = await tick();
+    expect(rule.state.phase).toBe("paused");
+    expect(rule.reason).toBe("signer-refused");
+    expect(db.actionsForRule("r1")[0]).toMatchObject({ outcome: "rejected", transport: "rejected" });
+    expect(v.submissions).toBe(0);
   });
 
   test("a gap below the entry floor sends nothing", async () => {

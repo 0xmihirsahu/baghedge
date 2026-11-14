@@ -3,6 +3,7 @@ import { decideHedge, settleHedgeOrder, type HedgeAction, type HedgeRule, type H
 import { buildHedgeOrder } from "../shared/orders";
 import { deriveCloid, ruleFromPolicy, type CloidIntent } from "../shared/policy";
 import type { ActionRecord, Db, Env, RuleRecord } from "./db";
+import { GuardRefused } from "./guard";
 import { canonicalAction, type Exchange, type HedgeSigner, type L1Action } from "./exchange";
 
 export type SignContext = {
@@ -70,6 +71,16 @@ export function createWorker(deps: WorkerDeps) {
     db.emit(env, rule.id, "paused", { reason });
   }
 
+  /** Guard failures that expired unresolved: stop calling a guard that keeps failing (each call costs NEAR). */
+  function pauseIfGuardKeepsFailing(ruleId: string) {
+    const recent = db.actionsForRule(ruleId).filter(a => a.outcome !== null).slice(-GUARD_FAILURE_LIMIT);
+    if (recent.length === GUARD_FAILURE_LIMIT &&
+      recent.every(a => a.signature === null && a.error !== null && a.outcome === "zero")) {
+      const current = db.rule(ruleId)!;
+      if (current.state.phase !== "paused") pause(current, current.state, "guard-unavailable");
+    }
+  }
+
   async function confirmedShortLots(rule: RuleRecord, sizeDecimals: number) {
     const position = await exchange.position(rule.hedgeAddress, COIN);
     // A short is negative szi. A long on the Hedge account shows as a negative short so the engine pauses.
@@ -113,6 +124,7 @@ export function createWorker(deps: WorkerDeps) {
     db.updateAction(action.id, { outcome, oid: status?.oid ?? null, filledLots: filledLots.toString() });
     if (action.intent === "position_stop") {
       db.updateRule(rule.id, { stopStatus: "missing" });
+      pauseIfGuardKeepsFailing(rule.id);
       return true;
     }
     const current = db.rule(rule.id)!;
@@ -122,12 +134,7 @@ export function createWorker(deps: WorkerDeps) {
       const stopStatus = action.intent === "entry" && filledLots > 0n ? "checking" : current.stopStatus;
       db.updateRule(rule.id, { state, stopStatus, reason: `${action.intent}-${outcome}` });
       db.emit(env, rule.id, "order", { intent: action.intent, cloid: action.cloid, outcome, filledLots, shortLots });
-      // Guard failures that expired unresolved: stop calling a guard that keeps failing (each call costs NEAR).
-      const recent = db.actionsForRule(rule.id).slice(-GUARD_FAILURE_LIMIT);
-      if (recent.length === GUARD_FAILURE_LIMIT &&
-        recent.every(a => a.signature === null && a.error !== null && a.outcome === "zero")) {
-        pause(db.rule(rule.id)!, state, "guard-unavailable");
-      }
+      pauseIfGuardKeepsFailing(rule.id);
     } catch (error) {
       pause(current, current.state, "reconcile-mismatch");
     }
@@ -141,13 +148,13 @@ export function createWorker(deps: WorkerDeps) {
       return signature;
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 300) : "signer error";
-      if (signer.kind === "guard") {
+      if (signer.kind === "guard" && !(error instanceof GuardRefused)) {
         // A direct OutLayer run publishes the signed order in the NEAR receipt even if our RPC call fails,
         // so anyone could still submit it. Leave it unresolved; reconcile releases it only after expiry.
         db.updateAction(action.id, { transport: "unknown", error: message });
         return "unknown" as const;
       }
-      // A local fallback signer failing means no signature exists anywhere: a confirmed zero.
+      // A completed guard refusal ({ok:false}, no signature) or a local fallback failure: no signature exists anywhere.
       db.updateAction(action.id, { transport: "rejected", outcome: "rejected", filledLots: "0", error: message });
       return null;
     }
