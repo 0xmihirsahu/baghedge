@@ -316,7 +316,7 @@ export async function open({ url, email, allow = [], slowMo = 250, video = true,
   // with video, in the same tab so the recording stays one piece
   const views = async (name, max = 4) => {
     const hrefs = await page
-      .evaluate(() => [...new Set([...document.querySelectorAll('.toast-in a, a[aria-label="View transaction"], a[aria-label="View on the Hyperliquid explorer"], [role="dialog"] a[target="_blank"]')].map((a) => a.href).filter(Boolean))])
+      .evaluate(() => [...new Set([...document.querySelectorAll('.toast-in a, a[aria-label="View transaction"], a[aria-label="View on the Hyperliquid explorer"], [role="dialog"] a[target="_blank"]')].filter((a) => a.getClientRects().length > 0 && !a.closest('[aria-hidden="true"]')).map((a) => a.href).filter(Boolean))])
       .catch(() => []);
     const list = hrefs.slice(0, max);
     for (let i = 0; i < list.length; i++) {
