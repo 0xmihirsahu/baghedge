@@ -16,14 +16,18 @@ export default function Page() {
         >
           <h2>What baghedge does</h2>
           <p>
-            baghedge lets you pick a hedge price and a stop price for a coin you hold. While the price sits between the two, a short runs on
-            Hyperliquid, sized to what your linked wallets hold. Your coins stay in your own wallets. We read their public balances and never
-            ask for the keys to them.
+            baghedge is a trading terminal for Hyperliquid. You can search markets, read candles, place orders and manage positions from
+            your own Trade account.
           </p>
           <p>
-            Your margin sits in a Hyperliquid account owned by the coldhedge.near contract on NEAR. A guard program running in an OutLayer
-            enclave holds the only key that can trade on that account, and that key can&apos;t withdraw. The contract only signs withdrawals
-            back to you.
+            Wallet Hedge lets you set a rule for SOL you hold in Phantom: a cap, an entry price, a recovery price and an end time. If the
+            perp mark crosses down through the entry, a short up to your cap opens in a separate Hedge account, also your own. It tries to
+            close on recovery, at the end time, or when you ask. Each rule runs once. Your SOL stays in your wallet. We read its public
+            balance and never ask for its keys.
+          </p>
+          <p>
+            A worker we run watches the mark and your wallet. A named, expiring key held in an OutLayer enclave signs only the hedge actions
+            your signed rule allows. You keep owner access to both Hyperliquid accounts.
           </p>
 
           <h2>Who can use it</h2>
@@ -35,27 +39,27 @@ export default function Page() {
 
           <h2>Your part</h2>
           <ul>
-            <li>You choose the coin, the hedge price, the stop price and the size. We carry out what you set, we don&apos;t pick it for you.</li>
-            <li>You keep your login and your wallets safe. Anyone with your login can change your hedges.</li>
+            <li>You choose the cap, the entry and recovery prices and the end time. We carry out what you sign, we don&apos;t pick it for you.</li>
+            <li>You keep your wallets safe. Anyone who controls them can change your rules and move your funds.</li>
             <li>You don&apos;t use baghedge to break the law, attack the service, or trade on someone else&apos;s behalf without their permission.</li>
           </ul>
 
           <h2>Fees</h2>
           <p>
-            Any fee we charge is shown before you confirm a hedge. Hyperliquid, NEAR, 1Click and the chains you pay from charge their own fees,
-            and those are separate from ours.
+            Any fee we charge is shown, in dollars, before you sign. Hyperliquid, 1Click and Base charge their own fees, and those are
+            separate from ours.
           </p>
 
           <h2>Risk</h2>
           <p>
-            Perpetual futures can lose money. A hedge can fill past your line, funding can turn against you, and Hyperliquid can close a short
-            early. Read the <Link href="/disclaimer">disclaimer</Link> before you use it. Nothing on baghedge is financial, tax or legal advice.
+            Perpetual futures can lose money. A short can fill worse than your entry or not fill at all, funding can turn against you, and
+            Hyperliquid can close a short early. Read the <Link href="/disclaimer">disclaimer</Link> before you use it. Nothing on baghedge is financial, tax or legal advice.
           </p>
 
           <h2>Other services</h2>
           <p>
-            baghedge runs on services we don&apos;t control: Privy for login, Hyperliquid for the short, NEAR and its contract for ownership,
-            1Click for moving USDC, and OutLayer for the enclave. Their terms apply to you too, and we aren&apos;t responsible when they go down or
+            baghedge runs on services we don&apos;t control: Hyperliquid for trading and the short, NEAR Intents 1Click for moving USDC between
+            Base and Hyperliquid, OutLayer for the enclave, and the wallets you connect. Their terms apply to you too, and we aren&apos;t responsible when they go down or
             change.
           </p>
 

@@ -15,28 +15,27 @@ export default function Page() {
         >
           <h2>What we keep</h2>
           <ul>
-            <li>Your login. Privy handles sign in with Google or email and gives us your account ID and email.</li>
-            <li>The wallet Privy makes for you, which signs things like arming a hedge or withdrawing.</li>
-            <li>The public wallet addresses you link, so we can read what you hold.</li>
-            <li>Your hedges: the coins, prices, sizes and history.</li>
+            <li>The public addresses of the wallets you connect: Phantom for your SOL, and the EVM wallet behind your Hyperliquid accounts and Base USDC.</li>
+            <li>The addresses of your Trade and Hedge accounts on Hyperliquid.</li>
+            <li>Your rules and their history: caps, prices, end times, fills and transfers.</li>
             <li>Basic technical logs from our hosting, like IP address and browser, kept for security and debugging.</li>
           </ul>
 
           <h2>What&apos;s public anyway</h2>
           <p>
-            Blockchains are public. Your linked wallets, the hedge account on Hyperliquid, its trades, and the transactions on NEAR and the
-            chains you pay from can be seen by anyone. Linking a wallet to baghedge doesn&apos;t make it public, it already is.
+            Blockchains are public. Your connected wallets, both Hyperliquid accounts, their trades, and your transfers on Base and NEAR can be
+            seen by anyone. Connecting a wallet to baghedge doesn&apos;t make it public, it already is.
           </p>
 
           <h2>What we use it for</h2>
           <p>
-            Running your hedges, showing your holdings and positions, sending the alerts you turn on, and fixing what breaks. We don&apos;t sell
-            your data and we don&apos;t run ad tracking.
+            Running your rules, showing your holdings, positions and remaining exposure, and fixing what breaks. We don&apos;t sell your data and
+            we don&apos;t run ad tracking.
           </p>
 
           <h2>Who else sees it</h2>
           <p>
-            Privy for login, Hyperliquid, NEAR, 1Click and OutLayer to run the hedge, and our hosting provider. Each handles data under its own
+            Hyperliquid, NEAR Intents 1Click and OutLayer to run trades and hedges, and our hosting provider. Each handles data under its own
             policy.
           </p>
 

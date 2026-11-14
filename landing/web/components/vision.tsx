@@ -9,7 +9,7 @@ const EASE = [0.16, 1, 0.3, 1] as const;
 const LINES = [
   "Most crypto sits still. In Ledgers in drawers, in staked SOL, in bags people have held for years.",
   "When the market falls, holders get two bad choices: sell, or sit through it.",
-  "We want every wallet to have a third one. A line under each coin, and a short on Hyperliquid that only exists below it.",
+  "We want every wallet to have a third one. A line under each coin, and a short on Hyperliquid that opens if the price crosses it and tries to close when it recovers.",
   "We're starting with SOL in Phantom. Next, any coin with a perp, in any wallet we can read.",
 ];
 

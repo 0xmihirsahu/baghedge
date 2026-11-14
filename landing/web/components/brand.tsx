@@ -175,6 +175,33 @@ export function BrandPage() {
         </div>
       </Card>
 
+      <Card title="X">
+        <div className="grid gap-2 sm:grid-cols-[1fr_3fr] sm:gap-3">
+          <figure className="flex flex-col rounded-[14px] bg-[#2a2826] p-4 sm:rounded-[16px] sm:p-5">
+            <div className="flex flex-1 items-center justify-center py-6">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/baghedge-x-avatar.png" alt="baghedge profile picture for X" className="size-[140px] rounded-full" />
+            </div>
+            <figcaption className="flex justify-between text-[14px] text-white/70">
+              Profile, 400 × 400
+              <Download file="baghedge-x-avatar.png" />
+            </figcaption>
+          </figure>
+          <figure className="flex flex-col rounded-[14px] bg-[#2a2826] p-4 sm:rounded-[16px] sm:p-5">
+            <div className="flex flex-1 items-center justify-center py-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/baghedge-x-header.png" alt="baghedge header for X" className="w-full rounded-[10px]" />
+            </div>
+            <figcaption className="mt-3 flex justify-between text-[14px] text-white/70">
+              <a href="https://x.com/baghedge" target="_blank" rel="noopener noreferrer" className="hover:text-white">
+                Header, 1500 × 500 · @baghedge
+              </a>
+              <Download file="baghedge-x-header.png" />
+            </figcaption>
+          </figure>
+        </div>
+      </Card>
+
       <Card title="Colour">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 sm:gap-3">
           {COLOURS.map((c) => (
@@ -187,7 +214,7 @@ export function BrandPage() {
         <div className="grid gap-10 sm:grid-cols-[auto_1fr] sm:items-end sm:gap-16">
           <p className="text-[120px] leading-[0.9] tracking-[-0.04em] sm:text-[200px]">Aa</p>
           <div>
-            <p className="text-[26px] leading-[1.15] tracking-[-0.02em] sm:text-[40px]">Protect your bags without selling a coin.</p>
+            <p className="text-[26px] leading-[1.15] tracking-[-0.02em] sm:text-[40px]">Trade perps. Hedge your bag.</p>
             <p className="mt-6 text-[15px] leading-[1.6] text-white/70">
               Figtree, at 400 for headlines and text, 500 for small labels, 600 for names and the wordmark. Free on{" "}
               <a href="https://fonts.google.com/specimen/Figtree" target="_blank" rel="noopener noreferrer" className="text-white underline underline-offset-4">

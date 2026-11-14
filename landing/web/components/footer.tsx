@@ -31,7 +31,7 @@ export function Footer() {
             ),
           )}
         </nav>
-        <p className="text-[13px] text-white/40">© 2026 baghedge. A hedge, not insurance.</p>
+        <p className="text-[13px] text-white/40">© 2026 baghedge. Perps can lose money. Not financial advice.</p>
       </div>
       <div className="mt-8 sm:mt-10">
         <Wordmark />

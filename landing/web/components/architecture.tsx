@@ -2,19 +2,20 @@
 
 import { motion, useMotionValue, useMotionValueEvent, useScroll, useTransform, type MotionValue } from "motion/react";
 import { useRef, useState, type RefObject } from "react";
-import { Diagram, NODES } from "@/components/diagram";
+import { Diagram, LIT, NODES } from "@/components/diagram";
 import { Copy } from "@/components/copy";
 import { cn } from "@/lib/utils";
 
 // scroll per step, in svh
 const SEG = 45;
 
+// one caption per step, worded from docs/BAGHEDGE_CONTEXT.md
 const STEPS = [
-  "Sign in with Google. Your coins stay in your own wallets.",
-  "A guard in an OutLayer enclave watches the price and what you hold.",
-  "A NEAR contract owns the hedge account. It only pays out to you.",
-  "Margin lands on Hyperliquid as USDC, from any chain.",
-  "Only the guard can trade, and it can't withdraw.",
+  "Trade perps on Hyperliquid from one terminal.",
+  "A worker watches your Phantom balance and the Hyperliquid mark, even after you close the tab.",
+  "NEAR Intents moves USDC from Base into a separate hedge account.",
+  "When the mark crosses your line, a key in an OutLayer enclave signs the short your rule allows.",
+  "It tries to close on recovery, at the end time, or when you ask.",
 ];
 
 // the diagram builds itself as you scroll, one caption per step. it pins while the next card slides over it
@@ -59,7 +60,7 @@ export function Architecture({ sectionRef, recede }: { sectionRef: RefObject<HTM
 
 // on a phone the wide diagram won't read, so the parts stack up in order instead
 function Stack({ s, active }: { s: MotionValue<number>; active: number }) {
-  const lit = active < 0 ? null : ["app privy wallets", "wallets guard keeper", "app near", "app oneclick hl", "guard hl"][active].split(" ");
+  const lit = active < 0 ? null : LIT[active];
   return (
     <ol className="absolute inset-x-6 bottom-8 top-[46%] flex flex-col justify-end gap-2.5 sm:hidden">
       {NODES.map((n) => (

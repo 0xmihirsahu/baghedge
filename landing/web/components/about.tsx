@@ -12,7 +12,7 @@ const PEOPLE: { name: string; title: string; bio: string; art: Source[]; links: 
   {
     name: "Mihir",
     title: "Co-founder & CEO",
-    bio: "Writes the parts of baghedge that hold keys: the NEAR contract that owns every hedge account, and the guard in the OutLayer enclave that is the only thing allowed to trade on it.",
+    bio: "Builds the parts of baghedge that touch money: the worker that runs every hedge, and the guard in the OutLayer enclave that signs only what your rule allows.",
     art: [{ kind: "image", src: "/art/portrait-mihir.webp", scale: 1 }],
     links: [
       { label: "X", href: "https://x.com/0xmihirsahu", icon: "x" },
@@ -72,8 +72,9 @@ export function AboutPage() {
             did.
           </p>
           <p className="text-[18px] leading-[1.55] text-white/85 sm:text-[20px]">
-            So we built what we wanted that night. Draw a line under a coin. Below it, a short on Hyperliquid covers what your wallet
-            holds. Above it, nothing runs, and your coins never move.
+            So we built what we wanted that night: a Hyperliquid terminal that can hedge the SOL in your wallet. Set a price on the chart.
+            If the mark crosses down through it, a short up to your cap opens, and it tries to close when the price recovers. Your SOL
+            never moves.
           </p>
         </Reveal>
       </section>

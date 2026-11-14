@@ -12,24 +12,24 @@ const GLYPHS = "$#%&*+=/\\<>?!0123456789";
 
 type Node = { id: string; x: number; y: number; step: number; name: string; note?: string; logos?: string[] };
 
+// the parts as docs/BAGHEDGE_CONTEXT.md describes them: terminal, watched phantom wallet, worker, guard, 1click and two hyperliquid accounts
 export const NODES: Node[] = [
-  { id: "privy", x: 0, y: 40, step: 0, name: "Privy", note: "login", logos: ["/brands/privy.png"] },
-  { id: "app", x: 0, y: 170, step: 0, name: "baghedge", note: "app", logos: ["/art/mascot.webp"] },
-  { id: "wallets", x: 0, y: 300, step: 1, name: "Your wallets", note: "read only", logos: ["/brands/phantom.svg", "/brands/ledger.png", "/brands/metamask.svg"] },
-  { id: "guard", x: 480, y: 300, step: 1, name: "Guard", note: "OutLayer enclave" },
-  { id: "keeper", x: 480, y: 430, step: 1, name: "Keeper", note: "ticks every few seconds" },
-  { id: "near", x: 480, y: 170, step: 2, name: "coldhedge.near", note: "owns the hedge account", logos: ["/tokens/NEAR.jpg"] },
-  { id: "oneclick", x: 480, y: 40, step: 3, name: "1Click", note: "USDC from any chain", logos: ["/brands/near-intents.png"] },
-  { id: "hl", x: 950, y: 235, step: 3, name: "Hyperliquid", note: "the short", logos: ["/brands/hyperliquid.png"] },
+  { id: "app", x: 0, y: 200, step: 0, name: "baghedge", note: "terminal", logos: ["/art/mascot.webp"] },
+  { id: "hl", x: 790, y: 200, step: 0, name: "Hyperliquid", note: "Trade + Hedge accounts", logos: ["/brands/hyperliquid.png"] },
+  { id: "phantom", x: 0, y: 30, step: 1, name: "Phantom", note: "your SOL, read only", logos: ["/brands/phantom.svg"] },
+  { id: "worker", x: 440, y: 30, step: 1, name: "Worker", note: "runs the hedge" },
+  { id: "usdc", x: 0, y: 400, step: 2, name: "USDC", note: "on Base", logos: ["/tokens/USDC.png"] },
+  { id: "oneclick", x: 440, y: 400, step: 2, name: "1Click", note: "NEAR Intents", logos: ["/brands/near-intents.png"] },
+  { id: "guard", x: 440, y: 300, step: 3, name: "Guard", note: "OutLayer enclave" },
 ];
 
 // which parts are lit while each caption is up
 export const LIT: string[][] = [
-  ["app", "privy", "wallets"],
-  ["wallets", "guard", "keeper"],
-  ["app", "near"],
-  ["app", "oneclick", "hl"],
+  ["app", "hl"],
+  ["phantom", "worker", "hl"],
+  ["usdc", "oneclick", "hl"],
   ["guard", "hl"],
+  ["worker", "guard", "hl"],
 ];
 
 type Box = { l: number; t: number; r: number; b: number; cx: number; cy: number };
@@ -37,19 +37,16 @@ type Wire = { d: string; step: number; arrow: boolean; label?: { x: number; y: n
 
 function layout(b: Record<string, Box>): Wire[] {
   const g = 12;
-  const { privy, app, wallets, oneclick, near, guard, keeper, hl } = b;
-  const tx = Math.max(privy.r, app.r, wallets.r) + 44;
-  const bx = Math.max(oneclick.r, near.r, guard.r) + 56;
-  const kx = guard.l + 40;
+  const { app, hl, phantom, worker, usdc, oneclick, guard } = b;
+  // two verticals into hyperliquid from below: 1click's deposit and the guard's signed short
+  const fx = hl.cx + 30, sx = hl.cx - 30;
   return [
-    { step: 0, arrow: true, d: `M${app.cx} ${app.t - g} V${privy.b + g}` },
-    { step: 1, arrow: true, d: `M${wallets.r + g} ${wallets.cy} H${guard.l - g}`, label: { x: (wallets.r + guard.l) / 2, y: wallets.cy - 14, text: "balances" } },
-    { step: 1, arrow: true, d: `M${kx} ${keeper.t - g} V${guard.b + g}`, label: { x: kx + 14, y: (keeper.t + guard.b) / 2 + 5, text: "tick", start: true } },
-    { step: 2, arrow: true, d: `M${app.r + g} ${app.cy} H${near.l - g}`, label: { x: (tx + near.l) / 2, y: app.cy - 14, text: "you sign" } },
-    { step: 3, arrow: true, d: `M${app.r + g} ${app.cy} H${tx} V${oneclick.cy} H${oneclick.l - g}`, label: { x: tx + 14, y: (oneclick.cy + app.cy) / 2 + 5, text: "margin", start: true } },
-    { step: 3, arrow: true, d: `M${oneclick.r + g} ${oneclick.cy} H${bx} V${hl.cy} H${hl.l - g}` },
-    { step: 4, arrow: false, d: `M${near.r + g} ${near.cy} H${bx}` },
-    { step: 4, arrow: true, d: `M${guard.r + g} ${guard.cy} H${bx} V${hl.cy} H${hl.l - g}`, label: { x: (guard.r + bx) / 2 + 4, y: guard.cy + 26, text: "trades" } },
+    { step: 0, arrow: true, d: `M${app.r + g} ${app.cy} H${hl.l - g}`, label: { x: (app.r + hl.l) / 2, y: app.cy - 14, text: "orders" } },
+    { step: 1, arrow: true, d: `M${phantom.r + g} ${phantom.cy} H${worker.l - g}`, label: { x: (phantom.r + worker.l) / 2, y: phantom.cy - 14, text: "balance" } },
+    { step: 1, arrow: true, d: `M${worker.r + g} ${worker.cy} H${hl.cx} V${hl.t - g}`, label: { x: hl.cx + 14, y: (worker.cy + hl.t) / 2 + 5, text: "mark", start: true } },
+    { step: 2, arrow: true, d: `M${usdc.r + g} ${usdc.cy} H${oneclick.l - g}`, label: { x: (usdc.r + oneclick.l) / 2, y: usdc.cy - 14, text: "USDC" } },
+    { step: 2, arrow: true, d: `M${oneclick.r + g} ${oneclick.cy} H${fx} V${hl.b + g}`, label: { x: fx + 14, y: oneclick.cy - 14, text: "to the hedge account", start: true } },
+    { step: 3, arrow: true, d: `M${guard.r + g} ${guard.cy} H${sx} V${hl.b + g}`, label: { x: (guard.r + sx) / 2, y: guard.cy - 14, text: "signs the short" } },
   ];
 }
 

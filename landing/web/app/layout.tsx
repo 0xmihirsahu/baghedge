@@ -9,20 +9,19 @@ const figtree = Figtree({ variable: "--font-figtree", subsets: ["latin"], displa
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "baghedge | Protect your bags without selling a coin",
-  description:
-    "Draw a line under any coin you hold. If the price falls through it, a short on Hyperliquid covers what's in your wallet. Your coins never move.",
+  title: "baghedge | Trade perps. Hedge your bag.",
+  description: "A Hyperliquid trading terminal that can hedge the SOL you already hold in your wallet.",
   applicationName: "baghedge",
   openGraph: {
     type: "website",
     siteName: "baghedge",
     title: "baghedge",
-    description: "Protect your bags without selling a coin. A short on Hyperliquid, only below the line you draw.",
+    description: "Trade perps. Hedge your bag. A Hyperliquid trading terminal that can hedge the SOL you already hold in your wallet.",
   },
   twitter: {
     card: "summary_large_image",
     title: "baghedge",
-    description: "Protect your bags without selling a coin. A short on Hyperliquid, only below the line you draw.",
+    description: "Trade perps. Hedge your bag. A Hyperliquid trading terminal that can hedge the SOL you already hold in your wallet.",
   },
 };
 

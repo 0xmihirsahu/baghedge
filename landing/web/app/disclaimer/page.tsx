@@ -10,21 +10,27 @@ export default function Page() {
       <main>
         <Legal
           title="Disclaimer"
-          intro="baghedge is a hedge, not insurance. It lowers how much a fall costs you, it doesn't remove the risk. Here's where it can fall short."
+          intro="A hedge lowers how much a fall can cost you. It doesn't remove the risk, and it costs money to run. Here's where it can fall short."
         >
           <h2>Not advice</h2>
-          <p>Nothing on this site or in the app is financial, tax or legal advice. You decide what to hedge and when.</p>
+          <p>Nothing on this site or in the app is financial, tax or legal advice. You decide what to trade, what to hedge and when.</p>
 
-          <h2>Fast drops fill past your line</h2>
+          <h2>The short can fill badly, or not at all</h2>
           <p>
-            The short opens when the price crosses your hedge price. In a fast market the fill can land well below it, and the part of the fall
-            before the fill isn&apos;t covered.
+            A short opens when the perp mark crosses down through your entry price. In a fast market it can fill well below your entry, or
+            only partly, and the part of the fall before the fill isn&apos;t hedged. If nothing fills inside your limits, there&apos;s no short.
           </p>
 
-          <h2>Every cross costs something</h2>
+          <h2>A rule runs once</h2>
           <p>
-            If the price bounces back and forth across your levels, the short opens and closes each time, and each time pays trading fees.
-            Opening a hedge also has fixed costs, about 1.5 USDC a cycle today, so very small hedges don&apos;t make sense.
+            Once the short opens, it tries to close on recovery, at the end time, or when you ask. Then the rule is done. If the price falls
+            again, nothing opens until you set a new rule.
+          </p>
+
+          <h2>It costs money</h2>
+          <p>
+            Trades pay Hyperliquid&apos;s fees, moving USDC through 1Click has its own fees, and the review shows every cost in dollars before you
+            sign. Small hedges can cost more than they save.
           </p>
 
           <h2>Funding can flip</h2>
@@ -40,14 +46,15 @@ export default function Page() {
 
           <h2>The short can be liquidated</h2>
           <p>
-            If the price rallies hard and your margin is thin, the short can be liquidated before it reaches your stop. Safe mode posts more
-            margin to make that much less likely.
+            If the price rallies hard and your margin is thin, the short can be liquidated before it reaches your recovery price. The review
+            shows the estimated liquidation price before you sign.
           </p>
 
           <h2>Software and other services</h2>
           <p>
-            The NEAR contract, the guard in the OutLayer enclave, and the services around them (Privy, Hyperliquid, 1Click, the chains) can have
-            bugs, outages or changes we don&apos;t control.
+            The worker, the guard in the OutLayer enclave, and the services around them (Hyperliquid, 1Click, Base, your wallets) can have
+            bugs, outages or changes we don&apos;t control. A recovery stop confirmed on Hyperliquid can try to close the short if our worker is
+            down, but it isn&apos;t certain to.
           </p>
 
           <h2>The numbers on this site</h2>

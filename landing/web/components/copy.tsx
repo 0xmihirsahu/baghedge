@@ -29,7 +29,7 @@ export function Copy({
       <h2
         className={
           hero
-            ? "max-w-[18ch] text-[28px] leading-[1.15] tracking-[-0.02em] text-white sm:text-[36px]"
+            ? "max-w-[15.5ch] text-[28px] leading-[1.15] tracking-[-0.02em] text-white sm:text-[36px]"
             : "text-[28px] leading-[1.14] tracking-[-0.02em] text-white sm:text-[40px]"
         }
       >

@@ -18,7 +18,7 @@ export function Launch({ sectionRef }: { sectionRef: RefObject<HTMLElement | nul
           <Field sources={BAG} pitch={PITCH} color={INK} accent="#ffffff" intro hover />
         </div>
         <div className="absolute inset-x-6 bottom-[8%] flex flex-col items-center text-center sm:bottom-[9%]">
-          <h2 className="text-[28px] leading-[1.15] tracking-[-0.02em] sm:text-[40px]">Draw your first line.</h2>
+          <h2 className="text-[28px] leading-[1.15] tracking-[-0.02em] sm:text-[40px]">Trade perps. Hedge your bag.</h2>
           <a
             href={APP_URL}
             className="mt-6 inline-flex rounded-[12px] bg-[#16120f] px-6 py-3.5 text-[16px] font-medium text-white transition-transform active:scale-[0.97]"
