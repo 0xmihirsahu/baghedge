@@ -96,4 +96,4 @@ Every row links to on-chain or venue evidence. Raw records: [`docs/evidence/main
 Bun, TypeScript, [`@nktkas/hyperliquid`](https://github.com/nktkas/hyperliquid), viem, WalletConnect, `near-api-js`, `@solana/web3.js` (scripts); Rust `k256`, `sha3`, `serde`, `rmp-serde` (guard); Next.js, React, lightweight-charts and the Solana wallet adapter (terminal). Hyperliquid, NEAR Intents 1Click, OutLayer and FastFS.
 
 ## License
-MIT. See [LICENSE](LICENSE).
+[Business Source License 1.1](LICENSE). The source is public. You may read, copy, modify and use it **non-commercially**, but production or commercial use needs a license from Baghedge. Each version converts to GPL-2.0-or-later on 2030-11-15, or four years after it's first published, whichever comes first.
