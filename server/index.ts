@@ -229,10 +229,14 @@ async function signerFromEnv(mode: "testnet" | "mainnet"): Promise<AppConfig["si
     console.log(`Hedge signer: OutLayer guard agent ${executor.agent} build ${executor.buildHash} (${mode}).`);
     return {
       kind: "guard", agentAddress: executor.agent.toLowerCase() as Hex, buildHash: executor.buildHash.toLowerCase() as Hex,
-      signerFor: (rule, context) => verifiedSigner(createGuardSigner({
-        policy: rule.policy, ownerSig: rule.ownerSig as Hex, chainId: rule.chainId,
-        entryUntilMs: context.entryUntilMs, cancelRefs: context.cancelRefs,
-      }, executor), mode),
+      signerFor: (rule, context) => {
+        // orderRef lets the guard check the cloid against the signed rule (codex/guard-cloids).
+        const guardContext = {
+          policy: rule.policy, ownerSig: rule.ownerSig as Hex, chainId: rule.chainId,
+          entryUntilMs: context.entryUntilMs, cancelRefs: context.cancelRefs, orderRef: context.orderRef,
+        };
+        return verifiedSigner(createGuardSigner(guardContext, executor), mode);
+      },
     };
   }
   throw new Error("HEDGE_SIGNER must be fallback or guard");

@@ -3,7 +3,7 @@ mod orders;
 mod policy;
 
 use crypto::{action_hash, address_from_key, agent_digest, recover};
-use orders::{Action, CancelRef};
+use orders::{Action, ActionContext, CloidRef};
 use policy::{Deployment, Environment, Policy};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -43,8 +43,10 @@ enum Request {
         expires_after: u64,
         #[serde(rename = "entryUntilMs")]
         entry_until: Option<u64>,
+        #[serde(rename = "orderRef")]
+        order_ref: Option<CloidRef>,
         #[serde(default, rename = "cancelRefs")]
-        cancel_refs: Vec<CancelRef>,
+        cancel_refs: Vec<CloidRef>,
     },
 }
 
@@ -80,6 +82,7 @@ fn run() -> Result<Value, String> {
         nonce,
         expires_after,
         entry_until,
+        order_ref,
         cancel_refs,
     } = request
     {
@@ -97,8 +100,11 @@ fn run() -> Result<Value, String> {
             &policy,
             now,
             expires_after,
-            entry_until,
-            &cancel_refs,
+            ActionContext {
+                entry_until,
+                order_ref: order_ref.as_ref(),
+                cancel_refs: &cancel_refs,
+            },
         )?;
         let connection_id = action_hash(&action, nonce, Some(expires_after))?;
         let digest = agent_digest(
@@ -157,7 +163,7 @@ mod tests {
     struct Fixtures {
         policy: SignedPolicy,
         peer_policy: PeerPolicy,
-        cancel_refs: Vec<CancelRef>,
+        cancel_refs: Vec<CloidRef>,
         vectors: Vec<Vector>,
     }
 
@@ -189,6 +195,7 @@ mod tests {
         source: String,
         connection_id: String,
         agent_digest: String,
+        order_ref: Option<CloidRef>,
     }
 
     fn fixtures() -> Fixtures {
@@ -268,72 +275,102 @@ mod tests {
         let cancel = &f.vectors[3];
         let end = f.policy.entry_until_ms;
         let mut policy = f.policy.policy;
-        entry
-            .action
-            .validate(
+        let check_entry = |policy: &Policy, now| {
+            entry.action.validate(
                 &dep,
-                &policy,
-                entry.nonce,
+                policy,
+                now,
                 entry.expires_after.unwrap(),
-                Some(end),
-                &[],
+                ActionContext {
+                    entry_until: Some(end),
+                    order_ref: entry.order_ref.as_ref(),
+                    cancel_refs: &[],
+                },
             )
-            .unwrap();
-        cancel
-            .action
-            .validate(
+        };
+        let check_cancel = |refs: &[CloidRef], policy: &Policy| {
+            cancel.action.validate(
                 &dep,
-                &policy,
+                policy,
                 cancel.nonce,
                 cancel.expires_after.unwrap(),
-                None,
-                &f.cancel_refs,
+                ActionContext {
+                    entry_until: None,
+                    order_ref: None,
+                    cancel_refs: refs,
+                },
             )
-            .unwrap();
-        assert!(entry
-            .action
-            .validate(
-                &dep,
-                &policy,
-                end,
-                entry.expires_after.unwrap(),
-                Some(end),
-                &[]
-            )
-            .is_err());
-        assert!(cancel
-            .action
-            .validate(
-                &dep,
-                &policy,
-                cancel.nonce,
-                cancel.expires_after.unwrap(),
-                None,
-                &[]
-            )
-            .is_err());
+        };
+        check_entry(&policy, entry.nonce).unwrap();
+        check_cancel(&f.cancel_refs, &policy).unwrap();
+        assert!(check_entry(&policy, end).is_err());
+        assert!(check_cancel(&[], &policy).is_err());
         policy.cap_lots -= 1;
+        assert_eq!(
+            check_entry(&policy, entry.nonce).unwrap_err(),
+            "size outside signed cap"
+        );
+        policy.cap_lots += 1;
         policy.version += 1;
+        assert!(check_entry(&policy, entry.nonce).is_err());
+        assert!(check_cancel(&f.cancel_refs, &policy).is_err());
+    }
+
+    #[test]
+    fn binds_every_order_leg_to_exact_rule_intent_and_sequence() {
+        let f = fixtures();
+        let dep = deployment(&f.policy);
+        let end = f.policy.entry_until_ms;
+        for v in f.vectors.iter().filter(|v| v.order_ref.is_some()) {
+            let deadline = (v.name == "entry with recovery stop").then_some(end);
+            let run = |action: &Action, reference, deadline| {
+                action.validate(
+                    &dep,
+                    &f.policy.policy,
+                    v.nonce,
+                    v.expires_after.unwrap(),
+                    ActionContext {
+                        entry_until: deadline,
+                        order_ref: reference,
+                        cancel_refs: &[],
+                    },
+                )
+            };
+            run(&v.action, v.order_ref.as_ref(), deadline).unwrap();
+            assert_eq!(
+                run(&v.action, None, deadline).unwrap_err(),
+                "order ref required"
+            );
+            let mut wire = serde_json::to_value(&v.action).unwrap();
+            for i in 0..wire["orders"].as_array().unwrap().len() {
+                let original = std::mem::replace(
+                    &mut wire["orders"][i]["c"],
+                    json!("0x11111111111111111111111111111111"),
+                );
+                let wrong = serde_json::from_value(wire.clone()).unwrap();
+                assert!(
+                    run(&wrong, v.order_ref.as_ref(), deadline).is_err(),
+                    "{} leg {i}",
+                    v.name
+                );
+                wire["orders"][i]["c"] = original;
+            }
+        }
+        let entry = &f.vectors[2];
+        let seq_one: CloidRef =
+            serde_json::from_value(json!({ "intent": "entry", "seq": 1 })).unwrap();
         assert!(entry
             .action
             .validate(
                 &dep,
-                &policy,
+                &f.policy.policy,
                 entry.nonce,
                 entry.expires_after.unwrap(),
-                Some(end),
-                &[]
-            )
-            .is_err());
-        assert!(cancel
-            .action
-            .validate(
-                &dep,
-                &policy,
-                cancel.nonce,
-                cancel.expires_after.unwrap(),
-                None,
-                &f.cancel_refs
+                ActionContext {
+                    entry_until: Some(end),
+                    order_ref: Some(&seq_one),
+                    cancel_refs: &[],
+                }
             )
             .is_err());
     }
