@@ -127,7 +127,7 @@ function Accounts() {
 
       {!address ? (
         <form
-          className="mt-auto flex flex-col"
+          className="grid min-h-0 flex-1 place-items-center py-6"
           onSubmit={(e) => {
             e.preventDefault();
             const a = input.trim();
@@ -137,31 +137,29 @@ function Accounts() {
             setInput("");
           }}
         >
-          <div className="mb-8 flex flex-col gap-3 opacity-40" aria-hidden>
-            {[0.9, 0.7, 0.8, 0.55].map((w, i) => (
-              <div key={i} className="flex items-center gap-3">
-                <span className="size-8 rounded-full bg-[#1c1b1a]" />
-                <span className="h-3 rounded-full bg-[#1c1b1a]" style={{ width: `${w * 40}%` }} />
-                <span className="ml-auto h-3 w-16 rounded-full bg-[#1c1b1a]" />
-              </div>
-            ))}
+          {/* one centred group: the art, what this account is, and the field to add it */}
+          <div key={role} className="flex w-full max-w-[400px] flex-col items-center text-center [animation:toast-in_300ms_cubic-bezier(0.19,1,0.22,1)]">
+            {/* halftone art (codex, the landing's style); its black drops out on the card */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={role === "trade" ? "/art/trade-account.webp" : "/art/hedge-account.webp"} alt="" className="-my-6 w-[260px] mix-blend-screen [@media(max-height:760px)]:hidden" />
+            <p className="text-[20px] font-semibold tracking-[-0.02em]">Add your {role === "trade" ? "Trade" : "Hedge"} account</p>
+            <p className="mt-1 text-[14px] text-white/45">{role === "trade" ? "The account you trade from by hand." : "The separate account that holds the hedge short."} Read only.</p>
+            <div className="mt-5 flex w-full gap-2">
+              <input
+                value={input}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  setBad(null);
+                }}
+                placeholder="0x…"
+                aria-invalid={!!bad}
+                spellCheck={false}
+                className={`h-11 min-w-0 flex-1 rounded-[12px] bg-[#1c1b1a] px-3 text-[14px] outline-none ring-1 placeholder:text-white/35 ${bad ? "ring-[#f2554b]" : "ring-transparent focus:ring-white/15"}`}
+              />
+              <button className="h-11 rounded-[12px] bg-[#f0645a] px-4 text-[14px] font-semibold transition-transform duration-150 active:scale-[0.98]">Add</button>
+            </div>
+            <p className="mt-2 h-4 text-[12px] text-[#f2554b]">{bad}</p>
           </div>
-          <p className="text-[20px] font-semibold tracking-[-0.02em]">Add your {role === "trade" ? "Trade" : "Hedge"} account</p>
-          <p className="mt-1 text-[14px] text-white/45">{role === "trade" ? "The account you trade from by hand." : "The separate account that holds the hedge short."} Read only.</p>
-          <div className="mt-4 flex gap-2">
-            <input
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value);
-                setBad(null);
-              }}
-              placeholder="0x…"
-              aria-invalid={!!bad}
-              className={`h-11 min-w-0 flex-1 rounded-[12px] bg-[#1c1b1a] px-3 text-[14px] outline-none ring-1 placeholder:text-white/35 ${bad ? "ring-[#f2554b]" : "ring-transparent focus:ring-white/15"}`}
-            />
-            <button className="h-11 rounded-[12px] bg-[#f0645a] px-4 text-[14px] font-semibold transition-transform duration-150 active:scale-[0.98]">Add</button>
-          </div>
-          <p className="mt-2 h-4 text-[12px] text-[#f2554b]">{bad}</p>
         </form>
       ) : error && !account ? (
         <div className="grid flex-1 place-items-center text-center">
