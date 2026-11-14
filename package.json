@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@nktkas/hyperliquid": "^0.33.3",
-    "viem": "^2.57.19"
+    "viem": "^2.57.19",
+    "near-api-js": "7.5.3"
   }
 }

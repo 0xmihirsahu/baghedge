@@ -7,6 +7,7 @@ import { openTransfers } from "./transfers";
 import { createVenue, readSolBalance } from "./venue";
 import { openDb } from "./db";
 import { serveOps } from "./ops/serve";
+import { createGuardSigner, outLayerExecutorFromEnv } from "./guard";
 import { createExchange, fallbackSigner, verifiedSigner, type HedgeSigner, type Hex } from "./exchange";
 import { createHedgeRoutes, type SignerConfig } from "./hedges";
 import { createWorker, type SignContext } from "./worker";
@@ -163,8 +164,13 @@ if (import.meta.main) {
     signer: await signerFromEnv(mode),
     worker: process.env.WORKER !== "0",
   });
+  const host = process.env.HOST ?? "127.0.0.1";
+  if (!["127.0.0.1", "localhost", "::1"].includes(host)) {
+    // Rule reads and events have no owner session yet (section 17). Don't expose them by accident.
+    throw new Error(`Refusing to bind ${host}: owner sessions are not implemented yet. Keep the API on loopback.`);
+  }
   const server = Bun.serve({
-    hostname: process.env.HOST ?? "127.0.0.1", port: Number(process.env.PORT ?? 3001), maxRequestBodySize: 8192, fetch: api.fetch,
+    hostname: host, port: Number(process.env.PORT ?? 3001), maxRequestBodySize: 8192, fetch: api.fetch,
   });
   console.log(`Baghedge API (${mode}) listening at ${server.url}`);
 }
@@ -172,7 +178,8 @@ if (import.meta.main) {
 /**
  * HEDGE_SIGNER=fallback: a server-held agent key (FALLBACK_AGENT_PRIVATE_KEY). Labeled demo signer; refused on
  * mainnet unless ALLOW_MAINNET_FALLBACK=labeled-demo. HEDGE_SIGNER=guard: the OutLayer guard via server/guard.ts
- * (Codex), with GUARD_AGENT_ADDRESS and GUARD_BUILD_HASH from the attested build.
+ * (Codex), configured by OUTLAYER_CALLER, OUTLAYER_NEAR_PRIVATE_KEY, OUTLAYER_WASM_URL, OUTLAYER_WASM_SHA256,
+ * OUTLAYER_AGENT_ADDRESS and optional OUTLAYER_NEAR_RPC_URL.
  */
 async function signerFromEnv(mode: "testnet" | "mainnet"): Promise<AppConfig["signer"]> {
   const kind = process.env.HEDGE_SIGNER;
@@ -190,23 +197,13 @@ async function signerFromEnv(mode: "testnet" | "mainnet"): Promise<AppConfig["si
     return { kind: "fallback", agentAddress: signer.address, buildHash, signerFor: () => signer };
   }
   if (kind === "guard") {
-    const agentAddress = process.env.GUARD_AGENT_ADDRESS?.toLowerCase();
-    const buildHash = process.env.GUARD_BUILD_HASH?.toLowerCase();
-    if (!isEvmAddress(agentAddress) || !/^0x[\da-f]{64}$/.test(buildHash ?? "")) {
-      throw new Error("GUARD_AGENT_ADDRESS and GUARD_BUILD_HASH are required for HEDGE_SIGNER=guard");
-    }
-    // Codex owns server/guard.ts. Loaded by path so this file builds before it lands.
-    const modulePath = "./guard";
-    const guard = await import(modulePath).catch(() => null) as null | {
-      createGuardSigner(ctx: Record<string, unknown>, executor?: unknown): HedgeSigner;
-      executorFromEnv?(): unknown;
-    };
-    if (!guard?.createGuardSigner) throw new Error("server/guard.ts is not available yet");
-    const executor = guard.executorFromEnv?.();
+    // Agent address and build hash come from the same pinned executor config the guard uses.
+    const executor = outLayerExecutorFromEnv(mode);
+    console.log(`Hedge signer: OutLayer guard agent ${executor.agent} build ${executor.buildHash} (${mode}).`);
     return {
-      kind: "guard", agentAddress: agentAddress as Hex, buildHash: buildHash as Hex,
-      signerFor: (rule, context) => verifiedSigner(guard.createGuardSigner({
-        policy: rule.policy, ownerSig: rule.ownerSig, chainId: rule.chainId,
+      kind: "guard", agentAddress: executor.agent.toLowerCase() as Hex, buildHash: executor.buildHash.toLowerCase() as Hex,
+      signerFor: (rule, context) => verifiedSigner(createGuardSigner({
+        policy: rule.policy, ownerSig: rule.ownerSig as Hex, chainId: rule.chainId,
         entryUntilMs: context.entryUntilMs, cancelRefs: context.cancelRefs,
       }, executor), mode),
     };
