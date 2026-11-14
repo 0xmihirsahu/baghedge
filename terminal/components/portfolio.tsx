@@ -8,6 +8,7 @@ import { CopyAddress } from "./copy-address";
 import { CoinLogo } from "./coin-logo";
 import { Tip } from "./tip";
 import { explorer, info, useAccount } from "./app/hl";
+import { ruleLabel } from "./app/live";
 import { ArrowUpRight } from "@phosphor-icons/react";
 import { STATUS, useStore } from "./app/store";
 import { DOWN, UP, compact, pct, tone, usd } from "./app/format";
@@ -19,7 +20,10 @@ import { Offline, useAfter } from "./offline";
 // one screen, three parts: the watched SOL and the hedge on it (left), the hyperliquid accounts (right).
 // lists scroll inside their card, never the page
 export function PortfolioPage() {
-  const { wallet, mids, hedge: h, privy } = useStore();
+  const { wallet, mids, hedge: h, privy, liveEnabled, liveHedge, backend } = useStore();
+  // signed in for real: the backend's rule, not the replay
+  const L = liveEnabled ? liveHedge : null;
+  const rule = L?.rule && L.rule.status === "active" ? L.rule : null;
   const mark = mids.SOL;
   const active = h.phase !== "draft" || h.hedge !== 0;
   // the balance read retries every 30 s; after a while without one, say so instead of loading forever
@@ -75,9 +79,24 @@ export function PortfolioPage() {
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] bg-[#141312] p-6">
             <div className="flex items-center justify-between">
               <p className="text-[13px] text-white/45">Hedge</p>
-              <span className="rounded-[7px] bg-[#1c1b1a] px-2 py-0.5 text-[12px] text-white/55"><Tip text="Simulated hedge. Nothing is signed or sent." side="bottom" align="end">Replay</Tip></span>
+              <span className="rounded-[7px] bg-[#1c1b1a] px-2 py-0.5 text-[12px] text-white/55">
+                {L ? (
+                  <Tip text="A real hedge on Hyperliquid, run by the guard." side="bottom" align="end">{backend.mode === "testnet" ? "Testnet" : "Mainnet"}</Tip>
+                ) : (
+                  <Tip text="Simulated hedge. Nothing is signed or sent." side="bottom" align="end">Replay</Tip>
+                )}
+              </span>
             </div>
-            {active ? (
+            {L && rule ? (
+              <>
+                <StatusText text={ruleLabel(rule)} className="mt-4 block text-[15px] font-semibold" />
+                <div className="mt-auto pt-6">
+                  <p className="text-[40px] font-semibold leading-none tracking-[-0.03em] tabular-nums">{(Number(rule.shortLots) / 100).toFixed(2)} SOL</p>
+                  <p className="mt-2 text-[14px] text-white/45">{Number(rule.shortLots) > 0 ? "Short on the Hedge account" : "Armed. Nothing is short yet"}</p>
+                </div>
+                <Link href="/" className="mt-5 text-[14px] font-semibold text-white/70 hover:text-white">Open the hedge</Link>
+              </>
+            ) : !L && active ? (
               <>
                 <StatusText text={STATUS[h.phase]} className="mt-4 block text-[15px] font-semibold" />
                 <div className="mt-auto flex items-end justify-between gap-4 pt-6">
