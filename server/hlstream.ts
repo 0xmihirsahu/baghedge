@@ -12,7 +12,12 @@ import { isDecimal, isRecord } from "./http";
  */
 /** `markAt` and `bookAt` are receive times. The worker uses markAt as the mark's sequence, so they stay separate. */
 export type StreamQuote = { markPx: string; bestBid: string | null; bestAsk: string | null; markAt: number; bookAt: number };
-export type MarketStream = { quote(coin: string, maxAgeMs: number): StreamQuote | null; stop(): void };
+export type MarketStream = {
+  quote(coin: string, maxAgeMs: number): StreamQuote | null;
+  /** Connection state and data age, for /api/health. */
+  status(): { connected: boolean; reconnects: number; coins: Record<string, { markAgeMs: number | null; bookAgeMs: number | null }> };
+  stop(): void;
+};
 
 type Socket = Pick<WebSocket, "send" | "close"> & {
   onopen: ((ev: unknown) => void) | null;
@@ -34,6 +39,8 @@ export function createMarketStream(
   let socket: Socket | null = null;
   let stopped = false;
   let backoffMs = 1_000;
+  let connected = false;
+  let reconnects = 0;
   let ping: ReturnType<typeof setInterval> | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
 
@@ -58,6 +65,7 @@ export function createMarketStream(
     socket = ws;
     ws.onopen = () => {
       backoffMs = 1_000;
+      connected = true;
       for (const coin of coins) {
         ws.send(JSON.stringify({ method: "subscribe", subscription: { type: "activeAssetCtx", coin } }));
         ws.send(JSON.stringify({ method: "subscribe", subscription: { type: "bbo", coin } }));
@@ -70,11 +78,13 @@ export function createMarketStream(
     ws.onerror = () => { /* onclose follows */ };
     ws.onclose = () => {
       clearInterval(ping);
+      connected = false;
       // Drop what we had: after a disconnect, quotes come from HTTP until the feed is back.
       marks.clear(); books.clear();
       if (socket === ws) socket = null;
       if (stopped) return;
       log(`market stream closed; reconnecting in ${backoffMs / 1000}s`);
+      reconnects++;
       retry = setTimeout(open, backoffMs);
       backoffMs = Math.min(backoffMs * 2, 30_000);
     };
@@ -89,6 +99,12 @@ export function createMarketStream(
       const t = now();
       if (!mark || !book || t - mark.at > maxAgeMs || t - book.at > maxAgeMs) return null;
       return { markPx: mark.px, bestBid: book.bid, bestAsk: book.ask, markAt: mark.at, bookAt: book.at };
+    },
+    status() {
+      const t = now();
+      const age = (at: number | undefined) => at === undefined ? null : t - at;
+      return { connected, reconnects, coins: Object.fromEntries(coins.map(coin =>
+        [coin, { markAgeMs: age(marks.get(coin)?.at), bookAgeMs: age(books.get(coin)?.at) }])) };
     },
     stop() {
       stopped = true;

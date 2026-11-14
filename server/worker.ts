@@ -41,6 +41,19 @@ const TERMINAL = new Set(["filled", "canceled", "rejected", "marginCanceled", "v
   "tooAggressiveAtOpenInterestCapRejected", "openInterestIncreaseRejected", "insufficientSpotBalanceRejected",
   "oracleRejected", "perpMaxPositionRejected"]);
 /** Terminal if documented, or shaped like one (…Rejected / …Canceled) for statuses the venue adds later. */
+/** Public error categories for /api/health. Fixed strings only: no upstream text ever reaches the public. */
+export type PublicErrorCode = "rate_limited" | "venue_error" | "guard_refused" | "guard_error" | "wallet_error" | "internal_error";
+
+/** Maps an error to a fixed category. The full message stays in the server log. */
+export function publicErrorCode(error: unknown): PublicErrorCode {
+  if (error instanceof GuardRefused) return "guard_refused";
+  const text = error instanceof Error ? error.message : String(error);
+  if (/\b429\b/.test(text)) return "rate_limited";
+  if (/hyperliquid/i.test(text)) return "venue_error";
+  if (/outlayer|near/i.test(text)) return "guard_error";
+  if (/solana/i.test(text)) return "wallet_error";
+  return "internal_error";
+}
 const isTerminal = (status: string) => TERMINAL.has(status) || /(Rejected|Canceled)$/.test(status);
 
 /** Decimal string → integer units, rounding as requested when the input has extra precision. */
@@ -68,6 +81,9 @@ export function createWorker(deps: WorkerDeps) {
   const expiryMs = deps.expiryMs ?? 20_000;
   const locks = new Map<string, Promise<unknown>>();
   let timer: ReturnType<typeof setInterval> | undefined;
+  /** Loop liveness, reported by status(). */
+  const loop = { lastTickAt: null as number | null, lastTickOkAt: null as number | null,
+    lastError: null as { code: PublicErrorCode; at: number } | null, pausedUntil: 0 };
   /** Last venue confirmation of each rule's recovery stop (see checkStop). */
   const stopConfirmed = new Map<string, { shortLots: bigint; at: number }>();
 
@@ -561,6 +577,7 @@ export function createWorker(deps: WorkerDeps) {
   async function tickAll() {
     for (const rule of db.activeRules(env)) {
       try { await tickRule(rule.id); } catch (error) {
+        loop.lastError = { code: publicErrorCode(error), at: Date.now() };
         console.error(`worker tick failed for ${rule.id}:`, error instanceof Error ? error.message : error);
         if (String(error).includes("429")) throw error; // let the loop back off instead of hammering the venue
       }
@@ -578,17 +595,29 @@ export function createWorker(deps: WorkerDeps) {
     start(intervalMs = 4_000) {
       if (timer) return;
       let running = false;
-      let pausedUntil = 0;
       timer = setInterval(async () => {
-        if (running || Date.now() < pausedUntil) return;
+        if (running || Date.now() < loop.pausedUntil) return;
         running = true;
-        try { await tickAll(); }
-        catch (error) {
-          if (String(error).includes("429")) pausedUntil = Date.now() + 30_000;
+        loop.lastTickAt = Date.now();
+        try {
+          await tickAll();
+          loop.lastTickOkAt = Date.now();
+        } catch (error) {
+          if (String(error).includes("429")) loop.pausedUntil = Date.now() + 30_000;
+          loop.lastError = { code: publicErrorCode(error), at: Date.now() };
           console.error("worker loop error:", error instanceof Error ? error.message : error);
         }
         finally { running = false; }
       }, intervalMs);
+    },
+
+    /** Public liveness for /api/health: no rule ids, addresses or amounts. */
+    status() {
+      return {
+        lastTickAt: loop.lastTickAt, lastTickOkAt: loop.lastTickOkAt, lastError: loop.lastError,
+        rateLimitedUntil: loop.pausedUntil > Date.now() ? loop.pausedUntil : null,
+        activeRules: db.activeRules(env).length,
+      };
     },
     stop() { if (timer) clearInterval(timer); timer = undefined; },
   };

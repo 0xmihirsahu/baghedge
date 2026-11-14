@@ -98,10 +98,13 @@ export function createExchange(
   const base = HYPERLIQUID_URL[network];
   const client = opts.infoClient ?? createInfoClient(base, request);
   const info = async (payload: object, maxAgeMs = 0) => (await client.read(payload, maxAgeMs)).data;
+  /** Where market() reads came from since start, for /api/health. */
+  const marketReads = { stream: 0, http: 0 };
 
   return {
     network,
     info,
+    marketReads: () => ({ ...marketReads }),
 
     /**
      * Sends a signed action. Any transport failure is "unknown": the caller must reconcile by cloid
@@ -234,6 +237,7 @@ export function createExchange(
       }
       const base = { asset, sizeDecimals: meta.szDecimals, maxLeverage: typeof meta.maxLeverage === "number" ? meta.maxLeverage : 1 };
       if (live) {
+        marketReads.stream++;
         return { ...base, markPx: live.markPx, bestBid: live.bestBid, bestAsk: live.bestAsk,
           markObservedAt: live.markAt, bookObservedAt: live.bookAt, observedAt: Math.min(live.markAt, live.bookAt) };
       }
@@ -242,6 +246,7 @@ export function createExchange(
       if (!isRecord(assetCtx) || !isDecimal(assetCtx.markPx) || !levels || !book) {
         throw new RequestError(502, "invalid_market_data", `Hyperliquid returned no ${coin} market`);
       }
+      marketReads.http++;
       return {
         ...base, markPx: assetCtx.markPx, bestBid: topPx(levels[0]), bestAsk: topPx(levels[1]),
         markObservedAt: ctx.fetchedAt, bookObservedAt: book.fetchedAt, observedAt: Math.min(ctx.fetchedAt, book.fetchedAt),

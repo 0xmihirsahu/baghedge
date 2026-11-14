@@ -73,6 +73,12 @@ export function createApi(config: AppConfig, request = fetch) {
           ? ["The guard's NEAR execution account key was exposed during development and has not been rotated. A holder could request extra hedge orders within a user's signed policy limits (trading the Hedge account's margin); it can never withdraw funds."]
           : [],
         workerRunning: Boolean(worker && config.worker),
+        // Liveness for the UI and operators: when the hedge loop last ran, its last error, and the price feed.
+        worker: worker && config.worker ? {
+          ...worker.status(),
+          priceFeed: stream ? stream.status() : null,
+          marketReads: exchange.marketReads(),
+        } : null,
       };
     }
     if (req.method === "GET" && url.pathname === "/api/markets") {
