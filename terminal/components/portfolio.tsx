@@ -12,7 +12,6 @@ import { ArrowUpRight } from "@phosphor-icons/react";
 import { STATUS, useStore } from "./app/store";
 import { DOWN, UP, compact, pct, tone, usd } from "./app/format";
 import { isEvmAddress } from "./app/wallet";
-import { WalletBox } from "./shell";
 import { haptic } from "@/lib/haptics";
 import { InlineError } from "./inline-error";
 import { Offline, useAfter } from "./offline";
@@ -20,7 +19,7 @@ import { Offline, useAfter } from "./offline";
 // one screen, three parts: the watched SOL and the hedge on it (left), the hyperliquid accounts (right).
 // lists scroll inside their card, never the page
 export function PortfolioPage() {
-  const { wallet, mids, hedge: h } = useStore();
+  const { wallet, mids, hedge: h, privy } = useStore();
   const mark = mids.SOL;
   const active = h.phase !== "draft" || h.hedge !== 0;
   // the balance read retries every 30 s; after a while without one, say so instead of loading forever
@@ -57,9 +56,17 @@ export function PortfolioPage() {
                 <ExposureDots watched={20} hedged={0} per={1} size={12} className="mb-6 w-[174px] opacity-25 [@media(max-height:860px)]:hidden" />
                 <p className="text-[20px] font-semibold tracking-[-0.02em]">No wallet yet</p>
                 <p className="mt-1 text-[14px] text-white/45">Connect one, or watch any address read only.</p>
-                <div className="-mx-4 -mb-4 max-w-[340px]">
-                  <WalletBox />
-                </div>
+                {/* only the action here: who's signed in already shows in the sidebar */}
+                <button
+                  onClick={() => {
+                    haptic("tap");
+                    wallet.connect();
+                  }}
+                  disabled={wallet.connecting}
+                  className="mt-5 h-11 rounded-[12px] bg-[#f0645a] px-5 text-[15px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70"
+                >
+                  {wallet.connecting ? "Connecting…" : privy && !privy.authenticated ? "Sign in" : "Add SOL to hedge"}
+                </button>
               </div>
             )}
           </div>
