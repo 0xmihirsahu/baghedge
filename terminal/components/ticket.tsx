@@ -44,7 +44,11 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
   // with Privy, the real hedge starts with one sign-in that brings the Trade and Hedge accounts
   const signInFirst = connected && hedgeMode && !L && !!privy && liveCapable;
   const label = !connected
-    ? "Connect wallet"
+    ? privy && !privy.authenticated
+      ? "Sign in"
+      : privy
+        ? "Add your SOL"
+        : "Connect wallet"
     : signInFirst
       ? !privy.ready
         ? "Loading"

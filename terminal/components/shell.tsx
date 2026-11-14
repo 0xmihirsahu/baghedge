@@ -135,9 +135,24 @@ export function Shell({ children }: { children: ReactNode }) {
 
 // connect a solana wallet or watch an address. we read the public balance, nothing else
 export function WalletBox() {
-  const { wallet } = useStore();
+  const { wallet, privy } = useStore();
   return (
     <div className="flex flex-col gap-2 px-4 py-4">
+      {/* who's signed in (Privy), above the SOL wallet they watch */}
+      {privy?.authenticated && (
+        <div className="flex items-center gap-2 px-1 text-[12px] text-white/45">
+          <span className="min-w-0 truncate">{privy.label ?? "Signed in"}</span>
+          <button
+            onClick={() => {
+              haptic("tap");
+              privy.logout();
+            }}
+            className="ml-auto shrink-0 font-semibold text-white/55 transition-colors hover:text-white"
+          >
+            Sign out
+          </button>
+        </div>
+      )}
       {wallet.address ? (
         <div className="flex items-center gap-3 px-1">
           <WalletAvatar address={wallet.address} size={36} />
@@ -160,7 +175,7 @@ export function WalletBox() {
           }}
           disabled={wallet.connecting}
           className="h-11 rounded-[12px] bg-[#f0645a] text-[15px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70">
-          {wallet.connecting ? "Connecting…" : "Connect wallet"}
+          {wallet.connecting ? "Connecting…" : privy && !privy.authenticated ? "Sign in" : privy ? "Add your SOL" : "Connect wallet"}
         </button>
       )}
     </div>
@@ -168,7 +183,7 @@ export function WalletBox() {
 }
 
 function WalletChip() {
-  const { wallet } = useStore();
+  const { wallet, privy } = useStore();
   if (!wallet.address)
     return (
       <button
@@ -179,7 +194,7 @@ function WalletChip() {
         disabled={wallet.connecting}
         className="h-9 rounded-[11px] bg-[#f0645a] px-3.5 text-[14px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70"
       >
-        {wallet.connecting ? "Connecting…" : "Connect wallet"}
+        {wallet.connecting ? "Connecting…" : privy && !privy.authenticated ? "Sign in" : privy ? "Add your SOL" : "Connect wallet"}
       </button>
     );
   return (

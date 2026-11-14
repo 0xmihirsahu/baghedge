@@ -230,6 +230,18 @@ function useTerminal(backend: Backend) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [privy?.trade, privy?.hedge]);
 
+  // right after sign-in, a user with no SOL wallet yet is asked for one
+  const wasAuthed = useRef<boolean | null>(null);
+  useEffect(() => {
+    const now = !!privy?.authenticated;
+    const was = wasAuthed.current;
+    wasAuthed.current = now;
+    if (was === false && now && !address) {
+      const t = setTimeout(() => setPicker(true), 400);
+      return () => clearTimeout(t);
+    }
+  }, [privy?.authenticated, address]);
+
   // who can sign for the Hedge account: its Privy embedded wallet, or an external wallet connected as it
   const same = (a?: string | null, b?: string | null) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
   const signer = privy?.authenticated && same(privy.hedge, accounts.hedge) ? privy.signer : same(evm.address, accounts.hedge) ? externalSigner : null;
