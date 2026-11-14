@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { generatePrivateKey } from "viem/accounts";
-import { fallbackSigner, parseExchangeResponse, recoverL1Signer, verifiedSigner, type HedgeSigner } from "../server/exchange";
+import { createL1ActionHash } from "@nktkas/hyperliquid/signing";
+import { canonicalAction, fallbackSigner, parseExchangeResponse, recoverL1Signer, verifiedSigner, type HedgeSigner } from "../server/exchange";
 
 const action = { type: "order", orders: [{ a: 0, b: false, p: "140", s: "0.1", r: false, t: { limit: { tif: "Ioc" } } }], grouping: "na" };
 const nonce = 1794666000000;
@@ -28,6 +29,25 @@ describe("signing", () => {
     const impostor: HedgeSigner = { ...fallbackSigner(generatePrivateKey(), "testnet"), address: real.address, kind: "guard" };
     expect(verifiedSigner(real, "testnet").signL1(action, nonce)).resolves.toBeDefined();
     expect(verifiedSigner(impostor, "testnet").signL1(action, nonce)).rejects.toThrow("Signer mismatch");
+  });
+});
+
+describe("canonical action order", () => {
+  test("the attached stop from buildHedgeOrder is reordered to isMarket, triggerPx, tpsl before hashing", () => {
+    const fromBuilder = { type: "order", grouping: "normalTpsl", orders: [
+      { a: 5, b: true, p: "163", s: "0.4", r: true, t: { trigger: { isMarket: false, tpsl: "sl", triggerPx: "161" } }, c: `0x${"1".repeat(32)}` },
+    ] };
+    const venueOrder = { type: "order", orders: [
+      { a: 5, b: true, p: "163", s: "0.4", r: true, t: { trigger: { isMarket: false, triggerPx: "161", tpsl: "sl" } }, c: `0x${"1".repeat(32)}` },
+    ], grouping: "normalTpsl" };
+    const canonical = canonicalAction(fromBuilder);
+    expect(JSON.stringify(canonical)).toBe(JSON.stringify(venueOrder));
+    expect(createL1ActionHash({ action: canonical, nonce })).toBe(createL1ActionHash({ action: venueOrder, nonce }));
+    expect(createL1ActionHash({ action: fromBuilder, nonce })).not.toBe(createL1ActionHash({ action: venueOrder, nonce }));
+  });
+
+  test("unsupported action types are refused", () => {
+    expect(() => canonicalAction({ type: "usdSend" })).toThrow("Unsupported");
   });
 });
 

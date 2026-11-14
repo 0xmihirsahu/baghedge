@@ -1,4 +1,5 @@
-import { createL1ActionHash, signL1Action } from "@nktkas/hyperliquid/signing";
+import { CancelByCloidRequest, OrderRequest } from "@nktkas/hyperliquid/api/exchange";
+import { canonicalize, createL1ActionHash, signL1Action } from "@nktkas/hyperliquid/signing";
 import { recoverTypedDataAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { isDecimal, isRecord, RequestError } from "./http";
@@ -15,6 +16,17 @@ export type HedgeSigner = {
   kind: "guard" | "fallback";
   signL1(action: L1Action, nonce: number, expiresAfter?: number): Promise<Signature>;
 };
+
+/**
+ * Reorders keys to the venue's field order. The L1 hash covers msgpack bytes, so `{isMarket, tpsl, triggerPx}`
+ * signs a different digest than the venue recomputes and is rejected as an unknown signer. Canonicalize
+ * before journaling so the stored, guard-checked, signed and submitted bodies are identical.
+ */
+export function canonicalAction(action: L1Action): L1Action {
+  if (action.type === "order") return canonicalize(OrderRequest.entries.action, action as never) as L1Action;
+  if (action.type === "cancelByCloid") return canonicalize(CancelByCloidRequest.entries.action, action as never) as L1Action;
+  throw new Error(`Unsupported hedge action type: ${String(action.type)}`);
+}
 
 const AGENT_DOMAIN = {
   name: "Exchange", version: "1", chainId: 1337,

@@ -65,7 +65,7 @@ export type HedgePolicy = {
 export function policyMessage(policy: HedgePolicy) {
   const message: Record<string, unknown> = { ...policy };
   for (const field of UINT64_FIELDS) {
-    if (!/^\d{1,20}$/.test(policy[field]) || BigInt(policy[field]) >= 2n ** 64n) throw new Error(`Invalid ${field}`);
+    if (!/^(0|[1-9]\d{0,19})$/.test(policy[field]) || BigInt(policy[field]) >= 2n ** 64n) throw new Error(`Invalid ${field}`);
     message[field] = BigInt(policy[field]);
   }
   return message as Omit<HedgePolicy, (typeof UINT64_FIELDS)[number]> & Record<(typeof UINT64_FIELDS)[number], bigint>;
