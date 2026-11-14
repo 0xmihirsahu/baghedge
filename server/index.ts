@@ -45,6 +45,7 @@ export function createApi(config: AppConfig, request = fetch) {
   const hedges = createHedgeRoutes({
     env: config.mode, db, exchange, readWallet, signer: config.signer ?? null,
     sessionAddresses: req => sessions.addresses(req),
+    exclusive: (hedge, fn) => worker ? worker.exclusive(hedge, fn) : fn(),
     onArmed: id => { void worker?.tickRule(id).catch(error => console.error("hedge tick failed", error)); },
   });
   if (worker && config.worker) worker.start();

@@ -73,6 +73,8 @@ export function createHedgeRoutes(opts: {
   env: Env; db: Db; exchange: Exchange; signer: SignerConfig | null;
   readWallet(address: string): Promise<{ lamports: string; observedAt: number }>;
   onArmed?(ruleId: string): void;
+  /** Runs fn under the worker's per-account lock (owner commands serialize with ticks). */
+  exclusive?<T>(hedgeAddress: string, fn: () => Promise<T>): Promise<T>;
   /** Addresses proven by the request's owner session. Rule reads and events require the Hedge or Trade owner. */
   sessionAddresses(req: Request): Set<string>;
 }) {
@@ -221,17 +223,25 @@ export function createHedgeRoutes(opts: {
       message: { ruleId: rule.id as Hex, command, issuedAt: BigInt(body.issuedAt) }, signature: body.signature as Hex,
     }).catch(() => null);
     if (signer?.toLowerCase() !== rule.hedgeAddress) throw new RequestError(403, "not_owner", "Only the Hedge owner can do this");
-    if (rule.status !== "active") return ruleView(rule, db);
-    const s = rule.state;
-    if (s.shortLots === 0n && !s.pending) {
-      // Nothing on the venue: stop immediately. Never route a flat rule through "closing", which could still enter.
-      db.updateRule(rule.id, { status: "done", reason: command === "disarm" ? "disarmed" : "closed-by-owner",
-        state: { ...s, phase: "closed" } });
-    } else {
-      db.updateRule(rule.id, { reason: `${command}-requested`, state: { ...s, phase: "closing" } });
-      opts.onArmed?.(rule.id);
-    }
-    db.emit(env, rule.id, command, { by: signer });
+    // Serialize with the worker for this Hedge account and decide on fresh state, so a tick can't place an
+    // order the owner just cancelled and the owner's write can't erase a reservation the tick just made.
+    const exclusive = opts.exclusive ?? ((_h: string, fn: () => Promise<void>) => fn());
+    let needsTick = false;
+    await exclusive(rule.hedgeAddress, async () => {
+      const fresh = db.rule(rule.id)!;
+      if (fresh.status !== "active") return;
+      const s = fresh.state;
+      if (s.shortLots === 0n && !s.pending) {
+        // Nothing on the venue: stop immediately. Never route a flat rule through "closing", which could still enter.
+        db.updateRule(rule.id, { status: "done", reason: command === "disarm" ? "disarmed" : "closed-by-owner",
+          state: { ...s, phase: "closed" } });
+      } else {
+        db.updateRule(rule.id, { reason: `${command}-requested`, state: { ...s, phase: "closing" } });
+        needsTick = true;
+      }
+      db.emit(env, rule.id, command, { by: signer });
+    });
+    if (needsTick) opts.onArmed?.(rule.id);   // after releasing the lock
     return ruleView(db.rule(rule.id)!, db);
   }
 

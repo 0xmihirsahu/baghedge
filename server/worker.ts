@@ -2,7 +2,7 @@ import { fromUnits } from "../shared/amounts";
 import { decideHedge, settleHedgeOrder, type HedgeAction, type HedgeRule, type HedgeState } from "../shared/hedge";
 import { buildHedgeOrder } from "../shared/orders";
 import { deriveCloid, ruleFromPolicy, type CloidIntent } from "../shared/policy";
-import type { ActionRecord, Db, Env, RuleRecord } from "./db";
+import { StaleRuleError, type ActionRecord, type Db, type Env, type RuleRecord } from "./db";
 import { GuardRefused } from "./guard";
 import { canonicalAction, type Exchange, type HedgeSigner, type L1Action } from "./exchange";
 
@@ -124,23 +124,30 @@ export function createWorker(deps: WorkerDeps) {
       return false; // unknown status string: keep it pending rather than guess
     }
 
-    db.updateAction(action.id, { outcome, oid: status?.oid ?? null, filledLots: filledLots.toString() });
+    const actionPatch = { outcome, oid: status?.oid ?? null, filledLots: filledLots.toString() };
     if (action.intent === "position_stop") {
-      db.updateRule(rule.id, { stopStatus: "missing" });
+      db.atomically(() => { db.updateAction(action.id, actionPatch); db.updateRule(rule.id, { stopStatus: "missing" }); });
       pauseIfGuardKeepsFailing(rule.id);
       return true;
     }
-    const current = db.rule(rule.id)!;
+    // Observe the venue before writing anything: if this read fails, the action stays unresolved and is retried.
     const { lots: shortLots } = await confirmedShortLots(rule, sizeDecimals);
+    const current = db.rule(rule.id)!;
+    let state: HedgeState;
     try {
-      const state = settleHedgeOrder(current.state, { terminal: true, filledLots, confirmedShortLots: shortLots });
-      const stopStatus = action.intent === "entry" && filledLots > 0n ? "checking" : current.stopStatus;
-      db.updateRule(rule.id, { state, stopStatus, reason: `${action.intent}-${outcome}` });
-      db.emit(env, rule.id, "order", { intent: action.intent, cloid: action.cloid, outcome, filledLots, shortLots });
-      pauseIfGuardKeepsFailing(rule.id);
-    } catch (error) {
-      pause(current, current.state, "reconcile-mismatch");
+      state = settleHedgeOrder(current.state, { terminal: true, filledLots, confirmedShortLots: shortLots });
+    } catch {
+      db.atomically(() => { db.updateAction(action.id, actionPatch); pause(current, current.state, "reconcile-mismatch"); });
+      return true;
     }
+    const stopStatus = action.intent === "entry" && filledLots > 0n ? "checking" : current.stopStatus;
+    // The action's outcome and the rule state it settles are one write.
+    db.atomically(() => {
+      db.updateAction(action.id, actionPatch);
+      db.updateRule(rule.id, { state, stopStatus, reason: `${action.intent}-${outcome}` });
+    });
+    db.emit(env, rule.id, "order", { intent: action.intent, cloid: action.cloid, outcome, filledLots, shortLots });
+    pauseIfGuardKeepsFailing(rule.id);
     return true;
   }
 
@@ -158,7 +165,8 @@ export function createWorker(deps: WorkerDeps) {
         return "unknown" as const;
       }
       // A completed guard refusal ({ok:false}, no signature) or a local fallback failure: no signature exists anywhere.
-      db.updateAction(action.id, { transport: "rejected", outcome: "rejected", filledLots: "0", error: message });
+      // The outcome is written together with the settled rule state (settleZero), never alone.
+      db.updateAction(action.id, { transport: "rejected", error: message });
       return null;
     }
   }
@@ -171,28 +179,33 @@ export function createWorker(deps: WorkerDeps) {
       db.updateAction(action.id, { transport: "acked", oid: first?.kind === "ok" ? first.filled?.oid ?? first.resting?.oid ?? null : null });
       if (first?.kind === "error") {
         // Affirmative venue refusal of the order itself (for an IOC: nothing matched in the band).
-        db.updateAction(action.id, { outcome: "zero", filledLots: "0", error: first.message.slice(0, 300) });
+        db.updateAction(action.id, { error: first.message.slice(0, 300) });
         return "zero" as const;
       }
       return "acked" as const;
     }
     if (result.transport === "rejected") {
-      db.updateAction(action.id, { transport: "rejected", outcome: "rejected", filledLots: "0", error: result.message.slice(0, 300) });
+      db.updateAction(action.id, { transport: "rejected", error: result.message.slice(0, 300) });
       return "zero" as const;
     }
     db.updateAction(action.id, { transport: "unknown", error: result.message.slice(0, 300) });
     return "unknown" as const;
   }
 
-  /** Releases a pending engine action after a confirmed zero (refused signature or venue error). */
-  async function settleZero(rule: RuleRecord, sizeDecimals: number, reason: string) {
-    const current = db.rule(rule.id)!;
+  /**
+   * Releases a pending engine action after a confirmed zero (refused signature or venue refusal). Reads the venue
+   * first; then writes the action outcome and the rule state together. A failed read leaves both untouched.
+   */
+  async function settleZero(rule: RuleRecord, sizeDecimals: number, reason: string, actionId: string,
+    outcome: "zero" | "rejected") {
     const { lots } = await confirmedShortLots(rule, sizeDecimals);
+    const current = db.rule(rule.id)!;
+    const patch = { outcome, filledLots: "0" } as const;
     try {
       const state = settleHedgeOrder(current.state, { terminal: true, filledLots: 0n, confirmedShortLots: lots });
-      db.updateRule(rule.id, { state, reason });
+      db.atomically(() => { db.updateAction(actionId, patch); db.updateRule(rule.id, { state, reason }); });
     } catch {
-      pause(current, current.state, "reconcile-mismatch");
+      db.atomically(() => { db.updateAction(actionId, patch); pause(current, current.state, "reconcile-mismatch"); });
     }
   }
 
@@ -212,20 +225,29 @@ export function createWorker(deps: WorkerDeps) {
     let expiresAfter = now() + expiryMs;
     if (intent === "entry" && state.retryUntil !== null) expiresAfter = Math.min(expiresAfter, state.retryUntil);
     const id = crypto.randomUUID();
-    db.reserveAction({ id, env, ruleId: rule.id, account: rule.hedgeAddress, intent, seq, cloid, stopCloid,
-      lots: engineAction.lots.toString(), nonce, expiresAfter, signer: signer.address, action: wire }, state);
+    try {
+      // Only if the rule is still active and unchanged since this decision (an owner disarm/close wins).
+      db.reserveAction({ id, env, ruleId: rule.id, account: rule.hedgeAddress, intent, seq, cloid, stopCloid,
+        lots: engineAction.lots.toString(), nonce, expiresAfter, signer: signer.address, action: wire }, state, rule.rev);
+    } catch (error) {
+      if (error instanceof StaleRuleError) return;
+      throw error;
+    }
     db.emit(env, rule.id, "reserved", { intent, cloid, lots: engineAction.lots, nonce });
 
     const reserved = db.action(id)!;
     const signature = await sign(rule, signer, reserved);
     if (signature === "unknown") return; // engine action stays pending until reconcile resolves it
     if (!signature) {
-      await settleZero(rule, market.sizeDecimals, "signer-refused");
+      await settleZero(rule, market.sizeDecimals, "signer-refused", id, "rejected");
       pause(db.rule(rule.id)!, db.rule(rule.id)!.state, "signer-refused");
       return;
     }
     const sent = await send(rule, db.action(id)!, signature);
-    if (sent === "zero") return settleZero(rule, market.sizeDecimals, `${intent}-zero`);
+    if (sent === "zero") {
+      const outcome = db.action(id)!.transport === "rejected" ? "rejected" : "zero";
+      return settleZero(rule, market.sizeDecimals, `${intent}-zero`, id, outcome);
+    }
     await reconcile(db.rule(rule.id)!, db.action(id)!, market.sizeDecimals);
   }
 
@@ -263,18 +285,33 @@ export function createWorker(deps: WorkerDeps) {
     }], grouping: "positionTpsl" });
     const signer = deps.signerFor(rule, { intent: "position_stop", orderRef: { intent: "position_stop", seq } });
     const id = crypto.randomUUID();
-    db.reserveAction({ id, env, ruleId: rule.id, account: rule.hedgeAddress, intent: "position_stop", seq, cloid,
-      stopCloid: null, lots: current.state.shortLots.toString(), nonce: db.nextNonce(signer.address),
-      expiresAfter: now() + expiryMs, signer: signer.address, action: wire }, current.state);
+    try {
+      db.reserveAction({ id, env, ruleId: rule.id, account: rule.hedgeAddress, intent: "position_stop", seq, cloid,
+        stopCloid: null, lots: current.state.shortLots.toString(), nonce: db.nextNonce(signer.address),
+        expiresAfter: now() + expiryMs, signer: signer.address, action: wire }, current.state, current.rev);
+    } catch (error) {
+      if (error instanceof StaleRuleError) return;
+      throw error;
+    }
     const signature = await sign(rule, signer, db.action(id)!);
     if (signature === "unknown") return;
     if (!signature) {
       // A refused stop would otherwise be re-requested every tick (each guard call is paid).
-      db.updateRule(rule.id, { stopStatus: "missing" });
-      pause(db.rule(rule.id)!, db.rule(rule.id)!.state, "signer-refused");
+      db.atomically(() => {
+        db.updateAction(id, { outcome: "rejected", filledLots: "0" });
+        db.updateRule(rule.id, { stopStatus: "missing" });
+        pause(db.rule(rule.id)!, db.rule(rule.id)!.state, "signer-refused");
+      });
       return;
     }
-    if (await send(rule, db.action(id)!, signature) !== "zero") await reconcile(db.rule(rule.id)!, db.action(id)!, market.sizeDecimals);
+    if (await send(rule, db.action(id)!, signature) === "zero") {
+      db.atomically(() => {
+        db.updateAction(id, { outcome: db.action(id)!.transport === "rejected" ? "rejected" : "zero", filledLots: "0" });
+        db.updateRule(rule.id, { stopStatus: "missing" });
+      });
+      return;
+    }
+    await reconcile(db.rule(rule.id)!, db.action(id)!, market.sizeDecimals);
   }
 
   /** Cancels resting stop orders this rule placed. Returns true once the venue shows none left. */
@@ -364,6 +401,24 @@ export function createWorker(deps: WorkerDeps) {
       }
       if (current.state.phase === "paused") return;
 
+      // 1b. Repair a rule left half-written by an older build: the journal shows the action resolved but the
+      // engine still holds it as pending. Settle it from the venue, the same way reconcile would have.
+      if (current.state.pending) {
+        const last = db.actionsForRule(ruleId).filter(a => a.intent === current.state.pending!.kind && a.outcome !== null).at(-1);
+        if (last) {
+          const { lots } = await confirmedShortLots(current, market.sizeDecimals);
+          try {
+            const state = settleHedgeOrder(current.state, { terminal: true, filledLots: BigInt(last.filledLots ?? "0"), confirmedShortLots: lots });
+            db.updateRule(ruleId, { state, reason: `${last.intent}-${last.outcome}-repaired`,
+              ...(last.intent === "entry" && BigInt(last.filledLots ?? "0") > 0n ? { stopStatus: "checking" as const } : {}) });
+          } catch {
+            pause(current, current.state, "reconcile-mismatch");
+            return;
+          }
+          current = db.rule(ruleId)!;
+        }
+      }
+
       // 2a. A recovery stop that filled at the venue explains a smaller short: settle it as the designed exit,
       // before checking coverage (otherwise we'd re-place a stop for a position that's gone). Any other
       // unexplained change (ADL, liquidation, manual trade) still reaches the engine and pauses.
@@ -418,6 +473,8 @@ export function createWorker(deps: WorkerDeps) {
 
   return {
     tickRule, tickAll,
+    /** Runs fn under the same per-account lock as worker ticks (owner disarm/close use this). */
+    exclusive<T>(hedgeAddress: string, fn: () => Promise<T>) { return withLock(`${env}:${hedgeAddress}`, fn); },
     /**
      * Hyperliquid allows ~1200 request-weight per minute per IP and a tick costs ~50, so 4 s keeps us well under it.
      * After a rate-limit (429) the loop backs off for 30 s; the venue-side recovery stop covers the gap.
