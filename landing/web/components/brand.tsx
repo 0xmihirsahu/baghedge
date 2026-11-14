@@ -10,21 +10,11 @@ import { cn } from "@/lib/utils";
 const EASE = [0.16, 1, 0.3, 1] as const;
 const MARK: Source[] = [{ kind: "image", src: "/art/mascot.webp", scale: 0.7, hot: true }];
 
+// one of each. every other variant (ink, mono, on light) stays in the zip
 const LOGOS = [
-  { label: "On black", file: "baghedge-logo-white.png", tile: "bg-coal" },
-  { label: "On coral", file: "baghedge-logo-mono-ink.png", tile: "bg-brand" },
-  { label: "On light", file: "baghedge-logo-ink.png", tile: "bg-white" },
-];
-
-const MARKS = [
-  { label: "Mark", file: "baghedge-mark.png", tile: "bg-coal" },
-  { label: "Mark, ink", file: "baghedge-mark-ink.png", tile: "bg-brand" },
-  { label: "Mark, white", file: "baghedge-mark-white.png", tile: "bg-[#2a2826]" },
-];
-
-const ICONS = [
-  { label: "Icon", file: "baghedge-icon.png" },
-  { label: "Icon, coral", file: "baghedge-icon-coral.png" },
+  { label: "Logo", file: "baghedge-logo-white.png", img: "max-h-[56px] w-auto" },
+  { label: "Mark", file: "baghedge-mark.png", img: "h-[88px] w-auto" },
+  { label: "App icon", file: "baghedge-icon-coral.png", img: "size-[112px] rounded-[26px]" },
 ];
 
 const COLOURS = [
@@ -137,38 +127,14 @@ export function BrandPage() {
       <Card title="Logo">
         <div className="grid gap-2 sm:grid-cols-3 sm:gap-3">
           {LOGOS.map((l) => (
-            <figure key={l.file} className={cn("flex aspect-[4/3] flex-col rounded-[14px] p-4 sm:rounded-[16px] sm:p-5", l.tile, l.tile === "bg-coal" && "ring-1 ring-inset ring-white/10")}>
+            <figure key={l.file} className="flex aspect-[4/3] flex-col rounded-[14px] bg-[#0b0908] p-4 sm:rounded-[16px] sm:p-5">
               <div className="flex flex-1 items-center justify-center px-4">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`/brand/${l.file}`} alt={`baghedge logo, ${l.label.toLowerCase()}`} className="max-h-[56px] w-auto" />
-              </div>
-              <figcaption className={cn("flex justify-between text-[14px]", l.tile === "bg-coal" ? "text-white/70" : "text-[#16120f]/75")}>
-                {l.label}
-                <Download file={l.file} dark={l.tile !== "bg-coal"} />
-              </figcaption>
-            </figure>
-          ))}
-          {MARKS.map((m) => (
-            <figure key={m.file} className={cn("flex aspect-[4/3] flex-col rounded-[14px] p-4 sm:rounded-[16px] sm:p-5", m.tile, m.tile === "bg-coal" && "ring-1 ring-inset ring-white/10")}>
-              <div className="flex flex-1 items-center justify-center">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`/brand/${m.file}`} alt={m.label} className="h-[88px] w-auto" />
-              </div>
-              <figcaption className={cn("flex justify-between text-[14px]", m.tile === "bg-brand" ? "text-[#16120f]/75" : "text-white/70")}>
-                {m.label}
-                <Download file={m.file} dark={m.tile === "bg-brand"} />
-              </figcaption>
-            </figure>
-          ))}
-          {ICONS.map((ic) => (
-            <figure key={ic.file} className="flex aspect-[4/3] flex-col rounded-[14px] bg-[#2a2826] p-4 sm:rounded-[16px] sm:p-5">
-              <div className="flex flex-1 items-center justify-center">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`/brand/${ic.file}`} alt={ic.label} className="size-[112px] rounded-[26px]" />
+                <img src={`/brand/${l.file}`} alt={`baghedge ${l.label.toLowerCase()}`} className={l.img} />
               </div>
               <figcaption className="flex justify-between text-[14px] text-white/70">
-                {ic.label}
-                <Download file={ic.file} />
+                {l.label}
+                <Download file={l.file} />
               </figcaption>
             </figure>
           ))}
