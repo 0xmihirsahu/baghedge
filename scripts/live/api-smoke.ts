@@ -52,7 +52,9 @@ check("draft: policy, requiredMarginUsdc and ready-to-sign typedData", draft.sta
 const { EIP712Domain: _d, ...types } = draft.data.typedData.types;
 const ownerSig = await hedge.signTypedData({ domain: draft.data.typedData.domain, types, primaryType: "HedgePolicy", message: draft.data.typedData.message });
 const arm = await call("POST", "/api/hedges", { policy: draft.data.policy, ownerSig, chainId: 421614 });
-check("arm: signed typedData verifies; second rule refused while one is active", arm.status === 409 && arm.data.error === "rule_active", arm.data);
+// On a fresh database this arms a real (far-from-market) testnet rule; with one already active it's refused. Both prove the signature path.
+check("arm: signed typedData verifies (armed, or refused as rule_active)", (arm.status === 200 && arm.data.phase === "armed") ||
+  (arm.status === 409 && arm.data.error === "rule_active"), arm.data);
 const forged = await call("POST", "/api/hedges", { policy: draft.data.policy, ownerSig: await trade.signTypedData({ domain: draft.data.typedData.domain, types, primaryType: "HedgePolicy", message: draft.data.typedData.message }), chainId: 421614 });
 check("arm: policy signed by a non-owner refused", forged.status === 400 && forged.data.error === "invalid_policy", forged.data);
 
@@ -83,6 +85,15 @@ if (rule) {
   const text = first.value ? new TextDecoder().decode(first.value) : "";
   check("events: SSE stream replays this rule's events", sse.status === 200 && /event: armed/.test(text), text.slice(0, 200));
   check("events: without session refused", (await call("GET", `/api/events?rule=${rule.id}`)).status === 401);
+}
+
+// Clean up: disarm a rule this run armed (owner-signed), so the smoke test leaves nothing running.
+if (arm.status === 200 && arm.data.phase === "armed") {
+  const c = await call("GET", `/api/hedges/${arm.data.id}?command=disarm&chainId=421614`);
+  const { EIP712Domain: _e, ...ctypes } = c.data.typedData.types;
+  const sig = await hedge.signTypedData({ domain: c.data.typedData.domain, types: ctypes, primaryType: "HedgeCommand", message: c.data.typedData.message });
+  const d = await call("POST", `/api/hedges/${arm.data.id}/disarm`, { signature: sig, issuedAt: c.data.issuedAt, chainId: 421614 });
+  check("cleanup: owner-signed disarm ends the rule this run armed", d.status === 200 && d.data.status === "done", d.data);
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");

@@ -1,5 +1,7 @@
 # Integrating the terminal with the Baghedge backend
 
+**Backend:** https://baghedge-api.onrender.com. It currently runs **testnet** with the labeled demo signer, and switches to mainnet with the attested guard after the current mainnet hedge cycle. Check `GET /api/health` → `mode` and `hedgeSigner.kind`.
+
 **For:** the `terminal/` Next.js app.
 **Goal:** replace the replay timers in `components/app/store.tsx` with real calls. Every endpoint below is live and tested against Hyperliquid, NEAR Intents, Solana and OutLayer. The exact request and response shapes are in [API.md](API.md).
 
@@ -11,7 +13,7 @@
 Sign-in uses an `HttpOnly; SameSite=Lax` cookie, so the browser must reach the backend under the terminal's own origin. In `terminal/next.config.ts`:
 
 ```ts
-const BACKEND = process.env.BAGHEDGE_API_URL!; // e.g. https://baghedge-api.onrender.com
+const BACKEND = process.env.BAGHEDGE_API_URL!; // https://baghedge-api.onrender.com (live, testnet for now)
 export default {
   async rewrites() {
     return {
