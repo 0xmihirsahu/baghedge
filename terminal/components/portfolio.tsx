@@ -127,7 +127,7 @@ function Accounts() {
 
       {!address ? (
         <form
-          className="grid min-h-0 flex-1 place-items-center py-6"
+          className="mt-auto flex flex-col"
           onSubmit={(e) => {
             e.preventDefault();
             const a = input.trim();
@@ -138,10 +138,10 @@ function Accounts() {
           }}
         >
           {/* one centred group: the art, what this account is, and the field to add it */}
-          <div key={role} className="flex w-full max-w-[400px] flex-col items-center text-center [animation:toast-in_300ms_cubic-bezier(0.19,1,0.22,1)]">
+          <div key={role} className="flex flex-col [animation:toast-in_300ms_cubic-bezier(0.19,1,0.22,1)]">
             {/* halftone art (codex, the landing's style); its black drops out on the card */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={role === "trade" ? "/art/trade-account.webp" : "/art/hedge-account.webp"} alt="" className="-my-6 w-[260px] mix-blend-screen [@media(max-height:760px)]:hidden" />
+            <img src={role === "trade" ? "/art/trade-account.webp" : "/art/hedge-account.webp"} alt="" className="-mb-10 -ml-8 -mt-6 w-[300px] mix-blend-screen [@media(max-height:760px)]:hidden" />
             <p className="text-[20px] font-semibold tracking-[-0.02em]">Add your {role === "trade" ? "Trade" : "Hedge"} account</p>
             <p className="mt-1 text-[14px] text-white/45">{role === "trade" ? "The account you trade from by hand." : "The separate account that holds the hedge short."} Read only.</p>
             <div className="mt-5 flex w-full gap-2">
