@@ -34,3 +34,12 @@
   .toast-in { animation-duration: 1ms; }
   .moment-in, .moment-out { animation-duration: 1ms; }
 }
+
+/* a live price ticking up or down: its colour flashes, then settles */
+@keyframes px-up { from { color: #3ecf8e; } }
+@keyframes px-down { from { color: #f2554b; } }
+.px-up { animation: px-up 700ms ease-out; }
+.px-down { animation: px-down 700ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .px-up, .px-down { animation: none; }
+}

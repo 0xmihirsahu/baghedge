@@ -4,23 +4,28 @@ import { CaretDown, MagnifyingGlass } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BagLoader } from "@/components/motion";
-import { useStore } from "./app/store";
 import { CoinLogo } from "./coin-logo";
+import { Tip } from "./tip";
+import { useStore } from "./app/store";
 import { coinHref, compact, pct, priceDecimals, tone, usd } from "./app/format";
 
 type Sort = "volume" | "change" | "funding" | "oi";
-const COLS: { key: Sort; label: string }[] = [
-  { key: "change", label: "24h" },
-  { key: "volume", label: "Volume" },
-  { key: "oi", label: "Open interest" },
-  { key: "funding", label: "Funding" },
+type Filter = "All" | "Gainers" | "Losers";
+const COLS: { key: Sort; label: string; tip: string }[] = [
+  { key: "change", label: "24h", tip: "Price change over the last 24 hours" },
+  { key: "volume", label: "Volume", tip: "Value traded in the last 24 hours" },
+  { key: "oi", label: "Open interest", tip: "Value of all open positions" },
+  { key: "funding", label: "Funding", tip: "Paid hourly between longs and shorts. Positive: longs pay" },
 ];
+const GRID = "grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1.4fr)_1fr_0.8fr_1fr_1fr_0.9fr]";
 
-// every hyperliquid perp, live: price from the socket, the rest from a snapshot each minute
+// every hyperliquid perp, live: prices from the socket, the rest from a snapshot each minute.
+// four live headline cards, filters, sortable columns, and prices that flash when they move
 export function MarketsPage() {
   const { markets, mids } = useStore();
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<Sort>("volume");
+  const [filter, setFilter] = useState<Filter>("All");
   const search = useRef<HTMLInputElement>(null);
 
   // "/" jumps to search, as in most terminals
@@ -34,70 +39,149 @@ export function MarketsPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const rows = useMemo(() => {
-    const list = markets
-      .filter((m) => m.name.toLowerCase().includes(q.trim().toLowerCase()))
-      .map((m) => {
+  const all = useMemo(
+    () =>
+      markets.map((m) => {
         const px = mids[m.name] ?? m.mark;
         return { ...m, px, change: m.prevDay ? px / m.prevDay - 1 : 0 };
-      });
+      }),
+    [markets, mids],
+  );
+
+  const rows = useMemo(() => {
+    const list = all
+      .filter((m) => m.name.toLowerCase().includes(q.trim().toLowerCase()))
+      .filter((m) => (filter === "Gainers" ? m.change > 0 : filter === "Losers" ? m.change < 0 : true));
+    if (filter === "Gainers") return list.sort((a, b) => b.change - a.change);
+    if (filter === "Losers") return list.sort((a, b) => a.change - b.change);
     return list.sort((a, b) => (sort === "change" ? Math.abs(b.change) - Math.abs(a.change) : b[sort] - a[sort]));
-  }, [markets, mids, q, sort]);
+  }, [all, q, sort, filter]);
+
+  // headline cards, among markets with real volume so a thin coin can't top the list
+  const liquid = all.filter((m) => m.volume > 1_000_000);
+  const top = liquid.length
+    ? {
+        gainer: liquid.reduce((a, b) => (b.change > a.change ? b : a)),
+        loser: liquid.reduce((a, b) => (b.change < a.change ? b : a)),
+        volume: liquid.reduce((a, b) => (b.volume > a.volume ? b : a)),
+        funding: liquid.reduce((a, b) => (Math.abs(b.funding) > Math.abs(a.funding) ? b : a)),
+      }
+    : null;
 
   return (
     <section className="flex h-full min-h-0 flex-col">
-      <header className="flex flex-wrap items-center justify-between gap-3 px-5 pb-4 pt-5 sm:px-7">
+      <div className="mx-auto flex w-full max-w-[1480px] flex-wrap items-center justify-between gap-3 px-5 pb-4 pt-5 sm:px-7">
         <div>
           <h1 className="text-[26px] font-semibold tracking-[-0.03em]">Markets</h1>
           <p className="text-[13px] text-white/45">{markets.length ? `${markets.length} perps on Hyperliquid` : " "}</p>
         </div>
-        <label className="flex h-10 w-full items-center gap-2 rounded-[12px] bg-[#1c1b1a] px-3 sm:w-[280px]">
-          <MagnifyingGlass size={16} className="text-white/45" />
-          <input ref={search} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" className="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-white/35" />
-          <kbd className="hidden rounded-[6px] bg-[#2e2c2a] px-1.5 text-[11px] text-white/50 sm:block">/</kbd>
-        </label>
-      </header>
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <div className="grid grid-cols-3 gap-1 rounded-[12px] bg-[#1c1b1a] p-1">
+            {(["All", "Gainers", "Losers"] as const).map((f) => (
+              <button key={f} onClick={() => setFilter(f)} className={`h-8 rounded-[9px] px-3 text-[13px] font-semibold transition-colors duration-150 ${filter === f ? "bg-[#2e2c2a] text-white" : "text-white/45 hover:text-white/70"}`}>
+                {f}
+              </button>
+            ))}
+          </div>
+          <label className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-[12px] bg-[#1c1b1a] px-3 sm:w-[260px] sm:flex-none">
+            <MagnifyingGlass size={16} className="text-white/45" />
+            <input ref={search} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" className="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-white/35" />
+            <kbd className="hidden rounded-[6px] bg-[#2e2c2a] px-1.5 text-[11px] text-white/50 sm:block">/</kbd>
+          </label>
+        </div>
+      </div>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-4 border-y border-white/[0.08] px-5 py-2.5 text-[12px] text-white/45 sm:px-7 md:grid-cols-[minmax(0,1.4fr)_1fr_0.8fr_1fr_1fr_0.9fr]">
-        <span>Market</span>
-        <span className="text-right">Price</span>
-        {COLS.map((c) => (
-          <button key={c.key} onClick={() => setSort(c.key)} className={`hidden items-center justify-end gap-1 md:flex ${sort === c.key ? "text-white" : "hover:text-white/70"}`}>
-            {c.label}
-            {sort === c.key && <CaretDown size={10} weight="bold" />}
-          </button>
-        ))}
+      {top && (
+        <div className="mx-auto grid w-full max-w-[1480px] grid-cols-2 gap-3 px-5 pb-5 sm:px-7 lg:grid-cols-4">
+          <Headline label="Top gainer" tip="Biggest 24h rise among liquid markets" m={top.gainer} value={pct(top.gainer.change)} color={tone(top.gainer.change)} />
+          <Headline label="Top loser" tip="Biggest 24h fall among liquid markets" m={top.loser} value={pct(top.loser.change)} color={tone(top.loser.change)} />
+          <Headline label="Most traded" tip="Highest 24h volume" m={top.volume} value={compact(top.volume.volume)} />
+          <Headline label="Hottest funding" tip="Largest hourly funding rate, either side" m={top.funding} value={`${(top.funding.funding * 100).toFixed(4)}%`} color={tone(top.funding.funding)} />
+        </div>
+      )}
+
+      <div className="border-y border-white/[0.08]">
+        <div className={`mx-auto grid w-full max-w-[1480px] ${GRID} gap-4 px-5 py-2.5 text-[12px] text-white/45 sm:px-7`}>
+          <span>Market</span>
+          <span className="text-right">Price</span>
+          {COLS.map((c) => (
+            <button
+              key={c.key}
+              onClick={() => {
+                setSort(c.key);
+                setFilter("All");
+              }}
+              className={`hidden items-center justify-end gap-1 md:flex ${sort === c.key && filter === "All" ? "text-white" : "hover:text-white/70"}`}
+            >
+              <Tip text={c.tip} side="bottom" align={c.key === "funding" ? "end" : "center"}>{c.label}</Tip>
+              {sort === c.key && filter === "All" && <CaretDown size={10} weight="bold" />}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!markets.length ? (
           <div className="grid h-full place-items-center"><BagLoader size={44} label="Loading markets" /></div>
         ) : !rows.length ? (
-          <p className="py-10 text-center text-[14px] text-white/45">No market called “{q}”</p>
+          <p className="py-10 text-center text-[14px] text-white/45">{q ? `No market called “${q}”` : "Nothing here right now"}</p>
         ) : (
           rows.map((m) => (
-            <Link
-              key={m.name}
-              href={coinHref(m.name)}
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-3 text-[14px] tabular-nums transition-colors duration-100 hover:bg-[#141312] sm:px-7 md:grid-cols-[minmax(0,1.4fr)_1fr_0.8fr_1fr_1fr_0.9fr]"
-            >
-              <span className="flex items-center gap-3">
-                <CoinLogo coin={m.name} className="size-8" />
-                <span className="font-semibold">{m.name}</span>
-                <span className="rounded-[6px] bg-[#1c1b1a] px-1.5 py-0.5 text-[11px] text-white/55">{m.maxLeverage}x</span>
-              </span>
-              <span className="text-right leading-tight">
-                <span className="block font-medium">{usd(m.px, priceDecimals(m.px, m.szDecimals))}</span>
-                <span className="block text-[12px] md:hidden" style={{ color: tone(m.change) }}>{pct(m.change)}</span>
-              </span>
-              <span className="hidden text-right md:block" style={{ color: tone(m.change) }}>{pct(m.change)}</span>
-              <span className="hidden text-right text-white/80 md:block">{compact(m.volume)}</span>
-              <span className="hidden text-right text-white/80 md:block">{compact(m.oi)}</span>
-              <span className="hidden text-right md:block" style={{ color: tone(m.funding) }}>{(m.funding * 100).toFixed(4)}%</span>
+            <Link key={m.name} href={coinHref(m.name)} className="block transition-colors duration-100 hover:bg-[#141312]">
+              <div className={`mx-auto grid w-full max-w-[1480px] ${GRID} items-center gap-4 px-5 py-3 text-[14px] tabular-nums sm:px-7`}>
+                <span className="flex min-w-0 items-center gap-3">
+                  <CoinLogo coin={m.name} className="size-8" />
+                  <span className="truncate font-semibold">{m.name}</span>
+                  <span className="shrink-0 rounded-[6px] bg-[#1c1b1a] px-1.5 py-0.5 text-[11px] text-white/55">{m.maxLeverage}x</span>
+                  {m.name === "SOL" && <span className="shrink-0 rounded-[6px] bg-[#f0645a] px-1.5 py-0.5 text-[11px] font-semibold text-white">Hedge</span>}
+                </span>
+                <span className="text-right leading-tight">
+                  <Flash value={m.px} className="block font-medium">{usd(m.px, priceDecimals(m.px, m.szDecimals))}</Flash>
+                  <span className="block text-[12px] md:hidden" style={{ color: tone(m.change) }}>{pct(m.change)}</span>
+                </span>
+                <span className="hidden text-right md:block" style={{ color: tone(m.change) }}>{pct(m.change)}</span>
+                <span className="hidden text-right text-white/80 md:block">{compact(m.volume)}</span>
+                <span className="hidden text-right text-white/80 md:block">{compact(m.oi)}</span>
+                <span className="hidden text-right md:block" style={{ color: tone(m.funding) }}>{(m.funding * 100).toFixed(4)}%</span>
+              </div>
             </Link>
           ))
         )}
       </div>
     </section>
+  );
+}
+
+function Headline({ label, tip, m, value, color }: { label: string; tip: string; m: { name: string; px: number; szDecimals: number }; value: string; color?: string }) {
+  return (
+    <Link href={coinHref(m.name)} className="rounded-[16px] bg-[#141312] p-4 transition-colors duration-150 hover:bg-[#1c1b1a]">
+      <p className="text-[12px] text-white/45">
+        <Tip text={tip} side="bottom" align="start">{label}</Tip>
+      </p>
+      <div className="mt-3 flex items-center gap-2.5">
+        <CoinLogo coin={m.name} className="size-7" />
+        <span className="truncate text-[15px] font-semibold">{m.name}</span>
+        <span className="ml-auto text-[15px] font-semibold tabular-nums" style={{ color }}>{value}</span>
+      </div>
+      <p className="mt-1 text-right text-[12px] text-white/40 tabular-nums">{usd(m.px, priceDecimals(m.px, m.szDecimals))}</p>
+    </Link>
+  );
+}
+
+// a price that flashes green when it ticks up and red when it ticks down, like the trade tape
+function Flash({ value, className, children }: { value: number; className?: string; children: React.ReactNode }) {
+  const prev = useRef<number | null>(null);
+  const [tick, setTick] = useState<{ dir: "up" | "down"; n: number } | null>(null);
+  useEffect(() => {
+    const p = prev.current;
+    prev.current = value;
+    if (p === null || p === value) return;
+    const t = setTimeout(() => setTick({ dir: value > p ? "up" : "down", n: Date.now() }), 0);
+    return () => clearTimeout(t);
+  }, [value]);
+  return (
+    <span key={tick?.n} className={`${className ?? ""} ${tick ? (tick.dir === "up" ? "px-up" : "px-down") : ""}`}>
+      {children}
+    </span>
   );
 }
