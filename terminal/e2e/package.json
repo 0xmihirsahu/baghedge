@@ -1,0 +1,7 @@
+{
+  "name": "baghedge-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": { "smoke": "node run.mjs smoke" },
+  "dependencies": { "playwright": "1.65.1" }
+}

@@ -7,3 +7,7 @@
 *.tsbuildinfo
 next-env.d.ts
 .DS_Store
+
+# e2e: run outputs and its own install (sessions live outside the repo, in ~/.baghedge-e2e)
+/e2e/runs/
+/e2e/node_modules/
