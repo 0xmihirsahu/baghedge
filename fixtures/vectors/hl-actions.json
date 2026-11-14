@@ -129,7 +129,11 @@
       "expiresAfter": 1794666005000,
       "source": "a",
       "connectionId": "0x59967ee3a14fe0222fdb4d0bcb410bd9e8e14a435762fd2beeb297d04a9b0ea4",
-      "agentDigest": "0x529c8eeb2015faff37c72279e84a366b17493accc57f3b44b6bdff2b6811cc34"
+      "agentDigest": "0x529c8eeb2015faff37c72279e84a366b17493accc57f3b44b6bdff2b6811cc34",
+      "orderRef": {
+        "intent": "entry",
+        "seq": 0
+      }
     },
     {
       "name": "cancel by cloid",
@@ -147,6 +151,101 @@
       "source": "a",
       "connectionId": "0x0e656fdb2b1d2f8fa468d5b2be5da51c42b63f72823783d0f157a60507512d3f",
       "agentDigest": "0x33cd1122219773f423af313b20760135ab750a8fa2c87b49841abd1cf59ff66e"
+    },
+    {
+      "name": "resize",
+      "action": {
+        "type": "order",
+        "orders": [
+          {
+            "a": 5,
+            "b": true,
+            "p": "163",
+            "s": "0.2",
+            "r": true,
+            "t": {
+              "limit": {
+                "tif": "Ioc"
+              }
+            },
+            "c": "0xf3b9d6060a2109ae0a0f82f70a5be756"
+          }
+        ],
+        "grouping": "na"
+      },
+      "nonce": 1794666000000,
+      "expiresAfter": 1794666005000,
+      "source": "a",
+      "connectionId": "0x3b76c6a9aecc05f53e4e9cb8919391934160b51cbd403f0dd991090d070c5ef9",
+      "agentDigest": "0xed651ca6b0938fddca06bef59546fd8a15204cfaf4e636ba446aee6607a1e430",
+      "orderRef": {
+        "intent": "resize",
+        "seq": 1
+      }
+    },
+    {
+      "name": "close",
+      "action": {
+        "type": "order",
+        "orders": [
+          {
+            "a": 5,
+            "b": true,
+            "p": "163",
+            "s": "0.2",
+            "r": true,
+            "t": {
+              "limit": {
+                "tif": "Ioc"
+              }
+            },
+            "c": "0x74a625adbb14b7b0d2fccd44a97e3789"
+          }
+        ],
+        "grouping": "na"
+      },
+      "nonce": 1794666000000,
+      "expiresAfter": 1794666005000,
+      "source": "a",
+      "connectionId": "0x5152de13b615ae917e7d46e69c6072bf2b258848a96e1d922817cffb3922d9b2",
+      "agentDigest": "0xcccc4fc0ccd40c1c66008d3f5733fe186d6be414eba30b62f6a4443b019aa0c5",
+      "orderRef": {
+        "intent": "close",
+        "seq": 1
+      }
+    },
+    {
+      "name": "position_stop",
+      "action": {
+        "type": "order",
+        "orders": [
+          {
+            "a": 5,
+            "b": true,
+            "p": "163",
+            "s": "0.2",
+            "r": true,
+            "t": {
+              "trigger": {
+                "isMarket": false,
+                "triggerPx": "161",
+                "tpsl": "sl"
+              }
+            },
+            "c": "0x5a8be510c321e537bad4b8e208abceab"
+          }
+        ],
+        "grouping": "positionTpsl"
+      },
+      "nonce": 1794666000000,
+      "expiresAfter": 1794666005000,
+      "source": "a",
+      "connectionId": "0x99fcfe5d670269f90e613171c0d9ad27f67d1014480e77b46086ab864572f0de",
+      "agentDigest": "0xc0b55c3c18ff6d0ec58eda1a8ad1813c62b301de4a54bf58deac94d8d693e7ed",
+      "orderRef": {
+        "intent": "position_stop",
+        "seq": 1
+      }
     }
   ],
   "peerPolicy": {

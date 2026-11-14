@@ -23,12 +23,18 @@ pub struct Cancel {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CancelRef {
+pub struct CloidRef {
     intent: Intent,
     seq: u32,
 }
 
-#[derive(Deserialize)]
+pub struct ActionContext<'a> {
+    pub entry_until: Option<u64>,
+    pub order_ref: Option<&'a CloidRef>,
+    pub cancel_refs: &'a [CloidRef],
+}
+
+#[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Intent {
     Entry,
@@ -112,25 +118,33 @@ impl Action {
         policy: &Policy,
         now: u64,
         expires: u64,
-        entry_until: Option<u64>,
-        cancel_refs: &[CancelRef],
+        context: ActionContext<'_>,
     ) -> Result<(), String> {
         if expires <= now || expires - now > 60_000 {
             return Err("invalid venue expiry".into());
         }
-        let (orders, grouping) = match self {
-            Self::CancelByCloid { cancels } if entry_until.is_none() => {
-                return validate_cancels(cancels, cancel_refs, deployment, policy);
+        let (orders, grouping, reference) = match self {
+            Self::CancelByCloid { cancels }
+                if context.entry_until.is_none() && context.order_ref.is_none() =>
+            {
+                return validate_cancels(cancels, context.cancel_refs, deployment, policy);
             }
-            Self::Order { orders, grouping } if cancel_refs.is_empty() => (orders, grouping),
+            Self::Order { orders, grouping } if context.cancel_refs.is_empty() => (
+                orders,
+                grouping,
+                context.order_ref.ok_or("order ref required")?,
+            ),
             _ => return Err("invalid action context".into()),
         };
         if orders.iter().any(|order| order.a != deployment.asset_id) {
             return Err("wrong order asset".into());
         }
-        match (grouping, orders.as_slice()) {
-            (Grouping::Attached, [entry, stop]) => {
-                let until = entry_until.ok_or("entry deadline required")?;
+        if context.entry_until.is_some() && !matches!(reference.intent, Intent::Entry) {
+            return Err("unexpected entry deadline".into());
+        }
+        match (grouping, orders.as_slice(), reference.intent) {
+            (Grouping::Attached, [entry, stop], Intent::Entry) => {
+                let until = context.entry_until.ok_or("entry deadline required")?;
                 if until <= now
                     || expires > until
                     || until > policy.expiry_ms
@@ -147,17 +161,21 @@ impl Action {
                     return Err("expected bounded entry sell IOC".into());
                 }
                 let size = entry.size(deployment, policy)?;
-                if stop.validate_stop(deployment, policy)? != size
-                    || stop.cloid()? == entry.cloid()?
-                {
+                if stop.validate_stop(deployment, policy)? != size {
                     return Err("recovery stop does not cover entry".into());
                 }
+                entry.validate_cloid(policy, Intent::Entry, reference.seq)?;
+                stop.validate_cloid(policy, Intent::Stop, reference.seq)?;
             }
-            (Grouping::Single, [buy]) if buy.b && buy.r && matches!(buy.t, OrderType::Limit(_)) => {
+            (Grouping::Single, [buy], Intent::Resize | Intent::Close)
+                if buy.b && buy.r && matches!(buy.t, OrderType::Limit(_)) =>
+            {
                 buy.validate_buy(deployment, policy)?;
+                buy.validate_cloid(policy, reference.intent, reference.seq)?;
             }
-            (Grouping::Position, [stop]) => {
+            (Grouping::Position, [stop], Intent::PositionStop) => {
                 stop.validate_stop(deployment, policy)?;
+                stop.validate_cloid(policy, Intent::PositionStop, reference.seq)?;
             }
             _ => return Err("unsupported order action".into()),
         }
@@ -167,22 +185,16 @@ impl Action {
 
 fn validate_cancels(
     cancels: &[Cancel],
-    refs: &[CancelRef],
+    refs: &[CloidRef],
     deployment: &Deployment,
     policy: &Policy,
 ) -> Result<(), String> {
     if cancels.is_empty() || cancels.len() != refs.len() || cancels.len() > 8 {
         return Err("invalid cancellation count".into());
     }
-    let rule_id = parse_hex::<32>(&policy.rule_id)?;
     for (cancel, reference) in cancels.iter().zip(refs) {
-        let mut input = rule_id.to_vec();
-        input.extend_from_slice(&policy.version.to_be_bytes());
-        input.extend_from_slice(reference.intent.bytes());
-        input.extend_from_slice(&reference.seq.to_be_bytes());
-        let hash = keccak(input);
         if cancel.asset != deployment.asset_id
-            || cancel.cloid != format!("0x{}", hex::encode(&hash[..16]))
+            || cancel.cloid != derive_cloid(policy, reference.intent, reference.seq)?
         {
             return Err("cancellation does not belong to the signed rule".into());
         }
@@ -190,9 +202,20 @@ fn validate_cancels(
     Ok(())
 }
 
+fn derive_cloid(policy: &Policy, intent: Intent, seq: u32) -> Result<String, String> {
+    let mut input = parse_hex::<32>(&policy.rule_id)?.to_vec();
+    input.extend_from_slice(&policy.version.to_be_bytes());
+    input.extend_from_slice(intent.bytes());
+    input.extend_from_slice(&seq.to_be_bytes());
+    Ok(format!("0x{}", hex::encode(&keccak(input)[..16])))
+}
+
 impl Order {
-    fn cloid(&self) -> Result<[u8; 16], String> {
-        parse_hex(self.c.as_deref().ok_or("cloid required")?)
+    fn validate_cloid(&self, policy: &Policy, intent: Intent, seq: u32) -> Result<(), String> {
+        if self.c.as_deref() != Some(&derive_cloid(policy, intent, seq)?) {
+            return Err("order client ID does not belong to the signed rule and intent".into());
+        }
+        Ok(())
     }
 
     fn price(&self, deployment: &Deployment) -> Result<u64, String> {
@@ -208,7 +231,6 @@ impl Order {
     }
 
     fn validate_buy(&self, deployment: &Deployment, policy: &Policy) -> Result<u64, String> {
-        self.cloid()?;
         if !self.b || !self.r || self.price(deployment)? > policy.buyback_ceiling_e8 {
             return Err("expected bounded reduce-only buy".into());
         }
