@@ -20,7 +20,9 @@
   },
   "dependencies": {
     "@nktkas/hyperliquid": "^0.33.3",
-    "viem": "^2.57.19",
-    "near-api-js": "7.5.3"
+    "@walletconnect/ethereum-provider": "2.21.0",
+    "@walletconnect/modal": "2.7.0",
+    "near-api-js": "7.5.3",
+    "viem": "^2.57.19"
   }
 }
