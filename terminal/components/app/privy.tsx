@@ -11,7 +11,8 @@ export const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "";
 export type Signer = {
   kind: "privy" | "external";
   message: (address: string, message: string) => Promise<string>;
-  typed: (address: string, typedData: Record<string, unknown>) => Promise<string>;
+  // confirm: show the wallet's own confirm screen (payouts always do, docs/INTEGRATION.md security rules)
+  typed: (address: string, typedData: Record<string, unknown>, opts?: { confirm?: boolean }) => Promise<string>;
   chainId: () => number;
 };
 
@@ -85,8 +86,8 @@ function BridgeInner({ children }: { children: ReactNode }) {
 
   const message = useCallback(async (address: string, m: string) => (await signMessage({ message: m }, { address, uiOptions: SILENT })).signature, [signMessage]);
   const typed = useCallback(
-    async (address: string, t: Record<string, unknown>) =>
-      (await signTypedData(t as unknown as Parameters<typeof signTypedData>[0], { address, uiOptions: SILENT })).signature,
+    async (address: string, t: Record<string, unknown>, opts?: { confirm?: boolean }) =>
+      (await signTypedData(t as unknown as Parameters<typeof signTypedData>[0], { address, uiOptions: opts?.confirm ? { showWalletUIs: true } : SILENT })).signature,
     [signTypedData],
   );
 

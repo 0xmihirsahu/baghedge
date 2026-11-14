@@ -8,6 +8,7 @@ import { EvmModal } from "../evm-modal";
 import { MomentCard, type Moment, type MomentKind } from "../moment";
 import { EvmProviders } from "./evm";
 import { WalletModal } from "../wallet-modal";
+import { FundsSheet } from "../funds";
 import { risk, usd } from "./format";
 import { setNetwork, useMarkets, type Network } from "./hl";
 import { externalSigner, useLiveHedge } from "./live";
@@ -246,12 +247,21 @@ function useTerminal(backend: Backend) {
   const canTrade = liveCapable && !!accounts.trade && !!tradeSigner;
   const trading = useTrading({ owner: accounts.trade, signer: tradeSigner, notify: (t, s, href) => toast(t, s, "info", href) });
 
+  // money in and out of either account (components/funds.tsx), signed by that account's owner
+  const [fundsAsk, setFundsAsk] = useState<{ mode: "fund" | "payout"; role: "trade" | "hedge"; amount?: number } | null>(null);
+  const funds = {
+    ask: fundsAsk,
+    open: (mode: "fund" | "payout", role: "trade" | "hedge", amount?: number) => setFundsAsk({ mode, role, amount }),
+    close: () => setFundsAsk(null),
+  };
+  const signers = { trade: tradeSigner, hedge: signer };
+
   // refused up front, before any signature: this server's guard can't sign for this Hedge account
   const ownerSupported = !backend.pinnedOwner || same(backend.pinnedOwner, accounts.hedge);
   const liveHedge = useLiveHedge({ enabled: liveEnabled, trade: accounts.trade, hedge: accounts.hedge, solana: address, agent: backend.agentAddress, signer, notify: (t, s, href) => toast(t, s, "info", href) });
 
   const hedgeState = { phase, setPhase: go, hedge, cap, setCap, capN, entry, setEntry: setEntryKept, recovery, setRecovery: setRecoveryKept, held };
-  return { backend, evm, privy, liveCapable, liveEnabled, ownerSupported, liveHedge, canTrade, trading, markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };
+  return { backend, evm, privy, liveCapable, liveEnabled, ownerSupported, liveHedge, canTrade, trading, funds, signers, markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };
 }
 
 const Ctx = createContext<ReturnType<typeof useTerminal> | null>(null);
@@ -289,6 +299,7 @@ function Store({ children, backend }: { children: ReactNode; backend: Backend })
           value.evm.closeAsk();
         }}
       />
+      <FundsSheet />
       <MomentCard moment={value.momentNow} onDone={value.clearMoment} />
     </Ctx.Provider>
   );
@@ -296,21 +307,35 @@ function Store({ children, backend }: { children: ReactNode; backend: Backend })
 
 export function Providers({ children }: { children: ReactNode }) {
   const [backend, setBackend] = useState<Backend | null>(null);
+  // the app opens either way; while the backend can't be reached (a cold start, a redeploy) it keeps asking,
+  // every 10 s, and turns live by itself when it answers
   useEffect(() => {
-    let done = false;
-    const settle = (b: Backend) => {
-      if (done) return;
-      done = true;
-      setNetwork(b.mode);
-      setBackend(b);
+    let gone = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const check = () =>
+      fetch("/api/health", { signal: AbortSignal.timeout(8000) })
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((h) => {
+          if (gone) return;
+          const apiMode: Network = h.mode === "testnet" ? "testnet" : "mainnet";
+          const b: Backend = { reachable: true, mode: PINNED ?? apiMode, apiMode, signer: h.hedgeSigner?.kind ?? null, agentAddress: h.hedgeSigner?.agentAddress ?? null, pinnedOwner: h.hedgeSigner?.pinnedOwner ?? null, disclosures: Array.isArray(h.disclosures) ? h.disclosures.filter((d: unknown) => typeof d === "string") : [] };
+          setNetwork(b.mode);
+          setBackend(b);
+        })
+        .catch(() => {
+          if (gone) return;
+          setBackend((prev) => {
+            if (prev) return prev;
+            setNetwork(PINNED ?? "mainnet");
+            return { reachable: false, mode: PINNED ?? "mainnet", apiMode: null, signer: null, agentAddress: null, pinnedOwner: null, disclosures: [] };
+          });
+          timer = setTimeout(check, 10_000);
+        });
+    check();
+    return () => {
+      gone = true;
+      clearTimeout(timer);
     };
-    fetch("/api/health", { signal: AbortSignal.timeout(6000) })
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((h) => {
-        const apiMode: Network = h.mode === "testnet" ? "testnet" : "mainnet";
-        settle({ reachable: true, mode: PINNED ?? apiMode, apiMode, signer: h.hedgeSigner?.kind ?? null, agentAddress: h.hedgeSigner?.agentAddress ?? null, pinnedOwner: h.hedgeSigner?.pinnedOwner ?? null, disclosures: Array.isArray(h.disclosures) ? h.disclosures.filter((d: unknown) => typeof d === "string") : [] });
-      })
-      .catch(() => settle({ reachable: false, mode: PINNED ?? "mainnet", apiMode: null, signer: null, agentAddress: null, pinnedOwner: null, disclosures: [] }));
   }, []);
   // no adapters listed: every wallet-standard wallet (phantom, solflare, backpack…) registers itself
   const wallets = useMemo(() => [], []);

@@ -49,10 +49,10 @@ const MESSAGES: Record<string, string> = {
 };
 const fail = (code: string, message?: string): LiveError => ({ code, message: MESSAGES[code] ?? message ?? "Something went wrong. Try again." });
 
-async function api<T>(path: string, body?: unknown): Promise<T> {
+async function api<T>(path: string, body?: unknown, timeout = 20_000): Promise<T> {
   let r: Response;
   try {
-    r = await fetch(path, { method: body === undefined ? "GET" : "POST", headers: body === undefined ? undefined : { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), credentials: "same-origin", signal: AbortSignal.timeout(20_000) });
+    r = await fetch(path, { method: body === undefined ? "GET" : "POST", headers: body === undefined ? undefined : { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), credentials: "same-origin", signal: AbortSignal.timeout(timeout) });
   } catch {
     throw fail("unreachable");
   }
@@ -170,7 +170,8 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
     setBusy("agent");
     let agent = o.agent;
     try {
-      agent = (await api<{ agentAddress: string }>(`/api/hedges/agent?owner=${owner}`)).agentAddress;
+      // the first lookup for a new owner runs the guard on OutLayer: 10–30 s
+      agent = (await api<{ agentAddress: string }>(`/api/hedges/agent?owner=${owner}`, undefined, 60_000)).agentAddress;
     } catch (e) {
       if ((e as LiveError).code !== "not_found") throw e;
     }

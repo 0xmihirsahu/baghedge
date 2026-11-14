@@ -13,7 +13,7 @@ import { CORAL, DOWN, INK, TAKER, UP, pct, risk, usd } from "./app/format";
 // fomo's buy panel: coin row, big amount, chips, pad, summary, action, estimates.
 // Hedge (SOL only) sizes against the watched wallet; Trade sizes a market order in dollars
 export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string; mark?: number; change: number; maxLev: number; onReview: () => void }) {
-  const { wallet, hedge: h, toast, liveEnabled, liveHedge, backend, privy, liveCapable, ownerSupported, canTrade, trading } = useStore();
+  const { wallet, hedge: h, toast, liveEnabled, liveHedge, backend, privy, liveCapable, ownerSupported, canTrade, trading, funds } = useStore();
   const [pressed, setPressed] = useState<"Long" | "Short" | null>(null);
   const canHedge = coin === "SOL";
   const [modeState, setMode] = useState<"Hedge" | "Trade">("Hedge");
@@ -41,7 +41,7 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
 
   const step = L ? -1 : FUNDING.indexOf(h.phase);
   const busy = hedgeMode && (L ? !!L.busy : !!AUTO[h.phase]);
-  const BUSY = { signin: "Signing in", agent: "Finding your hedge agent", approve: "Approving the hedge agent", draft: "Drafting your hedge", arm: "Signing the policy", close: "Closing" } as const;
+  const BUSY = { signin: "Signing in", agent: "Finding your hedge agent, up to 30 s", approve: "Approving the hedge agent", draft: "Drafting your hedge", arm: "Signing the policy", close: "Closing" } as const;
   const over = hedgeMode && (Number(h.cap) || 0) > h.held + 1e-9;
   // with Privy, the real hedge starts with one sign-in that brings the Trade and Hedge accounts
   const signInFirst = connected && hedgeMode && !L && !!privy && liveCapable;
@@ -238,6 +238,14 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
       {!hedgeMode && (
         <p aria-live="polite" className="mt-2 min-h-[18px] text-center text-[12px] leading-snug text-[#f2554b]">
           {trading.error ?? (!canTrade && privy && !privy.authenticated ? <span className="text-white/45">Sign in to trade</span> : "")}
+          {trading.error && /USDC|Add funds/.test(trading.error) && (
+            <>
+              {" "}
+              <button onClick={() => (haptic("tap"), funds.open("fund", "trade"))} className="font-semibold text-white underline underline-offset-2">
+                Add funds
+              </button>
+            </>
+          )}
         </p>
       )}
       {hedgeMode && !draft && !L && <StatusText text={`Replay · ${STATUS[h.phase]}`} className="mt-2 block text-center text-[13px] text-white/55" />}

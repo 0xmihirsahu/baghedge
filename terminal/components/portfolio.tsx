@@ -112,7 +112,7 @@ export function PortfolioPage() {
 
 // the two hyperliquid master accounts by public address, mainnet. Trade and Hedge must differ (AGENTS.md rule 8)
 function Accounts() {
-  const { accounts, setAccounts, evm, privy } = useStore();
+  const { accounts, setAccounts, evm, privy, funds } = useStore();
   const [role, setRole] = useState<"trade" | "hedge">("trade");
   const address = accounts[role];
   const other = accounts[role === "trade" ? "hedge" : "trade"];
@@ -262,6 +262,15 @@ function Accounts() {
                 <Tip text="Account value, including open profit or loss." side="bottom" align="start">Equity</Tip> · {usd(account.usable, 2)}{" "}
                 <Tip text={account.unified ? "Unified account: USDC sits in spot and backs your trades. This much is free to use." : "USDC free to use as margin or to withdraw."} side="bottom">usable</Tip>
               </p>
+              {/* money in and out, from any of the tokens NEAR Intents routes */}
+              <div className="mt-4 flex gap-2">
+                <button onClick={() => (haptic("tap"), funds.open("fund", role))} className="h-9 rounded-[11px] bg-[#f0645a] px-4 text-[14px] font-semibold transition-transform duration-150 active:scale-[0.98]">
+                  Add funds
+                </button>
+                <button onClick={() => (haptic("tap"), funds.open("payout", role))} disabled={account.usable <= 1.2} className="h-9 rounded-[11px] bg-[#1c1b1a] px-4 text-[14px] font-semibold transition-colors duration-150 hover:bg-[#2e2c2a] disabled:opacity-40">
+                  Pay out
+                </button>
+              </div>
             </div>
             <span className="flex h-8 shrink-0 items-center gap-1 rounded-[10px] bg-[#1c1b1a] pl-3 pr-1 text-[12px] text-white/70 tabular-nums">
               <CopyAddress address={address} />

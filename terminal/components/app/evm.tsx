@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { WagmiProvider, createConfig, http } from "wagmi";
-import { arbitrum, base, mainnet } from "wagmi/chains";
+import { arbitrum, avalanche, base, berachain, bsc, gnosis, mainnet, optimism, polygon, scroll } from "wagmi/chains";
 import { injected } from "wagmi/connectors/injected";
 import { walletConnect } from "wagmi/connectors/walletConnect";
 
@@ -14,7 +14,8 @@ import { walletConnect } from "wagmi/connectors/walletConnect";
 export const WC_PROJECT_ID = process.env.NEXT_PUBLIC_WC_PROJECT_ID ?? "3820d0c2a823fa021803a068e89059b5";
 
 export const evmConfig = createConfig({
-  chains: [base, mainnet, arbitrum],
+  // every EVM chain NEAR Intents funds from, so a wallet can switch to the one its tokens are on
+  chains: [base, mainnet, arbitrum, optimism, polygon, bsc, avalanche, gnosis, berachain, scroll],
   connectors: [
     injected({ shimDisconnect: true }),
     walletConnect({
@@ -23,7 +24,10 @@ export const evmConfig = createConfig({
       metadata: { name: "baghedge", description: "Trade perps. Hedge your bag.", url: "https://app.baghedge.xyz", icons: ["https://app.baghedge.xyz/icon.png"] },
     }),
   ],
-  transports: { [base.id]: http(), [mainnet.id]: http(), [arbitrum.id]: http() },
+  transports: {
+    [base.id]: http(), [mainnet.id]: http(), [arbitrum.id]: http(), [optimism.id]: http(), [polygon.id]: http(),
+    [bsc.id]: http(), [avalanche.id]: http(), [gnosis.id]: http(), [berachain.id]: http(), [scroll.id]: http(),
+  },
   ssr: true,
 });
 
