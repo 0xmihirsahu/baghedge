@@ -191,11 +191,12 @@ export function createHedgeRoutes(opts: {
     }
     const orders = await exchange.openOrders(policy.hedgeAccount);
     if (orders.length) throw new RequestError(409, "hedge_account_busy", "Hedge account has open orders");
-    // Perps margin only: spot USDC on a non-unified account can't back the short.
-    const usableE6 = toUnitsRounded(position.withdrawable, 6, "floor");
+    // Standard accounts: perps withdrawable. Unified accounts: spot USDC available after maintenance.
+    const margin = await exchange.usableUsdc(policy.hedgeAccount);
+    const usableE6 = toUnitsRounded(margin.usableUsdc, 6, "floor");
     if (usableE6 < BigInt(policy.minMarginE6)) {
       throw new RequestError(409, "insufficient_margin",
-        `Hedge account has ${fromUnits(usableE6, 6)} USDC usable perps margin; this rule needs ${fromUnits(BigInt(policy.minMarginE6), 6)}`);
+        `Hedge account (${margin.mode}) has ${fromUnits(usableE6, 6)} USDC usable margin; this rule needs ${fromUnits(BigInt(policy.minMarginE6), 6)}`);
     }
     try {
       db.insertRule({ id: policy.ruleId, env, hedgeAddress: policy.hedgeAccount.toLowerCase(),

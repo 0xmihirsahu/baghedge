@@ -22,7 +22,11 @@ Base path: `/api`. `401 sign_in_required` means: run the sign-in flow below. Err
 - Approve `hedgeSigner.agentAddress` as an agent on the Hedge account. Don't approve any other address.
 
 ### `GET /api/markets`, `GET /api/accounts?trade=&hedge=`, `GET /api/wallet/sol?address=`
-These are unchanged except for one **added** field on each account: `spotUsdc: { total, hold } | null` (null when the spot read failed). On a Hyperliquid unified account, USDC sits in spot and backs perps margin, so `withdrawableUsdc` (perps) can read 0 while the account is funded. Show both values, and label which one is usable for the account's mode.
+Each account in `/api/accounts` also includes:
+- `spotUsdc: { total, hold } | null` (null when the spot read failed);
+- **`accountMode: "standard" | "unified"`**;
+- **`usableUsdc`**: the margin to show. On standard accounts that's perps `withdrawable`; on unified accounts, Hyperliquid keeps USDC in spot and backs perps with it, so it's the spot USDC available after maintenance.
+- **`maxPayoutUsdc`**: `usableUsdc` − 1.2, leaving room for the 1 USDC `sendAsset` fee. Use it as the payout maximum. On a Hyperliquid unified account, USDC sits in spot and backs perps margin, so `withdrawableUsdc` (perps) can read 0 while the account is funded. Show both values, and label which one is usable for the account's mode.
 
 ## Hedge rules
 
@@ -70,7 +74,7 @@ The server refuses to arm when:
 - a feed is stale (`cannot_arm`);
 - the Hedge account has a position or open orders (`cannot_arm` / `hedge_account_busy`);
 - another rule is already active on that Hedge account (`rule_active`);
-- the Hedge account's perps `withdrawable` is below `requiredMarginUsdc` (`insufficient_margin`). Spot USDC doesn't count.
+- the Hedge account's usable margin is below `requiredMarginUsdc` (`insufficient_margin`). Usable margin is perps `withdrawable` on standard accounts and spot USDC available on unified accounts.
 
 ### `GET /api/hedges?hedge=<Hedge address>` (**changed: `hedge` is now required**)
 Response: `{ env, signer, rules: RuleView[] }`. This returns active rules only.
@@ -121,11 +125,13 @@ UI labels (section 12):
 | `reason: resize-price-outside-band` | **Resize blocked** |
 | `phase: missed` | **Missed entry** |
 | `reason: cancelling-hedge-orders` | **Closing** (flat; cancelling leftover stop orders) |
+| `reason: recovery-stop-filled` | **Closed by recovery stop** (the venue stop filled at the recovery price) |
+| `reason: recovery-stop-partial` | **Recovery stop partially filled** |
 
 An action with `transport: unknown` means **Checking order**. Show it as pending, never as filled.
 
 ### `GET /api/events?rule=<ruleId>[&after=<id>]` (**changed: `rule` is now required**)
-Server-sent events. The event types are `armed`, `reserved`, `order`, `stop`, `phase`, `paused`, `disarm`, `close` and `cancel-leftovers`. Each event's data is `{ id, env, ruleId, kind, data, at }`. On reconnect, pass `after` (or rely on `Last-Event-ID`) and refetch `GET /api/hedges/<ruleId>`.
+Server-sent events. The event types are `armed`, `reserved`, `order`, `stop`, `phase`, `paused`, `disarm`, `close`, `cancel-leftovers` and `stop-filled`. Each event's data is `{ id, env, ruleId, kind, data, at }`. On reconnect, pass `after` (or rely on `Last-Event-ID`) and refetch `GET /api/hedges/<ruleId>`.
 
 ## Funding (unchanged)
 - `GET /api/transfers/assets` returns every external asset 1Click routes to or from Hyperliquid USDC: `{ assetId, symbol, blockchain, decimals, contractAddress, evmChainId, priceUsd }`.
@@ -133,7 +139,7 @@ Server-sent events. The event types are `armed`, `reserved`, `order`, `stop`, `p
   - `transfer.type === "baseErc20Transfer"`: the Base wallet sends USDC `transfer(to, amount)` on chain 8453.
   - `transfer.type === "hypercoreSendAsset"`: the Hedge or Trade owner signs `sendAsset` with exactly these fields. Never use `usdSend`.
 - `POST /api/transfers/<id>/deposit` with `{ txHash }`: after the Base transfer (or `sendAsset`) is sent, report its hash. This speeds up 1Click and records the source transaction. It's optional but recommended.
-- `GET /api/transfers/<id>` returns the saved quote and the NEAR Intents status. For inbound `fund` transfers it also returns `recipientAccount: { withdrawableUsdc, spotUsdc }`, the live Hyperliquid balance of the credited account. `SUCCESS` from the provider isn't proof of credit: confirm usable margin with `GET /api/accounts`, or the Base receipt.
+- `GET /api/transfers/<id>` returns the saved quote and the NEAR Intents status. For inbound `fund` transfers it also returns `recipientAccount: { withdrawableUsdc, spotUsdc, accountMode, usableUsdc }`, the live Hyperliquid balance of the credited account. Use `usableUsdc > 0` for **Credited**: it works for both standard and unified accounts. `SUCCESS` from the provider isn't proof of credit: confirm usable margin with `GET /api/accounts`, or the Base receipt.
 
 ## Owner-signed Hyperliquid actions (no SDK needed in the browser)
 The server builds the canonical action plus its EIP-712 `typedData`. The owner's wallet signs it, and the server checks the recovered signer before relaying to Hyperliquid. Signatures are byte-identical to the official SDK's (tested).

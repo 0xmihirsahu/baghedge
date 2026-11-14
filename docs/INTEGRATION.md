@@ -116,13 +116,13 @@ Then send `q.transfer` from the source wallet. Its `type` says how:
 
 ```ts
 await post(`/api/transfers/${q.id}/deposit`, { txHash });       // optional speed-up
-const t = await get(`/api/transfers/${q.id}`);                   // poll every few seconds until SUCCESS and recipientAccount.withdrawableUsdc > 0
+const t = await get(`/api/transfers/${q.id}`);                   // poll every few seconds until SUCCESS and recipientAccount.usableUsdc > 0
 ```
 UI states (section 12):
 - `PENDING_DEPOSIT` → **Awaiting signature**
 - `KNOWN_DEPOSIT_TX` → **Deposit detected**
 - `PROCESSING` → **In transit**
-- `SUCCESS` with `recipientAccount.withdrawableUsdc > 0` → **Credited**
+- `SUCCESS` with `recipientAccount.usableUsdc > 0` → **Credited**
 
 Show **Credited** only when the second condition holds too.
 

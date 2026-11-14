@@ -181,6 +181,25 @@ export function createExchange(network: Network, request = fetch) {
       };
     },
 
+    /**
+     * USDC usable as margin. Standard accounts: perps `withdrawable`. Unified accounts keep USDC in spot and back
+     * perps with it, so perps `withdrawable` reads 0; use the spot USDC available after maintenance instead.
+     */
+    async usableUsdc(user: string) {
+      const [mode, state, spot] = await Promise.all([
+        info({ type: "userAbstraction", user }).catch(() => null),
+        info({ type: "clearinghouseState", user }),
+        info({ type: "spotClearinghouseState", user }),
+      ]);
+      const perps = isRecord(state) && isDecimal(state.withdrawable) ? state.withdrawable : "0";
+      const pairs = isRecord(spot) && Array.isArray(spot.tokenToAvailableAfterMaintenance) ? spot.tokenToAvailableAfterMaintenance : [];
+      const usdc = pairs.find((p: unknown) => Array.isArray(p) && p[0] === 0); // token 0 = USDC
+      const spotAvailable = Array.isArray(usdc) && isDecimal(usdc[1]) ? usdc[1] : "0";
+      const unified = mode === "unifiedAccount" || (mode === null && pairs.length > 0);
+      return { mode: unified ? "unified" as const : "standard" as const, usableUsdc: unified ? spotAvailable : perps,
+        perpsWithdrawable: perps, spotAvailable, observedAt: Date.now() };
+    },
+
     async openOrders(user: string) {
       const orders = await info({ type: "frontendOpenOrders", user });
       if (!Array.isArray(orders)) throw new RequestError(502, "invalid_orders", "Hyperliquid returned no open orders");
