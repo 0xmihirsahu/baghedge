@@ -6,7 +6,8 @@ import "server-only";
 const TTL = 30_000;
 const COOLDOWN = 10 * 60_000;
 const ALCHEMY = process.env.ALCHEMY_API_KEY ? `https://solana-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}` : null;
-const FREE = "https://solana-rpc.publicnode.com";
+// free, keyless and tested: publicnode, then solana's own mainnet rpc (fine from a server, blocked in browsers)
+const FREE: [string, string][] = [["publicnode", "https://solana-rpc.publicnode.com"], ["solana", "https://api.mainnet-beta.solana.com"]];
 
 let benchedUntil = 0;
 const cache = new Map<string, { at: number; sol: number; via: string }>();
@@ -25,7 +26,7 @@ async function getBalance(address: string, url: string) {
 }
 
 async function read(address: string) {
-  const order: [string, string][] = ALCHEMY && Date.now() > benchedUntil ? [["alchemy", ALCHEMY], ["publicnode", FREE]] : [["publicnode", FREE]];
+  const order: [string, string][] = ALCHEMY && Date.now() > benchedUntil ? [["alchemy", ALCHEMY], ...FREE] : FREE;
   for (const [via, url] of order) {
     try {
       const out = { at: Date.now(), sol: await getBalance(address, url), via };

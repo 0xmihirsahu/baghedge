@@ -1,0 +1,8 @@
+import type { Metadata } from "next";
+import { PortfolioPage } from "@/components/portfolio";
+
+export const metadata: Metadata = { title: "Portfolio" };
+
+export default function Page() {
+  return <PortfolioPage />;
+}

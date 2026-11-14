@@ -10,7 +10,11 @@
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
+    "@solana/wallet-adapter-base": "0.9.28",
+    "@solana/wallet-adapter-react": "0.15.40",
+    "@solana/web3.js": "1.98.4",
     "boring-avatars": "^2.0.4",
+    "lightweight-charts": "^5.3.0",
     "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",
