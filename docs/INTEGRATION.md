@@ -229,39 +229,26 @@ Our end-to-end mainnet run took **4 wallets** (Trade EVM, Hedge EVM, Base fundin
 - **The watched wallet is read-only.** Phantom only needs to share its address, with no signature. A "you control this" badge is optional.
 - **One trading-agent approval** covers manual trading for up to 180 days (`validDays: 180`).
 
-### Recommended: derive the Hedge account from the main wallet
-Trade and Hedge must be separate Hyperliquid accounts (AGENTS.md rule 8), but the Hedge account doesn't need its own wallet app:
+### Recommended: separate addresses behind one wallet interface (Privy)
+Don't derive the Hedge key from a wallet signature. That signature would be a bearer secret that can withdraw principal, and keeping it in the browser removes wallet confirmation. Use **separate wallet addresses under one login** instead:
 
-```ts
-// One-time prompt: deterministic signature → deterministic Hedge key. Re-derivable on any device, no seed to back up.
-const sig = await wallet.signMessage({ account: tradeAddress, message: `Baghedge Hedge account v1\n${tradeAddress.toLowerCase()}` });
-const hedgeKey = keccak256(sig);                       // 32-byte private key
-const hedge = privateKeyToAccount(hedgeKey);           // hedge.address = the Hedge master account
-```
-Every Hedge-owner action is then signed **in the app, with no wallet popup**:
-- guard `approveAgent`;
-- the hedge policy;
-- close and disarm;
-- payout;
-- the hedge sign-in.
-
-Show your own confirm screen with the exact policy values instead of a wallet prompt.
-
-Resulting user journey:
-
-| Moment | Wallet prompts |
+| Account | With Privy |
 | --- | --- |
-| Set up (once) | **1** sign "Hedge account" message, **1** approve trading agent |
-| Fund | **1** transfer from Phantom or any chain |
-| Arm, resize, close, pay out | **0** (in-app confirms; the guard and worker do the rest) |
+| Trade owner | The user's embedded EVM wallet |
+| Hedge owner | A second embedded wallet under the same login (`createWallet({ createAdditional: true })`) |
+| Watched SOL | The user's own Phantom, linked or pasted, read-only |
+| Funding | One Phantom (or other) transfer through NEAR Intents straight into the Hyperliquid account. The embedded wallets never hold tokens or gas. |
 
-Tradeoffs to show the user:
-- **The derived key is an owner key.** It can withdraw the Hedge account's USDC. Keep it in memory or `sessionStorage` only (re-derive each session), serve a strict CSP, and keep Hedge margin modest. The guard agent itself still can't withdraw.
-- **It needs a deterministic signer.** MetaMask, Rabby and Phantom (EVM) produce deterministic signatures. Smart-contract wallets and passkeys don't, so let those users connect a separate Hedge wallet instead.
-- **Phantom-only option:** Phantom also has EVM accounts. Its EVM address can be the Trade owner, so one app (Phantom) covers Solana, Trade and the derived Hedge account.
+- Keys stay in Privy's infrastructure, not in our JavaScript.
+- Privy handles recovery and export.
+- Privy's prompts can be replaced by your own confirm screens. **Keep an explicit confirm for payouts**, and keep Hedge margin modest.
+- Tradeoffs: you trust Privy's key infrastructure; it's priced per monthly active user; and wallets are app-scoped, so a Privy address here differs from the user's address on hyperliquid.xyz.
+- Verify before relying on them:
+  - typed-data signing for the Baghedge policy and Hyperliquid user-signed actions with Privy embedded wallets;
+  - whether embedded wallets can sign Hyperliquid order payloads directly, which would remove the trading-agent step.
 
-### One backend blocker for this at scale (Codex: guard)
-The current guard build **pins one Hedge owner address** at build time, so each derived Hedge account would need its own guard build and attestation. For multiple users, the guard should derive a key per owner from one attested build: OutLayer signing-key paths keyed by the owner, verifying the owner's policy signature against that path. This is planned work; until then the demo runs one Hedge owner per guard build.
+### Guard scope (unchanged for now)
+The current guard build **pins one Hedge owner address** at build time, so each Hedge owner needs its own guard build and attestation. Serving many owners from one build would need a verified per-owner key namespace and venue-approval isolation. That's a future design item, not a drop-in change.
 
 ## 9. Labels and copy (AGENTS.md rule 15)
 - Keep the environment banner (Testnet / Mainnet).
