@@ -23,7 +23,8 @@ function fakeVenue() {
     network: "testnet",
     info: async () => null,
     async market() {
-      return { asset: 0, sizeDecimals: 2, markPx: v.mark, bestBid: v.bid, bestAsk: v.ask, observedAt: clock() };
+      const t = clock();
+      return { asset: 0, sizeDecimals: 2, markPx: v.mark, bestBid: v.bid, bestAsk: v.ask, markObservedAt: t, bookObservedAt: t, observedAt: t };
     },
     async position() {
       return { szi: (-v.shortLots / 100).toString(), liquidationPx: null, withdrawable: "30", accountValue: "30", observedAt: clock() };
@@ -458,5 +459,35 @@ describe("worker", () => {
     expect(rule.state.phase).toBe("opening");
     expect(v.submissions).toBe(0);
     expect(db.actionsForRule("r1")).toHaveLength(0);
+  });
+  test("a confirmed recovery stop is re-checked every 15 s, not every tick, and a canceled stop is still caught", async () => {
+    const { v, db, tick, exchange } = setup();
+    let offset = 0;
+    clock = () => Date.now() + offset;
+    try {
+      const realOpenOrders = exchange.openOrders.bind(exchange);
+      let reads = 0;
+      (exchange as { openOrders: typeof exchange.openOrders }).openOrders = async user => { reads++; return realOpenOrders(user); };
+      await tick();
+      v.mark = "69.9"; v.bid = "69.8";
+      await tick();
+      expect((await tick()).stopStatus).toBe("active");
+      const confirmedReads = reads;
+      await tick(); await tick(); await tick();
+      expect(reads).toBe(confirmedReads);            // within 15 s of the venue's confirmation: no heavy read
+
+      // The stop disappears at the venue (e.g. the owner canceled it). The next re-check catches it.
+      const stopCloid = db.actionsForRule("r1").find(a => a.intent === "entry")!.stopCloid!;
+      v.orders.get(stopCloid)!.status = "canceled";
+      offset = 16_000;
+      await tick();
+      expect(reads).toBe(confirmedReads + 1);
+      // Caught on the re-check: a replacement position stop is installed for the open short.
+      const replacement = db.actionsForRule("r1").find(a => a.intent === "position_stop");
+      expect(replacement?.lots).toBe("40");
+      expect(v.orders.get(replacement!.cloid)?.status).toBe("open");
+    } finally {
+      clock = () => Date.now();
+    }
   });
 });

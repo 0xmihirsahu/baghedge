@@ -215,7 +215,7 @@ export function createHedgeRoutes(opts: {
     try {
       state = armHedge(rule, {
         now,
-        mark: { price: toUnitsRounded(market.markPx, rule.priceDecimals, "ceil"), at: market.observedAt, sequence: market.observedAt },
+        mark: { price: toUnitsRounded(market.markPx, rule.priceDecimals, "ceil"), at: market.markObservedAt, sequence: market.markObservedAt },
         wallet: { eligibleLots: BigInt(wallet.lamports) / 10n ** BigInt(9 - market.sizeDecimals), at: wallet.observedAt },
         venue: { shortLots: -toUnitsRounded(position.szi, market.sizeDecimals, "floor"), at: position.observedAt },
         book: null,

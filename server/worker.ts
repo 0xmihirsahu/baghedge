@@ -30,6 +30,8 @@ const COIN = "SOL";
 // IOC orders that ended without an affirmative fill/cancel record are released only after their venue expiry plus this margin.
 const EXPIRY_GRACE_MS = 5_000;
 const GUARD_FAILURE_LIMIT = 3;
+// Recovery-stop re-confirmation interval once the venue has confirmed it for the current position size.
+const STOP_RECHECK_MS = 15_000;
 // Hyperliquid's documented terminal order statuses (info endpoint, order status).
 const TERMINAL = new Set(["filled", "canceled", "rejected", "marginCanceled", "vaultWithdrawalCanceled",
   "openInterestCapCanceled", "selfTradeCanceled", "reduceOnlyCanceled", "siblingFilledCanceled", "delistedCanceled",
@@ -66,6 +68,8 @@ export function createWorker(deps: WorkerDeps) {
   const expiryMs = deps.expiryMs ?? 20_000;
   const locks = new Map<string, Promise<unknown>>();
   let timer: ReturnType<typeof setInterval> | undefined;
+  /** Last venue confirmation of each rule's recovery stop (see checkStop). */
+  const stopConfirmed = new Map<string, { shortLots: bigint; at: number }>();
 
   /** One writer per (env, hedgeAddress): ticks for the same Hedge account are serialized. */
   function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
@@ -296,12 +300,18 @@ export function createWorker(deps: WorkerDeps) {
     market: { asset: number; sizeDecimals: number }) {
     const current = db.rule(rule.id)!;
     if (current.state.shortLots <= 0n || current.state.phase === "closing") return;
+    // frontendOpenOrders is a heavy /info read. Once the venue has confirmed the stop for this exact position
+    // size, re-confirm every STOP_RECHECK_MS instead of every tick. A size change rechecks immediately.
+    const last = stopConfirmed.get(rule.id);
+    if (current.stopStatus === "active" && last && last.shortLots === current.state.shortLots &&
+      now() - last.at < STOP_RECHECK_MS) return;
     const orders = await exchange.openOrders(rule.hedgeAddress);
     const covering = orders.filter(order => order.coin === COIN && order.side === "B" && order.reduceOnly === true &&
       order.isTrigger === true && typeof order.triggerPx === "string" &&
       toUnitsRounded(order.triggerPx, hedgeRule.priceDecimals, "floor") === hedgeRule.recoveryMark);
     const coveredLots = covering.reduce((sum, order) => sum + toUnitsRounded(String(order.sz), market.sizeDecimals, "floor"), 0n);
     if (coveredLots >= current.state.shortLots) {
+      stopConfirmed.set(rule.id, { shortLots: current.state.shortLots, at: now() });
       if (current.stopStatus !== "active") {
         db.updateRule(rule.id, { stopStatus: "active" });
         db.emit(env, rule.id, "stop", { status: "active", coveredLots });
@@ -518,10 +528,10 @@ export function createWorker(deps: WorkerDeps) {
       const step = decideHedge(hedgeRule, current.state, {
         now: at,
         // Ceil the mark: entry needs mark ≤ trigger, so this never enters early.
-        mark: { price: toUnitsRounded(market.markPx, hedgeRule.priceDecimals, "ceil"), at: market.observedAt, sequence: market.observedAt },
+        mark: { price: toUnitsRounded(market.markPx, hedgeRule.priceDecimals, "ceil"), at: market.markObservedAt, sequence: market.markObservedAt },
         wallet: wallet && { eligibleLots: BigInt(wallet.lamports) / 10n ** BigInt(9 - market.sizeDecimals), at: wallet.observedAt },
         venue: { shortLots, at: position.observedAt },
-        book: { at: market.observedAt,
+        book: { at: market.bookObservedAt,
           bestBid: market.bestBid ? toUnitsRounded(market.bestBid, hedgeRule.priceDecimals, "floor") : null,
           bestAsk: market.bestAsk ? toUnitsRounded(market.bestAsk, hedgeRule.priceDecimals, "ceil") : null },
       });
