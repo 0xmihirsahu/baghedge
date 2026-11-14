@@ -1,0 +1,48 @@
+{
+  "total": 12926,
+  "body": {
+    "font": "-apple-system, \"system-ui\", \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+    "bg": "rgb(11, 9, 8)",
+    "color": "rgb(139, 138, 135)"
+  },
+  "h1": {
+    "font": "\"Source Serif 4\", Georgia, serif",
+    "size": "56px",
+    "weight": "400",
+    "color": "rgb(241, 240, 239)",
+    "ls": "-1.68px",
+    "lh": "62.72px"
+  },
+  "h2": {
+    "font": "\"Geist Mono\", ui-monospace, monospace",
+    "size": "10.5px",
+    "weight": "400",
+    "color": "rgb(196, 85, 45)",
+    "ls": "1.26px",
+    "lh": "10.5px"
+  },
+  "p": {
+    "font": "Geist, -apple-system, sans-serif",
+    "size": "18px",
+    "weight": "400",
+    "color": "rgba(241, 240, 239, 0.88)",
+    "ls": "-0.216px",
+    "lh": "27.9px"
+  },
+  "a": {
+    "font": "Geist, -apple-system, sans-serif",
+    "size": "13px",
+    "weight": "500",
+    "color": "rgb(241, 240, 239)",
+    "ls": "-0.13px",
+    "lh": "13px"
+  },
+  "button": {
+    "font": "Geist, -apple-system, sans-serif",
+    "size": "13px",
+    "weight": "500",
+    "color": "rgb(198, 197, 194)",
+    "ls": "-0.13px",
+    "lh": "13px"
+  }
+}

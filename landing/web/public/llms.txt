@@ -1,0 +1,51 @@
+# baghedge
+
+> A Hyperliquid trading terminal that can hedge the SOL you already hold in your wallet. Trade perps. Hedge your bag.
+
+baghedge was built for the NEAR hackathon by Mihir (co-founder, CEO) and Vivek (co-founder, CTO). Source: https://github.com/0xmihirsahu/baghedge
+
+## What it does
+
+- Trade: search Hyperliquid's perp markets, read candles, place and manage orders from your own Trade account.
+- Wallet Hedge: on the same chart, set a rule for SOL you hold in Phantom: a cap, an entry price, a recovery price and an end time. Example: "Hedge up to 6 SOL if the perp mark crosses down through $140. Try to close on recovery to $161 or when the rule ends. Runs once."
+- If the mark crosses down through the entry, a short up to the cap opens in a separate Hedge account, also owned by the user. It tries to close on recovery, at the end time, or when the user asks.
+- If the watched SOL balance drops below the short, baghedge buys back the excess. It never adds to the short.
+- The user's SOL never moves. baghedge reads the public Phantom address.
+
+## How it fits together
+
+- Two Hyperliquid master accounts, Trade and Hedge. They are never the same account.
+- A worker watches the Hyperliquid mark and the watched wallet, and keeps running after the browser closes.
+- A named, expiring Hyperliquid agent key held in an OutLayer enclave (TEE) signs only the hedge actions the user's signed rule allows. Agent keys can trade but can't withdraw.
+- NEAR Intents 1Click moves USDC between Base and either Hyperliquid account.
+- The entry requests an attached recovery stop on Hyperliquid, so a confirmed stop can attempt the exit if the worker is down.
+
+## What runs today
+
+- Live Hyperliquid market and account reads, liquid SOL reads on Solana, and a hedge preview that sizes a rule against a wallet balance. A preview signs nothing.
+- 1Click quotes and status for Base to Hyperliquid USDC, dry or executable on mainnet.
+- A replay of the wallet hedge using sample fills.
+- An OutLayer probe that derives a build-bound key and signs a fixed challenge.
+- Still to connect: the hedge worker's order submission and the guard's Hyperliquid signing.
+
+## Honest limits
+
+- It's a hedge, not cover for every loss. A short can fill worse than the entry, partly, or not at all in a fast market.
+- Funding is paid every hour and can turn against shorts.
+- Hyperliquid can auto-deleverage a profitable short in a crash, as it did on 10 October 2025.
+- Fees from Hyperliquid and 1Click apply, and every cost is shown in dollars before signing.
+
+## Pages
+
+- [Home](https://baghedge.xyz/): the terminal and the hedge, the architecture, launch
+- [Vision](https://baghedge.xyz/vision): a line under every coin people keep
+- [About](https://baghedge.xyz/about): the story and the team
+- [Brand kit](https://baghedge.xyz/brand): logo, colours, type, art and the app's motion kit
+- [Disclaimer](https://baghedge.xyz/disclaimer), [Terms](https://baghedge.xyz/terms), [Privacy](https://baghedge.xyz/privacy)
+
+## Links
+
+- App: https://app.baghedge.xyz
+- X: https://x.com/baghedge
+- Code: https://github.com/0xmihirsahu/baghedge
+- Product brief: https://github.com/0xmihirsahu/baghedge/blob/main/docs/BAGHEDGE_CONTEXT.md

@@ -1,0 +1,5 @@
+# the landing builds from landing/web, so skip the source art, screenshots and the rust build
+landing/assets
+landing/refs
+landing/out
+guard/target
