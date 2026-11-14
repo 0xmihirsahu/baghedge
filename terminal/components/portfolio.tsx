@@ -182,17 +182,18 @@ function Accounts() {
             {privy && (
               <button
                 type="button"
-                disabled={!privy.ready || privy.creating || privy.authenticated}
+                disabled={!privy.ready || privy.creating || (privy.authenticated && !privy.error)}
                 onClick={() => {
                   haptic("tap");
-                  privy.login();
+                  if (privy.error) privy.retry();
+                  else privy.login();
                 }}
                 className="mt-5 flex h-11 items-center justify-center gap-2 rounded-[12px] bg-[#f0645a] px-4 text-[14px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70"
               >
-                {privy.creating || (privy.authenticated && !privy.hedge) ? "Setting up your accounts" : "Sign in"}
+                {privy.error ? "Retry account setup" : privy.creating || (privy.authenticated && !privy.hedge) ? "Setting up your accounts" : "Sign in"}
               </button>
             )}
-            <InlineError text={privy?.error ? "Couldn't create your accounts. Sign in again." : null} className="mt-1" />
+            <InlineError text={privy?.error ? "Couldn't create your accounts. Try again." : null} className="mt-1" />
             <button
               type="button"
               onClick={() => {

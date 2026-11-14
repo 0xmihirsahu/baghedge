@@ -25,6 +25,7 @@ type Bridge = {
   error: string | null;
   login: () => void;
   logout: () => Promise<void>;
+  retry: () => void;
   signer: Signer;
 };
 
@@ -44,34 +45,41 @@ function BridgeInner({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const asked = useRef(false);
 
-  // the embedded wallets by HD index, read from the user's linked accounts (wallet objects don't carry the index)
+  // the user's embedded EVM wallets in creation order: the first is Trade, the second is Hedge.
+  // HD apps carry walletIndex; server-wallet (TEE) apps leave it null, so creation time orders them instead
   const embedded = useMemo(() => {
-    const out: Record<number, string> = {};
-    for (const a of user?.linkedAccounts ?? []) {
-      const w = a as { type?: string; walletClientType?: string; chainType?: string; walletIndex?: number | null; address?: string };
-      if (w.type === "wallet" && w.walletClientType === "privy" && w.chainType === "ethereum" && typeof w.walletIndex === "number" && w.address) out[w.walletIndex] = w.address;
-    }
-    return out;
+    type W = { type?: string; walletClientType?: string; chainType?: string; walletIndex?: number | null; address?: string; imported?: boolean; firstVerifiedAt?: Date | string | null; verifiedAt?: Date | string | null };
+    const list = ((user?.linkedAccounts ?? []) as W[]).filter((w) => w.type === "wallet" && w.walletClientType === "privy" && w.chainType === "ethereum" && !w.imported && !!w.address);
+    const t = (w: W) => new Date(w.firstVerifiedAt ?? w.verifiedAt ?? 0).getTime();
+    list.sort((a, b) => (a.walletIndex ?? Infinity) - (b.walletIndex ?? Infinity) || t(a) - t(b));
+    return list.map((w) => w.address!);
   }, [user]);
 
-  // index 0 comes with the login; index 1 (Hedge) is made once, right after
+  // right after login: make Trade (first) if missing, then Hedge (an additional wallet), once.
+  // a hung call ends in an error, not a spinner
   useEffect(() => {
     if (!ready || !authenticated || asked.current || creating) return;
     if (embedded[0] && embedded[1]) return;
-    asked.current = true;
-    const t = setTimeout(async () => {
+    const run = async () => {
+      asked.current = true;
       setCreating(true);
       setError(null);
+      const capped = <T,>(p: Promise<T>) => Promise.race([p, new Promise<T>((_, no) => setTimeout(() => no(new Error("timed out")), 25_000))]);
       try {
-        if (!embedded[0]) await createWallet({ walletIndex: 0 });
-        if (!embedded[1]) await createWallet({ walletIndex: 1 });
+        // an "already has a wallet" refusal just means Trade exists: carry on to Hedge
+        if (!embedded[0]) await capped(createWallet()).catch((e) => {
+          if (!/already/i.test(String((e as Error)?.message ?? e))) throw e;
+        });
+        await capped(createWallet({ createAdditional: true }));
       } catch (e) {
+        console.error("privy createWallet", e);
+        // no retry loop: signing out and in again resets it
         setError(String((e as Error)?.message ?? e));
-        asked.current = false;
       } finally {
         setCreating(false);
       }
-    }, 0);
+    };
+    const t = setTimeout(run, 300);
     return () => clearTimeout(t);
   }, [ready, authenticated, embedded, creating, createWallet]);
 
@@ -92,6 +100,10 @@ function BridgeInner({ children }: { children: ReactNode }) {
     creating,
     error,
     login: () => login(),
+    retry: () => {
+      asked.current = false;
+      setError(null);
+    },
     logout: async () => {
       asked.current = false;
       await logout();
@@ -109,7 +121,8 @@ export function PrivyWallets({ children }: { children: ReactNode }) {
       appId={PRIVY_APP_ID}
       config={{
         loginMethods: ["email", "google"],
-        embeddedWallets: { ethereum: { createOnLogin: "all-users" }, showWalletUIs: false },
+        // wallets are made by the bridge after login, in order, so the login modal never waits on them
+        embeddedWallets: { ethereum: { createOnLogin: "off" }, showWalletUIs: false },
         appearance: {
           theme: "#141312",
           accentColor: "#f0645a",
