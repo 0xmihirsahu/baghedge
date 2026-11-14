@@ -37,6 +37,7 @@ dependencies = [
  "serde_json",
  "sha3",
  "wit-bindgen",
+ "zeroize",
 ]
 
 [[package]]

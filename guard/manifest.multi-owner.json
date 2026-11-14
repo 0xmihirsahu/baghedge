@@ -1,0 +1,5 @@
+{
+  "encryption_keys": [
+    { "path": "baghedge-owner-agent-v1", "bind": "wasm", "caller": "predecessor" }
+  ]
+}
