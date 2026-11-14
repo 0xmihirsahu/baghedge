@@ -24,6 +24,13 @@ export type OutLayerExecutor = {
   run(request: GuardRequest): Promise<unknown>;
 };
 
+export class GuardRefused extends Error {
+  constructor(reason: string) {
+    super(`OutLayer guard refused the action: ${reason}`);
+    this.name = "GuardRefused";
+  }
+}
+
 export function createGuardSigner(context: {
   policy: Policy;
   ownerSig: Hex;
@@ -46,9 +53,10 @@ export function createGuardSigner(context: {
         throw new Error("OutLayer signing requires an unexpired venue action");
       }
       const result = await executor.run({ ...context, operation: "sign_order", action, nonce, expiresAfter });
+      if (isGuardRefusal(result)) throw new GuardRefused(result.error);
       if (Date.now() >= expiresAfter) throw new Error("Venue action expired during OutLayer execution");
       if (typeof result !== "object" || result === null || !("ok" in result) || result.ok !== true) {
-        throw new Error("OutLayer guard refused the action");
+        throw new Error("Invalid OutLayer result; signing outcome is unknown");
       }
       if (!("agent" in result) || result.agent !== address || !("nonce" in result) || result.nonce !== nonce ||
           !("expiresAfter" in result) || result.expiresAfter !== expiresAfter ||
@@ -95,6 +103,14 @@ export function createOutLayerExecutor(config: {
       return getTransactionLastResult(result);
     },
   };
+}
+
+function isGuardRefusal(result: unknown): result is { ok: false; error: string } {
+  return typeof result === "object" && result !== null &&
+    "ok" in result && result.ok === false && "error" in result &&
+    typeof result.error === "string" && result.error.length > 0 && !(
+      "agent" in result || "r" in result || "s" in result || "v" in result || "connectionId" in result
+    );
 }
 
 export function outLayerExecutorFromEnv(environment: Policy["environment"], env: NodeJS.ProcessEnv = process.env) {
