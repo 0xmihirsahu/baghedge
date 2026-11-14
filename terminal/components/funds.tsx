@@ -104,7 +104,11 @@ export function FundsSheet() {
       return () => clearTimeout(t);
     }
     const base = external || (kind === "solana" ? DUMMY_SOL : kind === "evm" ? venue : "");
-    if (!base) return;
+    // no address to quote against: drop the last token's quote and error
+    if (!base) {
+      const t = setTimeout(() => (setPreview(null), setError(null)), 0);
+      return () => clearTimeout(t);
+    }
     let gone = false;
     const t = setTimeout(() => {
       setPreviewing(true);
