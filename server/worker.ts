@@ -26,6 +26,7 @@ export type WorkerDeps = {
 const COIN = "SOL";
 // IOC orders that ended without an affirmative fill/cancel record are released only after their venue expiry plus this margin.
 const EXPIRY_GRACE_MS = 5_000;
+const GUARD_FAILURE_LIMIT = 3;
 const TERMINAL = new Set(["filled", "canceled", "rejected", "marginCanceled", "reduceOnlyCanceled",
   "perpMarginRejected", "iocCancelRejected", "badAloPxRejected", "minTradeNtlRejected", "selfTradeCanceled",
   "siblingFilledCanceled", "delistedCanceled", "liquidatedCanceled", "scheduledCancel", "openInterestCapCanceled"]);
@@ -121,6 +122,12 @@ export function createWorker(deps: WorkerDeps) {
       const stopStatus = action.intent === "entry" && filledLots > 0n ? "checking" : current.stopStatus;
       db.updateRule(rule.id, { state, stopStatus, reason: `${action.intent}-${outcome}` });
       db.emit(env, rule.id, "order", { intent: action.intent, cloid: action.cloid, outcome, filledLots, shortLots });
+      // Guard failures that expired unresolved: stop calling a guard that keeps failing (each call costs NEAR).
+      const recent = db.actionsForRule(rule.id).slice(-GUARD_FAILURE_LIMIT);
+      if (recent.length === GUARD_FAILURE_LIMIT &&
+        recent.every(a => a.signature === null && a.error !== null && a.outcome === "zero")) {
+        pause(db.rule(rule.id)!, state, "guard-unavailable");
+      }
     } catch (error) {
       pause(current, current.state, "reconcile-mismatch");
     }

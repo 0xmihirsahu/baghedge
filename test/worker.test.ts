@@ -9,6 +9,7 @@ import { createWorker } from "../server/worker";
 type Order = { cloid: string; oid: number; buy: boolean; reduceOnly: boolean; trigger?: string; origLots: number; filledLots: number; status: string; parent?: string };
 
 /** A minimal in-memory venue: IOC orders fill per `fill`, attached stops activate on a full parent fill. */
+let clock = () => Date.now();
 function fakeVenue() {
   const v = {
     mark: "75", bid: "74.9", ask: "75.1", shortLots: 0, nextOid: 1,
@@ -21,10 +22,10 @@ function fakeVenue() {
     network: "testnet",
     info: async () => null,
     async market() {
-      return { asset: 0, sizeDecimals: 2, markPx: v.mark, bestBid: v.bid, bestAsk: v.ask, observedAt: Date.now() };
+      return { asset: 0, sizeDecimals: 2, markPx: v.mark, bestBid: v.bid, bestAsk: v.ask, observedAt: clock() };
     },
     async position() {
-      return { szi: (-v.shortLots / 100).toString(), liquidationPx: null, withdrawable: "30", accountValue: "30", observedAt: Date.now() };
+      return { szi: (-v.shortLots / 100).toString(), liquidationPx: null, withdrawable: "30", accountValue: "30", observedAt: clock() };
     },
     async orderStatus(_user: string, cloid: string) {
       const o = v.orders.get(cloid as string);
@@ -76,11 +77,12 @@ const policy: HedgePolicy = {
   buybackCeilingE8: "8200000000", entryWindowMs: "30000", expiryMs: String(Date.now() + 3_600_000), minMarginE6: "1", oneCycle: true,
 };
 
-function setup(signerMode: "fallback" | "guard-publishes-then-throws" = "fallback") {
+function setup(signerMode: "fallback" | "guard-publishes-then-throws" | "guard-down" = "fallback") {
   const { v, exchange } = fakeVenue();
   const db = openDb(":memory:");
   const local = fallbackSigner(generatePrivateKey(), "testnet");
-  const signer: HedgeSigner = signerMode === "fallback" ? verifiedSigner(local, "testnet") : {
+  const signer: HedgeSigner = signerMode === "fallback" ? verifiedSigner(local, "testnet")
+    : signerMode === "guard-down" ? { address: local.address, kind: "guard", signL1: async () => { throw new Error("OutLayer 503"); } } : {
     address: local.address, kind: "guard",
     async signL1(action, nonce, expiresAfter) {
       // The guard signed and the receipt is public; a third party submits it before our RPC call fails.
@@ -98,8 +100,8 @@ function setup(signerMode: "fallback" | "guard-publishes-then-throws" = "fallbac
   db.insertRule({ id: "r1", env: "testnet", hedgeAddress: policy.hedgeAccount.toLowerCase(), tradeAddress: policy.tradeAccount,
     policy, ownerSig: "0x", chainId: 1, signerKind: "fallback", status: "active", state, stopStatus: "none", reason: "armed" }, "0xdigest");
   const worker = createWorker({
-    env: "testnet", db, exchange, signerFor: () => signer,
-    readWallet: async () => ({ lamports: v.lamports.toString(), observedAt: Date.now() }),
+    env: "testnet", db, exchange, signerFor: () => signer, now: () => clock(),
+    readWallet: async () => ({ lamports: v.lamports.toString(), observedAt: clock() }),
   });
   const tick = async () => { await Bun.sleep(2); await worker.tickRule("r1"); return db.rule("r1")!; };
   return { v, db, tick };
@@ -173,6 +175,27 @@ describe("worker", () => {
     expect(rule.state).toMatchObject({ phase: "open", shortLots: 40n });
     expect(db.actionsForRule("r1").filter(a => a.intent === "entry")).toHaveLength(1);
     expect(v.submissions).toBe(1);
+  });
+
+  test("repeated guard failures that expire unresolved pause the rule instead of retrying forever", async () => {
+    let t = Date.now();
+    clock = () => t;
+    try {
+      const { v, db, tick } = setup("guard-down");
+      const rule0 = db.rule("r1")!;
+      // Open position already, so the engine wants a resize (no entry window to end the retries).
+      db.updateRule("r1", { state: { ...rule0.state, phase: "open", shortLots: 40n } });
+      v.shortLots = 40; v.lamports = 200_000_000n;
+      for (let i = 0; i < 12 && db.rule("r1")!.state.phase !== "paused"; i++) {
+        t += 13_000; await tick();          // past expiresAfter (20 s) + grace (5 s) every two ticks
+      }
+      const rule = db.rule("r1")!;
+      expect(rule.state.phase).toBe("paused");
+      expect(rule.reason).toBe("guard-unavailable");
+      // resize and position-stop attempts both count; each failed without a signature and expired unresolved
+      expect(db.actionsForRule("r1").filter(a => a.signature === null && a.outcome === "zero")).toHaveLength(3);
+      expect(v.submissions).toBe(0);
+    } finally { clock = () => Date.now(); }
   });
 
   test("a gap below the entry floor sends nothing", async () => {
