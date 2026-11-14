@@ -35,7 +35,11 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
   const label = !connected
     ? "Connect wallet"
     : ({ draft: "Review hedge", credited: "Arm", armed: "Simulate a crossing", open: "Close hedge", closed: "New hedge" } as Partial<Record<Phase, string>>)[h.phase];
-  const disabled = connected && (!label || busy || over || h.recovery <= h.entry || h.capN <= 0);
+  const MIN = 10;
+  const belowMin = hedgeMode && !!mark && h.capN > 0 && h.capN * mark < MIN;
+  const why = !connected || !draft ? null : h.capN <= 0 ? "Enter an amount" : over ? "More than you hold" : belowMin ? `Below the $${MIN} minimum` : h.recovery <= h.entry ? "Recovery must sit above entry" : null;
+  const disabled = connected && (!label || busy || !!why);
+  const tradeBelowMin = !hedgeMode && (Number(usdIn) || 0) < MIN;
   const act = () => {
     if (!connected) return wallet.connect();
     if (h.phase === "draft") onReview();
@@ -96,7 +100,21 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
         <p className="whitespace-nowrap font-semibold leading-none tracking-[-0.03em] tabular-nums" style={{ color: over ? DOWN : undefined, fontSize: Math.max(26, 52 - Math.max(0, value.length - 6) * 4) }}>
           {hedgeMode ? `${value} SOL` : `$${value}`}
         </p>
-        <p className="mt-2 text-[14px] text-white/45 tabular-nums">{mark ? (hedgeMode ? usd(h.capN * mark) : `${tradeQ.toFixed(3)} ${coin}`) : " "}</p>
+        <p className="mt-2 text-[14px] text-white/45 tabular-nums">
+          {!mark ? " " : hedgeMode ? (
+            <>
+              {usd(h.capN * mark)}
+              {connected && h.held > 0 && (
+                <>
+                  {" · covers "}
+                  <span className="text-white">{Math.min(999, Math.round(((Number(h.cap) || 0) / h.held) * 100))}%</span>
+                </>
+              )}
+            </>
+          ) : (
+            `${tradeQ.toFixed(3)} ${coin}`
+          )}
+        </p>
       </div>
 
       {hedgeMode && step >= 0 ? (
@@ -106,8 +124,8 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
           <ExposureDots watched={h.held} hedged={h.hedge} per={h.held / 20 || 1} size={14} className="w-[203px]" />
         </div>
       ) : (
-        <>
-          <div className="mt-5 grid grid-cols-4 gap-2">
+        <div className="flex flex-1 flex-col justify-center py-3">
+          <div className="grid grid-cols-4 gap-2">
             {(hedgeMode ? ["25%", "50%", "75%", "Max"] : ["$10", "$50", "$100", "$250"]).map((c) => (
               <button
                 key={c}
@@ -119,14 +137,14 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
               </button>
             ))}
           </div>
-          <div className="mt-2 grid min-h-[200px] flex-1 auto-rows-fr grid-cols-3">
+          <div className="mt-2 grid grid-cols-3">
             {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "back"].map((k) => (
-              <button key={k} onClick={() => key(k)} className="flex items-center justify-center rounded-[12px] text-[22px] font-medium transition-colors duration-100 hover:bg-[#1c1b1a] active:bg-[#2e2c2a]" aria-label={k === "back" ? "Delete" : k}>
+              <button key={k} onClick={() => key(k)} className="flex h-14 items-center justify-center rounded-[12px] text-[22px] font-medium transition-colors duration-100 hover:bg-[#1c1b1a] active:bg-[#2e2c2a]" aria-label={k === "back" ? "Delete" : k}>
                 {k === "back" ? <Backspace size={22} /> : k}
               </button>
             ))}
           </div>
-        </>
+        </div>
       )}
 
       <p className="mt-3 text-center text-[13px] text-white/45 tabular-nums">
@@ -135,34 +153,25 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
             <span style={{ color: CORAL }}>Entry {usd(h.entry)}</span> · Recovery {usd(h.recovery)}
           </>
         ) : (
-          `Fee ${usd((Number(usdIn) || 0) * TAKER, 2)}`
+          tradeBelowMin ? `Minimum $${MIN}` : `Fee ${usd((Number(usdIn) || 0) * TAKER, 2)}`
         )}
       </p>
 
       {hedgeMode ? (
         <button disabled={disabled} onClick={act} className="mt-3 flex h-[52px] shrink-0 items-center justify-center gap-2 rounded-[14px] bg-[#f0645a] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:bg-[#1c1b1a] disabled:text-white/60">
           {busy && <BagLoader size={18} color={CORAL} glyph="#ffffff" label={STATUS[h.phase]} />}
-          {over ? "More than you hold" : label ?? STATUS[h.phase]}
+          {why ?? label ?? STATUS[h.phase]}
         </button>
       ) : (
         <div className="mt-3 grid shrink-0 grid-cols-2 gap-2">
           {(["Long", "Short"] as const).map((s) => (
-            <button key={s} onClick={() => trade(s)} className="h-[52px] rounded-[14px] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98]" style={{ background: s === "Long" ? UP : DOWN, color: INK }}>
+            <button key={s} disabled={tradeBelowMin} onClick={() => trade(s)} className="h-[52px] rounded-[14px] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-40" style={{ background: s === "Long" ? UP : DOWN, color: INK }}>
               {s}
             </button>
           ))}
         </div>
       )}
       {hedgeMode && !draft && <StatusText text={`Replay · ${STATUS[h.phase]}`} className="mt-2 block text-center text-[13px] text-white/55" />}
-
-      {hedgeMode && draft && connected && h.held > 0 && (
-        <div className="mt-5 flex flex-col items-center gap-3">
-          <ExposureDots watched={h.held} hedged={-Math.min(Number(h.cap) || 0, h.held * 2)} per={h.held / 20} size={14} className="w-[203px]" />
-          <p className="text-[13px] text-white/45 tabular-nums">
-            Covers <span className="text-white">{Math.round(((Number(h.cap) || 0) / h.held) * 100)}%</span> of your SOL
-          </p>
-        </div>
-      )}
 
       {(!hedgeMode || h.capN > 0) && (
         <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-white/[0.08] pt-4">

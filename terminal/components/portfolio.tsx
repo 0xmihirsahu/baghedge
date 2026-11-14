@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BagLoader, ExposureDots, NumberRoll, StatusText } from "@/components/motion";
 import { WalletAvatar } from "./avatar";
 import { CoinLogo } from "./coin-logo";
-import { useAccount } from "./app/hl";
+import { info, useAccount } from "./app/hl";
 import { STATUS, useStore } from "./app/store";
-import { compact, tone, usd } from "./app/format";
+import { DOWN, UP, compact, pct, tone, usd } from "./app/format";
 import { isEvmAddress, short } from "./app/wallet";
 import { WalletBox } from "./shell";
 
@@ -35,7 +35,8 @@ export function PortfolioPage() {
                     <p className="text-[13px] text-white/45">{short(wallet.address)}</p>
                   </div>
                 </div>
-                <div className="mt-auto pt-6">
+                <ValueChart sol={wallet.sol} mark={mark} />
+                <div className="pt-4">
                   <p className="text-[40px] font-semibold leading-none tracking-[-0.03em] tabular-nums">
                     {wallet.sol === null ? <BagLoader size={30} label="Reading balance" /> : <NumberRoll value={wallet.sol} format={(n) => `${n.toLocaleString("en-US", { maximumFractionDigits: 2 })} SOL`} />}
                   </p>
@@ -219,5 +220,36 @@ function RuleSketch() {
       <line x1="4" x2="236" y1="16" y2="16" stroke="#ffffff" strokeOpacity="0.35" strokeWidth="5" strokeLinecap="round" strokeDasharray="0 11" />
       <line x1="4" x2="236" y1="48" y2="48" stroke="#f0645a" strokeOpacity="0.6" strokeWidth="6" strokeLinecap="round" strokeDasharray="0 11" />
     </svg>
+  );
+}
+
+// what the watched SOL was worth over 7 days, at today's balance (hourly SOL closes from hyperliquid, live last point)
+function ValueChart({ sol, mark }: { sol: number | null; mark?: number }) {
+  const [closes, setCloses] = useState<number[]>([]);
+  useEffect(() => {
+    const end = Date.now();
+    info<{ c: string }[]>({ type: "candleSnapshot", req: { coin: "SOL", interval: "1h", startTime: end - 7 * 86_400_000, endTime: end } })
+      .then((rows) => setCloses(rows.map((r) => Number(r.c))))
+      .catch(() => {});
+  }, []);
+  if (sol === null || closes.length < 2) return <div className="mt-4 min-h-[96px] flex-1" />;
+  const pts = mark ? [...closes.slice(0, -1), mark] : closes;
+  const lo = Math.min(...pts), hi = Math.max(...pts), span = hi - lo || 1;
+  const w = 100, h = 40;
+  const xy = pts.map((v, i) => [(i / (pts.length - 1)) * w, h - ((v - lo) / span) * (h - 4) - 2] as const);
+  const line = xy.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
+  const change = pts[pts.length - 1] / pts[0] - 1;
+  const color = change < 0 ? DOWN : UP;
+  return (
+    <div className="mt-4 flex min-h-[96px] flex-1 flex-col">
+      <div className="flex items-center justify-between text-[12px] text-white/40 tabular-nums">
+        <span>7 days at today&apos;s balance</span>
+        <span style={{ color }}>{usd(sol * (pts[pts.length - 1] - pts[0]), 2)} · {pct(change)}</span>
+      </div>
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="mt-2 min-h-0 w-full flex-1" aria-label={`Value ${pct(change)} over 7 days`}>
+        <path d={`${line} L${w} ${h} L0 ${h} Z`} fill={color} fillOpacity={0.1} />
+        <path d={line} fill="none" stroke={color} strokeWidth={1.6} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+      </svg>
+    </div>
   );
 }

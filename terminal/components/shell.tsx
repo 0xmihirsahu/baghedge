@@ -1,14 +1,14 @@
 "use client";
 
 import { ChartLineUp, ClockCounterClockwise, ShieldCheck, Wallet, X } from "@phosphor-icons/react";
-import Avatar from "boring-avatars";
+import { WalletAvatar } from "./avatar";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { LogoReveal, NumberRoll, StatusText } from "@/components/motion";
 import { useStore } from "./app/store";
 import { CoinLogo } from "./coin-logo";
-import { COINS, CORAL, DOWN, coinHref, pct, tone, usd } from "./app/format";
+import { COINS, DOWN, coinHref, pct, tone, usd } from "./app/format";
 import { short } from "./app/wallet";
 
 const NAV = [
@@ -17,8 +17,6 @@ const NAV = [
   { href: "/portfolio", label: "Portfolio", icon: Wallet },
   { href: "/activity", label: "Activity", icon: ClockCounterClockwise },
 ];
-// a generated avatar per address (boring-avatars, MIT), drawn locally in the brand colours
-const AVATAR = [CORAL, "#0b0908", "#2e2c2a", "#ffffff"];
 
 const active = (path: string, href: string) => (href === "/" ? path === "/" || path === "/markets/SOL" : path === href || (href === "/markets" && path.startsWith("/markets/") && path !== "/markets/SOL"));
 
@@ -122,7 +120,7 @@ export function WalletBox() {
     <div className="flex flex-col gap-2 px-4 py-4">
       {wallet.address ? (
         <div className="flex items-center gap-3 px-1">
-          <Avatar name={wallet.address} variant="marble" size={36} colors={AVATAR} />
+          <WalletAvatar address={wallet.address} size={36} />
           <div className="min-w-0 whitespace-nowrap text-[14px] leading-tight">
             <p className="font-semibold tabular-nums">{wallet.sol === null ? "…" : <NumberRoll value={wallet.sol} format={(n) => `${n.toFixed(2)} SOL`} />}</p>
             <p className="text-white/45">{wallet.connected ? short(wallet.address) : `Watching ${short(wallet.address)}`}</p>
@@ -167,7 +165,7 @@ function WalletChip() {
     );
   return (
     <Link href="/portfolio" className="flex items-center gap-2 rounded-[11px] bg-[#1c1b1a] py-1 pl-1 pr-3 text-[13px] font-semibold tabular-nums">
-      <Avatar name={wallet.address} variant="marble" size={26} colors={AVATAR} />
+      <WalletAvatar address={wallet.address} size={26} />
       {wallet.sol === null ? short(wallet.address) : `${wallet.sol.toFixed(2)} SOL`}
     </Link>
   );
