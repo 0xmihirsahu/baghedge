@@ -22,7 +22,7 @@ export function Hero() {
 
         <div className="absolute inset-x-6 bottom-[6%] sm:bottom-[7%]">
           <Copy state="in" title={"Trade perps.\nHedge your bag."} hero>
-            <p>A Hyperliquid trading terminal that can hedge the SOL you already hold in your wallet.</p>
+            <p>A Hyperliquid terminal for the SOL in your wallet.</p>
             <a
               href={APP_URL}
               className="mt-6 inline-flex rounded-[10px] bg-brand px-4 py-2.5 text-[14px] font-medium text-white transition-transform active:scale-[0.97]"
