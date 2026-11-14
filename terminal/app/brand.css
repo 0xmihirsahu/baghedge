@@ -1,0 +1,160 @@
+/* baghedge brand for the app. import once at the root: tokens, the type, the black card texture.
+   figtree comes from google fonts; link it in index.html (see README) or self-host it. */
+
+:root {
+  --bh-page: #1c1b1a;   /* the page behind the cards */
+  --bh-card: #0b0908;   /* the black cards */
+  --bh-coral: #f0645a;  /* the only colour: actions, the entry line, warnings */
+  --bh-white: #ffffff;  /* dots, type, the recovery line */
+  --bh-ink: #16120f;    /* type on coral */
+  --bh-line: rgb(255 255 255 / 0.1);
+  --bh-muted: rgb(255 255 255 / 0.6);
+  --bh-radius: 18px;
+  --bh-font: "Figtree", ui-sans-serif, system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--bh-page);
+  color: var(--bh-white);
+  font-family: var(--bh-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--bh-coral);
+  color: #fff;
+}
+
+/* the black card with the faint halftone grid, the same as the landing */
+.bh-card {
+  background-color: var(--bh-card);
+  background-image: radial-gradient(circle, rgb(255 255 255 / 0.055) 0.9px, transparent 1.25px);
+  background-size: 7px 7px;
+  background-position: 3px 3px;
+  border-radius: var(--bh-radius);
+}
+
+.bh-button {
+  background: var(--bh-coral);
+  color: #fff;
+  border-radius: 12px;
+  font-weight: 500;
+  transition: transform 120ms ease;
+}
+.bh-button:active {
+  transform: scale(0.98);
+}
+
+/* numbers that change in place shouldn't shift the layout */
+.bh-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- components (ui/). every control on a card is a solid fill, never see-through ---------- */
+:root {
+  --bh-raised: #1a1817;   /* controls sitting on a black card */
+  --bh-raised-2: #2a2826; /* the selected one */
+}
+
+.bh-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font: 500 15px/1 var(--bh-font); border: 0; cursor: pointer; border-radius: 12px;
+  transition: transform 120ms ease, background-color 200ms ease, opacity 200ms ease;
+}
+.bh-btn:active:not(:disabled) { transform: scale(0.98); }
+.bh-btn:disabled { cursor: default; opacity: 0.75; }
+.bh-btn-sm { height: 32px; padding: 0 12px; font-size: 13px; border-radius: 9px; }
+.bh-btn-md { height: 42px; padding: 0 18px; }
+.bh-btn-lg { height: 50px; padding: 0 22px; font-size: 16px; }
+.bh-btn-primary { background: var(--bh-coral); color: #fff; }
+.bh-btn-secondary { background: var(--bh-raised-2); color: var(--bh-white); }
+.bh-btn-ghost { background: transparent; color: var(--bh-muted); }
+.bh-btn-ghost:hover { color: var(--bh-white); }
+
+.bh-seg { display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--bh-raised); }
+.bh-seg-item {
+  border: 0; cursor: pointer; padding: 7px 14px; border-radius: 9px; font: 400 14px var(--bh-font);
+  background: transparent; color: var(--bh-muted); transition: background-color 200ms ease, color 200ms ease;
+}
+.bh-seg-item:hover { color: var(--bh-white); }
+.bh-seg-item.bh-on { background: var(--bh-raised-2); color: var(--bh-white); }
+.bh-seg-item.bh-on-coral { background: var(--bh-coral); color: #fff; }
+
+.bh-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.bh-field-label { color: var(--bh-muted); }
+.bh-field-box {
+  display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; border-radius: 10px;
+  background: var(--bh-raised); border: 1px solid transparent; transition: border-color 200ms ease;
+}
+.bh-field-box:focus-within { border-color: rgb(255 255 255 / 0.3); }
+.bh-field-box input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--bh-white); font: 400 16px var(--bh-font); }
+.bh-field-affix { color: var(--bh-muted); font-size: 14px; }
+.bh-field-hint { color: var(--bh-muted); font-size: 12px; }
+.bh-field-error .bh-field-box { border-color: var(--bh-coral); }
+.bh-field-error .bh-field-hint { color: var(--bh-coral); }
+
+.bh-panel { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.bh-panel-head { display: flex; align-items: center; justify-content: space-between; font-size: 14px; color: var(--bh-muted); }
+
+.bh-rows { margin: 0; border-top: 1px solid var(--bh-line); }
+.bh-row { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--bh-line); font-size: 14px; }
+.bh-row dt { color: var(--bh-muted); }
+.bh-row dd { margin: 0; }
+.bh-row.bh-warn dd { color: var(--bh-coral); }
+.bh-row.bh-muted dd { color: var(--bh-muted); }
+
+.bh-tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--bh-line); }
+.bh-tab {
+  position: relative; border: 0; background: transparent; cursor: pointer; padding: 0 0 11px; font: 400 14px var(--bh-font);
+  color: var(--bh-muted); display: inline-flex; gap: 6px; align-items: center;
+}
+.bh-tab.bh-on { color: var(--bh-white); }
+.bh-tab.bh-on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 2px; background: var(--bh-coral); }
+.bh-tab-count { color: var(--bh-muted); font-size: 12px; }
+
+.bh-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.bh-table th { font-weight: 400; color: var(--bh-muted); padding: 0 0 10px; }
+.bh-table td { padding: 11px 0; border-top: 1px solid var(--bh-line); }
+.bh-empty { color: var(--bh-muted); font-size: 14px; padding: 18px 0; }
+
+.bh-env { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 8px; font-size: 12px; background: var(--bh-raised-2); color: var(--bh-white); }
+.bh-env-live { background: var(--bh-coral); color: #fff; }
+
+.bh-market { display: flex; align-items: center; gap: 28px; font-size: 14px; flex-wrap: wrap; }
+.bh-market-name { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 16px; }
+.bh-market-name img { width: 22px; height: 22px; border-radius: 50%; }
+.bh-market-mark { font-size: 20px; font-variant-numeric: tabular-nums; }
+.bh-market-stat { display: inline-flex; flex-direction: column; gap: 2px; font-variant-numeric: tabular-nums; }
+.bh-market-stat span { color: var(--bh-muted); font-size: 12px; }
+
+.bh-exposure-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.bh-exposure-grid div { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--bh-muted); }
+.bh-exposure-value { font-size: 20px; color: var(--bh-white); }
+.bh-exposure-dots { margin-top: 14px; }
+.bh-exposure-pending { margin: 10px 0 0; font-size: 13px; color: var(--bh-coral); }
+
+.bh-sheet-wrap {
+  position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px;
+  background: rgb(11 9 8 / 0.7); opacity: 0; pointer-events: none; transition: opacity 220ms ease;
+}
+.bh-sheet-wrap.bh-open { opacity: 1; pointer-events: auto; }
+.bh-sheet {
+  width: min(460px, 100%); padding: 22px; display: flex; flex-direction: column; gap: 16px;
+  transform: translateY(12px) scale(0.98); transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.bh-open .bh-sheet { transform: none; }
+.bh-sheet-title { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
+.bh-sheet-signer { margin: 0; font-size: 13px; color: var(--bh-muted); }
+.bh-sheet-actions { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
+
+.bh-toast { display: flex; gap: 14px; align-items: flex-start; padding: 14px 16px; width: 320px; border: 1px solid var(--bh-line); }
+.bh-toast-title { margin: 0; font-size: 13px; color: var(--bh-muted); }
+.bh-toast-status { display: block; margin-top: 2px; font-size: 16px; }
+.bh-toast-detail { margin: 4px 0 0; font-size: 13px; color: var(--bh-muted); }
+.bh-toast-close { margin-left: auto; border: 0; background: transparent; color: var(--bh-muted); font-size: 18px; cursor: pointer; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bh-btn, .bh-seg-item, .bh-sheet-wrap, .bh-sheet { transition: none; }
+}
