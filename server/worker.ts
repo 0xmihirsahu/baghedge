@@ -41,10 +41,17 @@ const TERMINAL = new Set(["filled", "canceled", "rejected", "marginCanceled", "v
   "tooAggressiveAtOpenInterestCapRejected", "openInterestIncreaseRejected", "insufficientSpotBalanceRejected",
   "oracleRejected", "perpMaxPositionRejected"]);
 /** Terminal if documented, or shaped like one (…Rejected / …Canceled) for statuses the venue adds later. */
-/** Error text safe for a public endpoint: hex ids and addresses elided, length capped. */
+/**
+ * Error text safe for a public endpoint: URLs (provider keys can sit in the path), hex ids and EVM addresses,
+ * and long base58 strings (Solana addresses, NEAR keys) are elided; length capped.
+ */
 export function publicError(error: unknown) {
   const text = error instanceof Error ? error.message : String(error);
-  return text.replace(/0x[0-9a-fA-F]{16,}/g, "0x…").slice(0, 160);
+  return text
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, "<url>")
+    .replace(/0x[0-9a-fA-F]{16,}/g, "0x…")
+    .replace(/\b[1-9A-HJ-NP-Za-km-z]{32,}\b/g, "…")
+    .slice(0, 160);
 }
 const isTerminal = (status: string) => TERMINAL.has(status) || /(Rejected|Canceled)$/.test(status);
 
@@ -569,6 +576,7 @@ export function createWorker(deps: WorkerDeps) {
   async function tickAll() {
     for (const rule of db.activeRules(env)) {
       try { await tickRule(rule.id); } catch (error) {
+        loop.lastError = { message: publicError(error), at: Date.now() };
         console.error(`worker tick failed for ${rule.id}:`, error instanceof Error ? error.message : error);
         if (String(error).includes("429")) throw error; // let the loop back off instead of hammering the venue
       }

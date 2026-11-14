@@ -505,8 +505,20 @@ describe("worker", () => {
     expect(status.rateLimitedUntil).toBeGreaterThan(Date.now());
   });
 
-  test("publicError elides hex ids and caps length", () => {
+  test("publicError elides hex ids, URLs and base58 strings, and caps length", () => {
     expect(publicError(new Error(`rule 0x${"cd".repeat(32)} failed`))).toBe("rule 0x… failed");
-    expect(publicError("x".repeat(500))).toHaveLength(160);
+    expect(publicError("GET https://solana-mainnet.g.alchemy.com/v2/SECRETKEY123 failed")).toBe("GET <url> failed");
+    expect(publicError("wallet 9T9nns3a5Qi6BA28jwvuaWGU2uPPdcesPMkQES7YCjM2 unreadable")).toBe("wallet … unreadable");
+    expect(publicError("Hyperliquid info returned HTTP 429")).toBe("Hyperliquid info returned HTTP 429");
+    expect(publicError("error ".repeat(100))).toHaveLength(160);
+  });
+  test("a non-429 failure inside one rule's tick is reported in status().lastError", async () => {
+    const { exchange, worker } = setup();
+    (exchange as { market: typeof exchange.market }).market = async () => { throw new Error("OutLayer 503"); };
+    worker.start(5);
+    await Bun.sleep(30);
+    worker.stop();
+    expect(worker.status()).toMatchObject({ lastError: { message: "OutLayer 503" }, rateLimitedUntil: null });
+    expect(worker.status().lastTickOkAt).not.toBeNull();   // the loop itself kept running
   });
 });
