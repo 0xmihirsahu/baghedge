@@ -234,7 +234,7 @@ export function CoinPage({ coin }: { coin: string }) {
                 }
                 className="mt-5 flex h-[52px] w-full items-center justify-center gap-2 rounded-[14px] bg-[#f0645a] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70"
               >
-                {L.busy === "arm" ? "Signing the policy" : "Sign and arm"}
+                {L.busy ? ({ signin: "Signing in", agent: "Finding your hedge agent", approve: "Approving the hedge agent", arm: "Signing the policy" } as Record<string, string>)[L.busy] ?? "Working" : "Sign and arm"}
               </button>
               <p aria-live="polite" className="mt-2 min-h-[18px] text-center text-[12px] leading-snug text-[#f2554b]">{L.error?.message ?? ""}</p>
               <p className="text-center text-[12px] text-white/40">

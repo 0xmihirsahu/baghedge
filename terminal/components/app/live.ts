@@ -169,15 +169,23 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
     if (agentFor.current?.owner === owner.toLowerCase()) return agentFor.current.agent;
     setBusy("agent");
     let agent = o.agent;
+    // the first lookup for a new owner runs the guard on OutLayer: 10–30 s. a lapsed session (or an agent the
+    // server hasn't looked up yet) means: sign in again, then ask once more
+    const lookup = () => api<{ agentAddress: string }>(`/api/hedges/agent?owner=${owner}`, undefined, 60_000).then((r) => r.agentAddress);
     try {
-      // the first lookup for a new owner runs the guard on OutLayer: 10–30 s
-      agent = (await api<{ agentAddress: string }>(`/api/hedges/agent?owner=${owner}`, undefined, 60_000)).agentAddress;
+      agent = await lookup();
     } catch (e) {
-      if ((e as LiveError).code !== "not_found") throw e;
+      const code = (e as LiveError).code;
+      if (code === "sign_in_required" || code === "agent_unknown") {
+        signedIn.current = null;
+        await signIn();
+        setBusy("agent");
+        agent = await lookup();
+      } else if (code !== "not_found") throw e;
     }
     if (agent) agentFor.current = { owner: owner.toLowerCase(), agent };
     return agent;
-  }, [o.agent, owner]);
+  }, [o.agent, owner, signIn]);
 
   const ensureAgent = useCallback(async () => {
     const agent = await ownerAgent();
@@ -199,7 +207,9 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
       try {
         ensureOwner();
         await signIn();
-        await ensureAgent();
+        // the agent must be known before drafting (the policy names it); approving it waits for arm, because
+        // Hyperliquid accepts the approval only once the Hedge account holds USDC
+        await ownerAgent();
         setBusy("draft");
         const d = await api<Draft>("/api/hedges/draft", {
           tradeAddress: o.trade,
@@ -228,7 +238,7 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [o.trade, o.solana, owner, signIn, ensureAgent],
+    [o.trade, o.solana, owner, signIn, ownerAgent],
   );
 
   // arm: the owner signs the drafted policy, the backend records it and the worker starts watching
@@ -238,6 +248,9 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
     setBusy("arm");
     try {
       ensureOwner();
+      // order: sign in → agent known → funded → approve the agent once → sign the policy
+      await ensureAgent();
+      setBusy("arm");
       const ownerSig = await signTyped(signerRef.current, owner, draft.typedData);
       await api("/api/hedges", { policy: draft.policy, ownerSig, chainId: chainId() });
       setDraft(null);
@@ -251,7 +264,7 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
       setBusy(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, owner, refresh]);
+  }, [draft, owner, refresh, ensureAgent]);
 
   // close (open short) or disarm (nothing filled yet), with a signed command
   const close = useCallback(async () => {
