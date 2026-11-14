@@ -39,7 +39,7 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
 
   const step = L ? -1 : FUNDING.indexOf(h.phase);
   const busy = hedgeMode && (L ? !!L.busy : !!AUTO[h.phase]);
-  const BUSY = { signin: "Sign in in your wallet", approve: "Approve the hedge agent", draft: "Drafting your hedge", arm: "Sign the policy", close: "Sign to close" } as const;
+  const BUSY = { signin: "Signing in", agent: "Finding your hedge agent", approve: "Approving the hedge agent", draft: "Drafting your hedge", arm: "Signing the policy", close: "Closing" } as const;
   const over = hedgeMode && (Number(h.cap) || 0) > h.held + 1e-9;
   // with Privy, the real hedge starts with one sign-in that brings the Trade and Hedge accounts
   const signInFirst = connected && hedgeMode && !L && !!privy && liveCapable;

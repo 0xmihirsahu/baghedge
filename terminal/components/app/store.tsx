@@ -34,7 +34,7 @@ type Activity = { at: number; what: string };
 // mode: the network the UI reads (NEXT_PUBLIC_NETWORK pins it, else the backend's). apiMode: the network the backend runs.
 // live hedging needs both to match; otherwise the hedge stays a labelled replay
 // pinnedOwner: a single-owner guard build signs for that one Hedge account only (docs/API.md, owner_unsupported)
-export type Backend = { reachable: boolean; mode: Network; apiMode: Network | null; signer: "guard" | "fallback" | null; agentAddress: string | null; pinnedOwner: string | null };
+export type Backend = { reachable: boolean; mode: Network; apiMode: Network | null; signer: "guard" | "fallback" | null; agentAddress: string | null; pinnedOwner: string | null; disclosures: string[] };
 const PINNED = process.env.NEXT_PUBLIC_NETWORK === "mainnet" || process.env.NEXT_PUBLIC_NETWORK === "testnet" ? (process.env.NEXT_PUBLIC_NETWORK as Network) : null;
 
 function useTerminal(backend: Backend) {
@@ -302,9 +302,9 @@ export function Providers({ children }: { children: ReactNode }) {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((h) => {
         const apiMode: Network = h.mode === "testnet" ? "testnet" : "mainnet";
-        settle({ reachable: true, mode: PINNED ?? apiMode, apiMode, signer: h.hedgeSigner?.kind ?? null, agentAddress: h.hedgeSigner?.agentAddress ?? null, pinnedOwner: h.hedgeSigner?.pinnedOwner ?? null });
+        settle({ reachable: true, mode: PINNED ?? apiMode, apiMode, signer: h.hedgeSigner?.kind ?? null, agentAddress: h.hedgeSigner?.agentAddress ?? null, pinnedOwner: h.hedgeSigner?.pinnedOwner ?? null, disclosures: Array.isArray(h.disclosures) ? h.disclosures.filter((d: unknown) => typeof d === "string") : [] });
       })
-      .catch(() => settle({ reachable: false, mode: PINNED ?? "mainnet", apiMode: null, signer: null, agentAddress: null, pinnedOwner: null }));
+      .catch(() => settle({ reachable: false, mode: PINNED ?? "mainnet", apiMode: null, signer: null, agentAddress: null, pinnedOwner: null, disclosures: [] }));
   }, []);
   // no adapters listed: every wallet-standard wallet (phantom, solflare, backpack…) registers itself
   const wallets = useMemo(() => [], []);

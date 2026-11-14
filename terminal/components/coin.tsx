@@ -170,6 +170,13 @@ export function CoinPage({ coin }: { coin: string }) {
           </div>
           {L ? (
             <>
+              {/* the backend's own disclosures (GET /api/health), shown before anyone funds the Hedge account */}
+              {backend.disclosures.map((d) => (
+                <p key={d} className="mt-4 rounded-[12px] bg-[#1c1b1a] px-3.5 py-3 text-[12px] leading-snug text-white/55">
+                  <span className="mb-1 block font-semibold text-white/80">Disclosure</span>
+                  {d}
+                </p>
+              ))}
               {L.margin && L.margin.have === null && (
                 <p className="mt-4 rounded-[12px] bg-[#1c1b1a] px-3.5 py-3 text-[13px] leading-snug text-white/75">
                   Margin unavailable right now. Arming checks it again.
@@ -198,7 +205,7 @@ export function CoinPage({ coin }: { coin: string }) {
                 }
                 className="mt-5 flex h-[52px] w-full items-center justify-center gap-2 rounded-[14px] bg-[#f0645a] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70"
               >
-                {L.busy === "arm" ? "Sign the policy in your wallet" : "Sign and arm"}
+                {L.busy === "arm" ? "Signing the policy" : "Sign and arm"}
               </button>
               <p aria-live="polite" className="mt-2 min-h-[18px] text-center text-[12px] leading-snug text-[#f2554b]">{L.error?.message ?? ""}</p>
               <p className="text-center text-[12px] text-white/40">

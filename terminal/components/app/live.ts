@@ -38,6 +38,9 @@ const MESSAGES: Record<string, string> = {
   no_eligible_sol: "The watched wallet has no SOL to hedge.",
   account_alias: "Trade and Hedge must be different accounts.",
   owner_unsupported: "Mainnet hedging is open to the pilot account only, for now.",
+  agent_unknown: "Your hedge agent isn't ready yet. Try again.",
+  agent_lookup_rate_limited: "Still setting up your hedge agent. Try again in a minute.",
+  agent_lookup_busy: "Lots of new accounts right now. Try again later.",
   invalid_policy: "The policy changed or was signed by the wrong wallet. Review it again.",
   sign_in_required: "Sign in again to read your hedge.",
   rejected: "You cancelled the signature.",
@@ -102,7 +105,7 @@ export function ruleLabel(r: Rule): string {
 
 export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string; solana: string | null; agent: string | null; signer: Signer | null; notify?: (title: string, status: string, href?: string) => void }) {
   const [rule, setRule] = useState<Rule | null>(null);
-  const [busy, setBusy] = useState<null | "signin" | "approve" | "draft" | "arm" | "close">(null);
+  const [busy, setBusy] = useState<null | "signin" | "agent" | "approve" | "draft" | "arm" | "close">(null);
   const [error, setError] = useState<LiveError | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [margin, setMargin] = useState<{ need: number; have: number | null } | null>(null);
@@ -158,17 +161,34 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
   }, [o.enabled, owner]);
 
   // the hedge agent must be approved on the Hedge account once (after it is funded)
+  // multi-owner guard: every Hedge owner has its own agent, read after sign-in (the first lookup takes 5–10 s).
+  // a backend without the route (single-owner build) answers 404, and the agent from /api/health is used
+  const agentFor = useRef<{ owner: string; agent: string } | null>(null);
+  const ownerAgent = useCallback(async () => {
+    if (agentFor.current?.owner === owner.toLowerCase()) return agentFor.current.agent;
+    setBusy("agent");
+    let agent = o.agent;
+    try {
+      agent = (await api<{ agentAddress: string }>(`/api/hedges/agent?owner=${owner}`)).agentAddress;
+    } catch (e) {
+      if ((e as LiveError).code !== "not_found") throw e;
+    }
+    if (agent) agentFor.current = { owner: owner.toLowerCase(), agent };
+    return agent;
+  }, [o.agent, owner]);
+
   const ensureAgent = useCallback(async () => {
-    if (!o.agent) return;
+    const agent = await ownerAgent();
+    if (!agent) return;
     const agents = await info<{ address: string }[]>({ type: "extraAgents", user: owner }).catch(() => []);
-    if (agents.some((a) => a.address.toLowerCase() === o.agent!.toLowerCase())) return;
+    if (agents.some((a) => a.address.toLowerCase() === agent.toLowerCase())) return;
     setBusy("approve");
-    const { action, typedData } = await api<{ action: unknown; typedData: TypedData }>("/api/hl/approve-agent", { agentAddress: o.agent, chainId: chainId(), purpose: "hedge", validDays: 90 });
+    const { action, typedData } = await api<{ action: unknown; typedData: TypedData }>("/api/hl/approve-agent", { agentAddress: agent, chainId: chainId(), purpose: "hedge", validDays: 90 });
     const signature = await signTyped(signerRef.current, owner, typedData);
     await api("/api/hl/approve-agent/submit", { owner, action, signature });
     // approvals are Hyperliquid actions with no tx page of their own: link the account's history, where it shows
     notifyRef.current?.("Hedge agent", "Approved", explorer("address", owner));
-  }, [o.agent, owner]);
+  }, [ownerAgent, owner]);
 
   // review: sign in, approve the agent if needed, draft the policy and read the margin it needs
   const prepare = useCallback(
