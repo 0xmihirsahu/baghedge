@@ -256,6 +256,37 @@ describe("worker", () => {
     expect(contexts).toContainEqual(expect.objectContaining({ intent: "position_stop", orderRef: { intent: "position_stop", seq: stop.seq } }));
   });
 
+  test("a recovery stop that fills at the venue closes the rule instead of pausing it", async () => {
+    const { v, db, tick } = setup();
+    await tick();
+    v.mark = "69.9"; v.bid = "69.8";
+    let rule = await tick();
+    expect(rule.state).toMatchObject({ phase: "open", shortLots: 40n });
+    rule = await tick();
+    expect(rule.stopStatus).toBe("active");
+    // The mark rallies through the recovery trigger and the venue fills the attached stop on its own.
+    const stopCloid = db.actionsForRule("r1").find(a => a.intent === "entry")!.stopCloid!;
+    const stop = v.orders.get(stopCloid)!;
+    stop.filledLots = stop.origLots; stop.status = "filled"; v.shortLots = 0;
+    rule = await tick();
+    expect(rule.state.phase).toBe("closed");
+    expect(rule.reason).not.toBe("unexpected-position");
+    rule = await tick();
+    expect(rule.status).toBe("done");
+    expect(v.submissions).toBe(1);   // only the entry; the stop did the exit
+  });
+
+  test("an unexplained position change (e.g. liquidation or ADL) still pauses", async () => {
+    const { v, tick } = setup();
+    await tick();
+    v.mark = "69.9"; v.bid = "69.8";
+    await tick(); await tick();
+    v.shortLots = 10;                 // shrank, but no stop filled
+    const rule = await tick();
+    expect(rule.state.phase).toBe("paused");
+    expect(rule.reason).toBe("unexpected-position");
+  });
+
   test("a gap below the entry floor sends nothing", async () => {
     const { v, db, tick } = setup();
     await tick();

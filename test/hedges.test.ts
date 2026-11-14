@@ -14,7 +14,9 @@ const exchange = {
   market: async () => ({ asset: 0, sizeDecimals: 2, markPx: "75", bestBid: "74.9", bestAsk: "75.1", observedAt: Date.now() }),
   position: async () => ({ szi: "0", liquidationPx: null, withdrawable: "30", accountValue: "30", observedAt: Date.now() }),
   openOrders: async () => [],
+  usableUsdc: async () => usable,
 } as unknown as Exchange;
+let usable = { mode: "standard", usableUsdc: "30", perpsWithdrawable: "30", spotAvailable: "0", observedAt: Date.now() };
 
 function routes() {
   const db = openDb(":memory:");
@@ -94,4 +96,16 @@ test("required margin matches the section 23 worked example (~$192 for a 6 SOL s
   // loss $126 + maintenance $24.15 + fees ~$0.87 + 5% buffer $42 ≈ $193
   expect(Number(e6) / 1e6).toBeGreaterThan(190);
   expect(Number(e6) / 1e6).toBeLessThan(196);
+});
+
+test("a unified account's spot USDC counts as margin; an empty account is refused", async () => {
+  const { post } = routes();
+  const p = { ...policy, ruleId: `0x${"cd".repeat(32)}` as `0x${string}`, minMarginE6: "5000000" };
+  const ownerSig = await owner.signTypedData(policyTypedData(p, 1));
+  usable = { mode: "unified", usableUsdc: "0", perpsWithdrawable: "0", spotAvailable: "0", observedAt: Date.now() };
+  expect(post("/api/hedges", { policy: p, ownerSig, chainId: 1 })).rejects.toThrow("(unified) has 0 USDC");
+  usable = { mode: "unified", usableUsdc: "12", perpsWithdrawable: "0", spotAvailable: "12", observedAt: Date.now() };
+  const armed = await post("/api/hedges", { policy: p, ownerSig, chainId: 1 }) as { phase: string };
+  expect(armed.phase).toBe("armed");
+  usable = { mode: "standard", usableUsdc: "30", perpsWithdrawable: "30", spotAvailable: "0", observedAt: Date.now() };
 });

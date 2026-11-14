@@ -14,7 +14,7 @@ export function Tip({ text, children, side = "top", align = "center", className 
       <span
         id={id}
         role="tooltip"
-        className={`pointer-events-none absolute z-[80] w-max max-w-[240px] rounded-[10px] bg-[#2e2c2a] px-3 py-2 text-left text-[12px] font-normal leading-snug tracking-normal text-white/90 normal-case opacity-0 transition-opacity duration-100 group-hover/tip:opacity-100 group-hover/tip:delay-300 group-focus-visible/tip:opacity-100 ${x} ${y}`}
+        className={`pointer-events-none absolute z-[80] w-max max-w-[240px] whitespace-normal rounded-[10px] bg-[#2e2c2a] px-3 py-2 text-left text-[12px] font-normal leading-snug tracking-normal text-white/90 normal-case opacity-0 transition-opacity duration-100 group-hover/tip:opacity-100 group-hover/tip:delay-300 group-focus-visible/tip:opacity-100 ${x} ${y}`}
       >
         {text}
       </span>

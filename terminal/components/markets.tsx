@@ -8,6 +8,8 @@ import { CoinLogo } from "./coin-logo";
 import { Tip } from "./tip";
 import { useStore } from "./app/store";
 import { coinHref, compact, pct, priceDecimals, tone, usd } from "./app/format";
+import { haptic } from "@/lib/haptics";
+import { Offline, useAfter } from "./offline";
 
 type Sort = "volume" | "change" | "funding" | "oi";
 type Filter = "All" | "Gainers" | "Losers";
@@ -22,7 +24,11 @@ const GRID = "grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1.4fr)_1fr_0
 // every hyperliquid perp, live: prices from the socket, the rest from a snapshot each minute.
 // four live headline cards, filters, sortable columns, and prices that flash when they move
 export function MarketsPage() {
-  const { markets, mids } = useStore();
+  const { markets, mids, live } = useStore();
+  // the snapshot retries each minute; past a normal load, show a calm offline state instead of a spinner forever
+  const unreachable = useAfter(!markets.length, 9000);
+  // the socket dropped: prices keep coming by polling, so it's a quiet note, not an error
+  const polling = useAfter(!!markets.length && !live, 8000);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<Sort>("volume");
   const [filter, setFilter] = useState<Filter>("All");
@@ -73,12 +79,22 @@ export function MarketsPage() {
       <div className="mx-auto flex w-full max-w-[1480px] flex-wrap items-center justify-between gap-3 px-5 pb-4 pt-5 sm:px-7">
         <div>
           <h1 className="text-[26px] font-semibold tracking-[-0.03em]">Markets</h1>
-          <p className="text-[13px] text-white/45">{markets.length ? `${markets.length} perps on Hyperliquid` : " "}</p>
+          <p className="text-[13px] text-white/45">
+            {markets.length ? `${markets.length} perps on Hyperliquid` : " "}
+            {polling && <span className="inline-error-in"> · Live feed reconnecting</span>}
+          </p>
         </div>
         <div className="flex w-full items-center gap-2 sm:w-auto">
           <div className="grid grid-cols-3 gap-1 rounded-[12px] bg-[#1c1b1a] p-1">
             {(["All", "Gainers", "Losers"] as const).map((f) => (
-              <button key={f} onClick={() => setFilter(f)} className={`h-8 rounded-[9px] px-3 text-[13px] font-semibold transition-colors duration-150 ${filter === f ? "bg-[#2e2c2a] text-white" : "text-white/45 hover:text-white/70"}`}>
+              <button
+                key={f}
+                aria-pressed={filter === f}
+                onClick={() => {
+                  if (filter !== f) haptic("select");
+                  setFilter(f);
+                }}
+                className={`h-8 rounded-[9px] px-3 text-[13px] font-semibold transition-colors duration-150 ${filter === f ? "bg-[#2e2c2a] text-white" : "text-white/45 hover:text-white/70"}`}>
                 {f}
               </button>
             ))}
@@ -108,6 +124,7 @@ export function MarketsPage() {
             <button
               key={c.key}
               onClick={() => {
+                if (sort !== c.key || filter !== "All") haptic("select");
                 setSort(c.key);
                 setFilter("All");
               }}
@@ -122,9 +139,23 @@ export function MarketsPage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!markets.length ? (
-          <div className="grid h-full place-items-center"><BagLoader size={44} label="Loading markets" /></div>
+          <div className="grid h-full min-h-[280px] place-items-center">{unreachable ? <Offline /> : <BagLoader size={44} label="Loading markets" />}</div>
         ) : !rows.length ? (
-          <p className="py-10 text-center text-[14px] text-white/45">{q ? `No market called “${q}”` : "Nothing here right now"}</p>
+          <div className="inline-error-in flex flex-col items-center px-5 py-12 text-center">
+            <p className="max-w-full truncate text-[15px] font-semibold">{q.trim() ? `No market matches “${q.trim()}”` : filter === "Gainers" ? "No gainers right now" : "No losers right now"}</p>
+            <p className="mt-1 text-[13px] text-white/45">{q.trim() ? "Try a ticker, like SOL or BTC." : "Prices are flat across the board."}</p>
+            <button
+              onClick={() => {
+                haptic("tap");
+                setQ("");
+                setFilter("All");
+                search.current?.focus();
+              }}
+              className="mt-4 h-10 rounded-[12px] bg-[#1c1b1a] px-4 text-[14px] font-semibold transition-colors duration-150 hover:bg-[#2e2c2a]"
+            >
+              {q.trim() ? "Clear search" : "Show all"}
+            </button>
+          </div>
         ) : (
           rows.map((m) => (
             <Link key={m.name} href={coinHref(m.name)} className="block transition-colors duration-100 hover:bg-[#141312]">
@@ -154,17 +185,18 @@ export function MarketsPage() {
 
 function Headline({ label, tip, m, value, color }: { label: string; tip: string; m: { name: string; px: number; szDecimals: number }; value: string; color?: string }) {
   return (
-    <Link href={coinHref(m.name)} className="flex items-center gap-3 rounded-[16px] bg-[#141312] px-4 py-3.5 transition-colors duration-150 hover:bg-[#1c1b1a]">
-      <CoinLogo coin={m.name} className="size-9" />
+    // a phone card is half the screen: name on top, the number under it. wider, all on one row
+    <Link href={coinHref(m.name)} className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2.5 rounded-[16px] bg-[#141312] px-4 py-3.5 transition-colors duration-150 hover:bg-[#1c1b1a] sm:grid-cols-[auto_minmax(0,1fr)_auto]">
+      <CoinLogo coin={m.name} className="size-8 sm:size-9" />
       <div className="min-w-0 leading-tight">
         <p className="truncate text-[15px] font-semibold">{m.name}</p>
-        <p className="mt-1 text-[12px] text-white/45">
+        <p className="mt-1 truncate text-[12px] text-white/45">
           <Tip text={tip} side="bottom" align="start">{label}</Tip>
         </p>
       </div>
-      <div className="ml-auto text-right leading-tight tabular-nums">
+      <div className="col-span-2 flex items-baseline justify-between gap-2 leading-tight tabular-nums sm:col-span-1 sm:block sm:text-right">
         <p className="text-[16px] font-semibold" style={{ color }}>{value}</p>
-        <p className="mt-1 text-[12px] text-white/40">{usd(m.px, priceDecimals(m.px, m.szDecimals))}</p>
+        <p className="truncate text-[12px] text-white/40 sm:mt-1">{usd(m.px, priceDecimals(m.px, m.szDecimals))}</p>
       </div>
     </Link>
   );

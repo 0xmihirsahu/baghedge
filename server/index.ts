@@ -1,5 +1,5 @@
 import { keccak256, stringToHex } from "viem";
-import { isEvmAddress, isSolanaAddress } from "../shared/amounts";
+import { fromUnits, isEvmAddress, isSolanaAddress } from "../shared/amounts";
 import { previewHedge } from "./preview";
 import { RequestError } from "./http";
 import { createIntents, parseQuoteInput } from "./intents";
@@ -12,7 +12,7 @@ import { createOwnerActions } from "./owner";
 import { createGuardSigner, outLayerExecutorFromEnv } from "./guard";
 import { createExchange, fallbackSigner, verifiedSigner, type HedgeSigner, type Hex } from "./exchange";
 import { createHedgeRoutes, type SignerConfig } from "./hedges";
-import { createWorker, type SignContext } from "./worker";
+import { createWorker, toUnitsRounded, type SignContext } from "./worker";
 import type { RuleRecord } from "./db";
 
 type AppConfig = {
@@ -71,9 +71,16 @@ export function createApi(config: AppConfig, request = fetch) {
       if (trade.toLowerCase() === hedge?.toLowerCase()) {
         throw new RequestError(400, "account_alias", "Trade and Hedge need different Hyperliquid accounts");
       }
+      const withMargin = async (address: string) => {
+        const [account, margin] = await Promise.all([venue.account(address), exchange.usableUsdc(address)]);
+        // usableUsdc is what the UI should show as margin; maxPayoutUsdc leaves room for the 1 USDC sendAsset fee.
+        const usable = toUnitsRounded(margin.usableUsdc, 6, "floor");
+        const maxPayout = usable > 1_200_000n ? usable - 1_200_000n : 0n;
+        return { ...account, accountMode: margin.mode, usableUsdc: margin.usableUsdc, maxPayoutUsdc: fromUnits(maxPayout, 6) };
+      };
       const [tradeAccount, hedgeAccount] = await Promise.all([
-        venue.account(trade.toLowerCase()),
-        hedge ? venue.account(hedge.toLowerCase()) : null,
+        withMargin(trade.toLowerCase()),
+        hedge ? withMargin(hedge.toLowerCase()) : null,
       ]);
       return { mode: config.mode, trade: tradeAccount, hedge: hedgeAccount };
     }
@@ -112,6 +119,9 @@ export function createApi(config: AppConfig, request = fetch) {
     }
     const hedgeResult = await hedges.route(req, url);
     if (hedgeResult !== undefined) return hedgeResult;
+    if (req.method === "GET" && url.pathname === "/api/transfers/assets") {
+      return { assets: await intents.assets() };
+    }
     const transferMatch = /^\/api\/transfers\/([\da-f-]{36})(\/deposit|\/send-asset|\/send-asset\/submit)?$/.exec(url.pathname);
     const transferId = transferMatch?.[1];
     if (transferId) {
@@ -142,8 +152,9 @@ export function createApi(config: AppConfig, request = fetch) {
         const status = await intents.status(transfer.quote.depositAddress);
         // Provider SUCCESS isn't proof of credit: for inbound funding, also report the recipient's venue balances.
         const recipient = transfer.quote.direction === "fund" && config.mode === "mainnet"
-          ? await venue.account(transfer.quote.recipient).then(
-            a => ({ address: a.address, withdrawableUsdc: a.withdrawableUsdc, spotUsdc: a.spotUsdc, observedAt: a.observedAt }),
+          ? await Promise.all([venue.account(transfer.quote.recipient), exchange.usableUsdc(transfer.quote.recipient)]).then(
+            ([a, m]) => ({ address: a.address, withdrawableUsdc: a.withdrawableUsdc, spotUsdc: a.spotUsdc,
+              accountMode: m.mode, usableUsdc: m.usableUsdc, observedAt: a.observedAt }),
             () => null)
           : null;
         return { id: transferId, mode: config.mode, ...transfer, ...status, recipientAccount: recipient };

@@ -6,6 +6,8 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { BagLoader } from "@/components/motion";
+import { haptic } from "@/lib/haptics";
+import { InlineError } from "./inline-error";
 import { CORAL } from "./app/format";
 import { useStore } from "./app/store";
 
@@ -13,7 +15,7 @@ import { useStore } from "./app/store";
 // then it morphs to the chosen step. the height animates to fit, the content cross-fades, back reverses it.
 // solana wallet adapter finds and connects the wallets; this only draws them.
 // edge cases: nothing installed (install links), a phone with no wallet (open the app inside one),
-// a wallet mid-connect (loader, the rest wait), a rejection (the store makes it a toast), a bad address (red ring)
+// a wallet mid-connect (loader, the rest wait), a rejection (inline under the list), a bad address (red ring, inline line)
 type View = "home" | "wallets" | "watch";
 const EASE = [0.25, 1, 0.5, 1] as const;
 
@@ -29,7 +31,8 @@ export function WalletModal({ open, onClose }: { open: boolean; onClose: () => v
   const [view, setView] = useState<View>("home");
   const [picked, setPicked] = useState<string | null>(null);
   const [addr, setAddr] = useState("");
-  const [bad, setBad] = useState(false);
+  const [bad, setBad] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
   const [phone, setPhone] = useState(false);
   const [mounted, setMounted] = useState(false);
   const ready = wallets.filter((w) => w.readyState === WalletReadyState.Installed || w.readyState === WalletReadyState.Loadable);
@@ -47,7 +50,8 @@ export function WalletModal({ open, onClose }: { open: boolean; onClose: () => v
     const t = setTimeout(() => {
       setView("home");
       setAddr("");
-      setBad(false);
+      setBad(null);
+      setFailed(null);
     }, 0);
     return () => clearTimeout(t);
   }, [open]);
@@ -65,10 +69,21 @@ export function WalletModal({ open, onClose }: { open: boolean; onClose: () => v
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, view, onClose]);
-  // a cancelled connect clears the loader
+  // a cancelled connect clears the loader, and says so here, where the user is looking
+  const wasConnecting = useRef(false);
   useEffect(() => {
-    if (!connecting && !connected) setTimeout(() => setPicked(null), 0);
-  }, [connecting, connected]);
+    const was = wasConnecting.current;
+    wasConnecting.current = connecting;
+    if (connecting || connected) return;
+    const t = setTimeout(() => {
+      setPicked(null);
+      if (was && open) {
+        setFailed("Connection cancelled. Pick a wallet to try again.");
+        haptic("error");
+      }
+    }, 0);
+    return () => clearTimeout(t);
+  }, [connecting, connected, open]);
 
   // the sheet's height follows its content
   const inner = useRef<HTMLDivElement>(null);
@@ -82,17 +97,31 @@ export function WalletModal({ open, onClose }: { open: boolean; onClose: () => v
   }, [mounted]);
 
   const submit = () => {
-    if (store.watch(addr)) onClose();
-    else setBad(true);
+    if (store.watch(addr)) {
+      haptic("success");
+      onClose();
+    } else {
+      haptic("error");
+      setBad(/^0x/i.test(addr.trim()) ? "That's an EVM address. Paste a Solana one." : "Not a Solana address. Check it and paste again.");
+    }
   };
-  const paste = () =>
-    navigator.clipboard?.readText().then(
-      (t) => {
-        setAddr(t.trim());
-        setBad(false);
-      },
-      () => {},
-    );
+  const denied = () => {
+    haptic("error");
+    setBad("Paste is blocked here. Type or long-press to paste.");
+  };
+  const paste = () => {
+    haptic("tap");
+    if (!navigator.clipboard?.readText) return denied();
+    navigator.clipboard.readText().then((t) => {
+      setAddr(t.trim());
+      setBad(null);
+    }, denied);
+  };
+  const go = (v: View) => {
+    haptic("select");
+    setFailed(null);
+    setView(v);
+  };
 
   if (!mounted) return null;
 
@@ -115,7 +144,7 @@ export function WalletModal({ open, onClose }: { open: boolean; onClose: () => v
                   <BagLoader size={28} color={CORAL} label="baghedge" />
                 </span>
               ) : (
-                <button onClick={() => setView("home")} className="grid size-9 place-items-center rounded-full bg-[#1c1b1a] text-white/60 transition-colors hover:text-white" aria-label="Back">
+                <button onClick={() => go("home")} className="grid size-9 place-items-center rounded-full bg-[#1c1b1a] text-white/60 transition-colors hover:text-white" aria-label="Back">
                   <ArrowLeft size={16} />
                 </button>
               )}
@@ -138,8 +167,8 @@ export function WalletModal({ open, onClose }: { open: boolean; onClose: () => v
                   <>
                     <p className="mt-1 text-[14px] text-white/45">See the SOL you&apos;d hedge. Nothing moves without your signature.</p>
                     <div className="mt-5 flex flex-col gap-2">
-                      <Choice icon={Wallet} title="Connect a wallet" line="Phantom, Solflare, Backpack" onClick={() => setView("wallets")} primary />
-                      <Choice icon={Eye} title="Watch an address" line="Read only. Paste any Solana address" onClick={() => setView("watch")} />
+                      <Choice icon={Wallet} title="Connect a wallet" line="Phantom, Solflare, Backpack" onClick={() => go("wallets")} primary />
+                      <Choice icon={Eye} title="Watch an address" line="Read only. Paste any Solana address" onClick={() => go("watch")} />
                     </div>
                   </>
                 )}
@@ -155,6 +184,8 @@ export function WalletModal({ open, onClose }: { open: boolean; onClose: () => v
                             key={w.adapter.name}
                             disabled={connecting}
                             onClick={() => {
+                              haptic("tap");
+                              setFailed(null);
                               setPicked(w.adapter.name);
                               select(w.adapter.name as WalletName);
                             }}
@@ -171,7 +202,7 @@ export function WalletModal({ open, onClose }: { open: boolean; onClose: () => v
                       {missing.map((i) => {
                         const href = phone && i.open ? i.open(location.href) : i.url;
                         return (
-                          <a key={i.name} href={href} target={phone ? undefined : "_blank"} rel="noreferrer" className="flex h-14 items-center gap-3 rounded-[16px] px-3 transition-colors duration-150 hover:bg-[#1c1b1a]">
+                          <a key={i.name} href={href} target={phone ? undefined : "_blank"} rel="noreferrer" onClick={() => haptic("tap")} className="flex h-14 items-center gap-3 rounded-[16px] px-3 transition-colors duration-150 hover:bg-[#1c1b1a]">
                             <span className={`grid size-9 shrink-0 place-items-center overflow-hidden rounded-[10px] ${i.pad}`} style={{ background: i.bg }}>
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img src={i.icon} alt="" className="size-full object-contain" style={{ filter: i.white ? "brightness(0) invert(1)" : undefined }} />
@@ -184,6 +215,7 @@ export function WalletModal({ open, onClose }: { open: boolean; onClose: () => v
                         );
                       })}
                     </div>
+                    <InlineError text={failed} align="center" className="mt-2" />
                   </>
                 )}
 
@@ -201,10 +233,10 @@ export function WalletModal({ open, onClose }: { open: boolean; onClose: () => v
                         value={addr}
                         onChange={(e) => {
                           setAddr(e.target.value);
-                          setBad(false);
+                          setBad(null);
                         }}
                         placeholder="Solana address"
-                        aria-invalid={bad}
+                        aria-invalid={!!bad}
                         spellCheck={false}
                         className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-white/35"
                       />
@@ -212,8 +244,8 @@ export function WalletModal({ open, onClose }: { open: boolean; onClose: () => v
                         <ClipboardText size={14} /> Paste
                       </button>
                     </div>
-                    <p className="mt-2 h-4 px-1 text-[12px] text-[#f2554b]">{bad ? "That isn't a Solana address" : ""}</p>
-                    <button className="mt-3 h-[52px] w-full rounded-[16px] bg-[#f0645a] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:bg-[#1c1b1a] disabled:text-white/50" disabled={!addr.trim()}>
+                    <InlineError text={bad} className="mt-2 px-1" />
+                    <button className="mt-2 h-[52px] w-full rounded-[16px] bg-[#f0645a] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:bg-[#1c1b1a] disabled:text-white/50" disabled={!addr.trim()}>
                       Watch
                     </button>
                   </form>

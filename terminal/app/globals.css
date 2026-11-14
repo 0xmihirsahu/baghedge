@@ -43,3 +43,12 @@
 @media (prefers-reduced-motion: reduce) {
   .px-up, .px-down { animation: none; }
 }
+
+/* an inline error or offline state: fades in, never moves the layout */
+@keyframes inline-error-in {
+  from { opacity: 0; }
+}
+.inline-error-in { animation: inline-error-in 150ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .inline-error-in { animation: none; }
+}

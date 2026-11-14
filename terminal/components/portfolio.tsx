@@ -12,6 +12,9 @@ import { STATUS, useStore } from "./app/store";
 import { DOWN, UP, compact, pct, tone, usd } from "./app/format";
 import { isEvmAddress } from "./app/wallet";
 import { WalletBox } from "./shell";
+import { haptic } from "@/lib/haptics";
+import { InlineError } from "./inline-error";
+import { Offline, useAfter } from "./offline";
 
 // one screen, three parts: the watched SOL and the hedge on it (left), the hyperliquid accounts (right).
 // lists scroll inside their card, never the page
@@ -19,12 +22,15 @@ export function PortfolioPage() {
   const { wallet, mids, hedge: h } = useStore();
   const mark = mids.SOL;
   const active = h.phase !== "draft" || h.hedge !== 0;
+  // the balance read retries every 30 s; after a while without one, say so instead of loading forever
+  const noBalance = useAfter(!!wallet.address && wallet.sol === null, 10_000);
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-y-auto lg:overflow-hidden">
       <h1 className="px-5 pb-4 pt-5 text-[26px] font-semibold tracking-[-0.03em] sm:px-7">Portfolio</h1>
-      <div className="grid min-h-0 flex-1 gap-4 px-5 pb-5 sm:px-7 sm:pb-7 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
-        <div className="flex min-h-0 flex-col gap-4">
+      {/* a phone scrolls the page and each card keeps its natural height; desktop fits the screen and lists scroll inside */}
+      <div className="grid shrink-0 gap-4 px-5 pb-5 sm:px-7 sm:pb-7 lg:min-h-0 lg:flex-1 lg:shrink lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+        <div className="flex flex-col gap-4 lg:min-h-0">
           {/* the watched wallet */}
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] bg-[#141312] p-6">
             <p className="text-[13px] text-white/45">Wallet</p>
@@ -40,13 +46,13 @@ export function PortfolioPage() {
                 <ValueChart sol={wallet.sol} mark={mark} />
                 <div className="pt-4">
                   <p className="text-[40px] font-semibold leading-none tracking-[-0.03em] tabular-nums">
-                    {wallet.sol === null ? <BagLoader size={30} label="Reading balance" /> : <NumberRoll value={wallet.sol} format={(n) => `${n.toLocaleString("en-US", { maximumFractionDigits: 2 })} SOL`} />}
+                    {wallet.sol === null ? noBalance ? <span className="inline-error-in block text-[15px] font-medium tracking-normal text-white/55">Couldn&apos;t read the balance. Retrying.</span> : <BagLoader size={30} label="Reading balance" /> : <NumberRoll value={wallet.sol} format={(n) => `${n.toLocaleString("en-US", { maximumFractionDigits: 2 })} SOL`} />}
                   </p>
                   <p className="mt-2 text-[14px] text-white/45 tabular-nums">{wallet.sol !== null && mark ? usd(wallet.sol * mark) : " "}</p>
                 </div>
               </>
             ) : (
-              <div className="mt-auto">
+              <div className="mt-5 lg:mt-auto">
                 <ExposureDots watched={20} hedged={0} per={1} size={12} className="mb-6 w-[174px] opacity-25 [@media(max-height:860px)]:hidden" />
                 <p className="text-[20px] font-semibold tracking-[-0.02em]">No wallet yet</p>
                 <p className="mt-1 text-[14px] text-white/45">Connect one, or watch any address read only.</p>
@@ -78,7 +84,7 @@ export function PortfolioPage() {
                 <Link href="/" className="mt-5 text-[14px] font-semibold text-white/70 hover:text-white">Open the hedge</Link>
               </>
             ) : (
-              <div className="mt-auto">
+              <div className="mt-5 lg:mt-auto">
                 <RuleSketch />
                 <p className="text-[20px] font-semibold tracking-[-0.02em]">No hedge yet</p>
                 <p className="mt-1 text-[14px] text-white/45 tabular-nums">Draw an entry and a recovery on SOL. It runs once.</p>
@@ -105,18 +111,30 @@ function Accounts() {
   const { account, error } = useAccount(address || null);
   const [input, setInput] = useState("");
   const [bad, setBad] = useState<string | null>(null);
+  const [clash, setClash] = useState<string | null>(null);
+  const same = (a: string) => !!other && a.toLowerCase() === other.toLowerCase();
+  const add = (a: string) => {
+    setAccounts({ ...accounts, [role]: a });
+    haptic("success");
+  };
 
   return (
     <div className={`flex min-h-[420px] flex-col overflow-hidden rounded-[20px] bg-[#141312] px-6 pt-6 lg:min-h-0 ${account && address ? "pb-0" : "pb-6"}`}>
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[13px] text-white/45"><Tip text="Trade and Hedge are two separate Hyperliquid accounts." side="bottom" align="start">Hyperliquid accounts</Tip></p>
+        <p className="min-w-0 truncate text-[13px] text-white/45">
+          <Tip text="Trade and Hedge are two separate Hyperliquid accounts." side="bottom" align="start">Hyperliquid accounts</Tip>
+          {/* a refresh failed but the last read is still on screen: say it's stale, in the header's own line */}
+          {error && account && address ? <span className="inline-error-in"> · Couldn&apos;t refresh. Retrying.</span> : null}
+        </p>
         <div className="grid grid-cols-2 gap-1 rounded-[12px] bg-[#1c1b1a] p-1">
           {(["trade", "hedge"] as const).map((r) => (
             <button
               key={r}
               onClick={() => {
+                if (role !== r) haptic("select");
                 setRole(r);
                 setBad(null);
+                setClash(null);
               }}
               className={`h-8 rounded-[9px] px-3 text-[13px] font-semibold transition-colors duration-150 ${role === r ? "bg-[#2e2c2a] text-white" : "text-white/45 hover:text-white/70"}`}
             >
@@ -132,16 +150,21 @@ function Accounts() {
           onSubmit={(e) => {
             e.preventDefault();
             const a = input.trim();
-            if (!isEvmAddress(a)) return setBad("That isn't a Hyperliquid address");
-            if (other && a.toLowerCase() === other.toLowerCase()) return setBad("Trade and Hedge must be different accounts");
-            setAccounts({ ...accounts, [role]: a });
+            const fail = (m: string) => {
+              haptic("error");
+              setBad(m);
+            };
+            if (!a) return fail("Paste an address first");
+            if (!isEvmAddress(a)) return fail(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a) ? "That's a Solana address. Paste a 0x one." : "Not a valid address. Paste a 0x address.");
+            if (same(a)) return fail("Trade and Hedge need different accounts");
+            add(a);
             setInput("");
           }}
         >
           {/* the art fills the free space above the title (never cut, it shrinks to fit), then the copy and the field */}
           <div key={role} className="flex min-h-0 flex-1 flex-col [animation:toast-in_300ms_cubic-bezier(0.19,1,0.22,1)]">
             {/* halftone art (codex, the landing's style), white dots on transparent. both load up front so a switch never waits */}
-            <div className="relative -mb-[11%] -ml-[56px] min-h-[96px] flex-1">
+            <div className="relative -mb-[11%] -ml-[56px] min-h-[150px] flex-1 lg:min-h-[96px]">
               {(["trade", "hedge"] as const).map((r) => (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -157,18 +180,24 @@ function Accounts() {
             <button
               type="button"
               onClick={() => {
+                haptic("tap");
+                setClash(null);
                 const link = (addr: string) => {
-                  if (other && addr.toLowerCase() === other.toLowerCase()) return setBad("This wallet is your other account. Switch accounts in your wallet.");
-                  setAccounts({ ...accounts, [role]: addr });
+                  if (same(addr)) {
+                    haptic("error");
+                    return setClash("That's your other account. Switch it in your wallet.");
+                  }
+                  add(addr);
                 };
-                if (evm.address && !(other && evm.address.toLowerCase() === other.toLowerCase())) link(evm.address);
+                if (evm.address && !same(evm.address)) link(evm.address);
                 else evm.connect(`Connect your ${role === "trade" ? "Trade" : "Hedge"} wallet`, link);
               }}
               className="mt-5 flex h-11 items-center justify-center gap-2 rounded-[12px] bg-[#f0645a] px-4 text-[14px] font-semibold transition-transform duration-150 active:scale-[0.98]"
             >
-              {evm.address && !(other && evm.address.toLowerCase() === other.toLowerCase()) ? `Use ${evm.address.slice(0, 6)}…${evm.address.slice(-4)}` : "Connect EVM wallet"}
+              {evm.address && !same(evm.address) ? `Use ${evm.address.slice(0, 6)}…${evm.address.slice(-4)}` : "Connect EVM wallet"}
             </button>
-            <p className="mt-4 text-[12px] text-white/40">Or paste the address to watch it, read only</p>
+            <InlineError text={clash} className="mt-1" />
+            <p className="mt-1 text-[12px] text-white/40">Or paste the address to watch it, read only</p>
             <div className="mt-2 flex w-full gap-2">
               <input
                 value={input}
@@ -179,16 +208,19 @@ function Accounts() {
                 placeholder="0x…"
                 aria-invalid={!!bad}
                 spellCheck={false}
-                className={`h-11 min-w-0 flex-1 rounded-[12px] bg-[#1c1b1a] px-3 text-[14px] outline-none ring-1 placeholder:text-white/35 ${bad ? "ring-[#f2554b]" : "ring-transparent focus:ring-white/15"}`}
+                aria-describedby="account-error"
+                className={`h-11 min-w-0 flex-1 rounded-[12px] bg-[#1c1b1a] px-3 text-[14px] outline-none ring-1 transition-shadow placeholder:text-white/35 ${bad ? "ring-[#f2554b]" : "ring-transparent focus:ring-white/15"}`}
               />
               <button className="h-11 rounded-[12px] bg-[#1c1b1a] px-4 text-[14px] font-semibold transition-colors duration-150 hover:bg-[#2e2c2a]">Add</button>
             </div>
-            <p className="mt-2 h-4 text-[12px] text-[#f2554b]">{bad}</p>
+            <div id="account-error" className="mt-1.5">
+              <InlineError text={bad} />
+            </div>
           </div>
         </form>
       ) : error && !account ? (
-        <div className="grid flex-1 place-items-center text-center">
-          <p className="text-[14px] text-white/55">Couldn&apos;t reach Hyperliquid. Retrying.</p>
+        <div className="grid flex-1 place-items-center">
+          <Offline compact />
         </div>
       ) : !account ? (
         <div className="grid flex-1 place-items-center"><BagLoader size={32} label="Reading account" /></div>
@@ -204,7 +236,12 @@ function Accounts() {
             </div>
             <span className="flex h-8 shrink-0 items-center gap-1 rounded-[10px] bg-[#1c1b1a] pl-3 pr-1 text-[12px] text-white/70 tabular-nums">
               <CopyAddress address={address} />
-              <button onClick={() => setAccounts({ ...accounts, [role]: "" })} className="grid size-6 place-items-center rounded-[7px] text-white/45 transition-colors hover:bg-[#2e2c2a] hover:text-white" aria-label="Remove account">
+              <button
+                onClick={() => {
+                  haptic("tap");
+                  setAccounts({ ...accounts, [role]: "" });
+                }}
+                className="grid size-6 place-items-center rounded-[7px] text-white/45 transition-colors hover:bg-[#2e2c2a] hover:text-white" aria-label="Remove account">
                 ✕
               </button>
             </span>

@@ -92,7 +92,12 @@ function mockIntents(calls: Array<Record<string, unknown>>): typeof fetch {
   return Object.assign(async (request: string | URL | Request, options?: RequestInit) => {
     const url = new URL(request instanceof Request ? request.url : request);
     if (url.pathname === "/v0/tokens") {
-      return Response.json([BASE_USDC, PERPS_USDC].map(asset => ({ assetId: asset.id, decimals: asset.decimals })));
+      // Shape of the real /v0/tokens response.
+      return Response.json([
+        { assetId: BASE_USDC.id, decimals: BASE_USDC.decimals, blockchain: "base", symbol: "USDC", contractAddress: BASE_USDC.contract.toLowerCase() },
+        { assetId: PERPS_USDC.id, decimals: PERPS_USDC.decimals, blockchain: "hypercore", symbol: "USDC" },
+        { assetId: "nep141:sol.omft.near", decimals: 9, blockchain: "sol", symbol: "SOL" },
+      ]);
     }
     if (url.pathname === "/v0/quote" && typeof options?.body === "string") {
       const payload = JSON.parse(options.body);
