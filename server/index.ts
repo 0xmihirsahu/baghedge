@@ -46,7 +46,8 @@ export function createApi(config: AppConfig, request = fetch) {
     env: config.mode, db, exchange, readWallet, signer: config.signer ?? null,
     sessionAddresses: req => sessions.addresses(req),
     exclusive: (hedge, fn) => worker ? worker.exclusive(hedge, fn) : fn(),
-    onArmed: id => { void worker?.tickRule(id).catch(error => console.error("hedge tick failed", error)); },
+    // Prompted ticks follow the same switch as the timer: with WORKER=0 this instance never writes to the venue.
+    onArmed: id => { if (config.worker) void worker?.tickRule(id).catch(error => console.error("hedge tick failed", error)); },
   });
   if (worker && config.worker) worker.start();
 
@@ -73,7 +74,9 @@ export function createApi(config: AppConfig, request = fetch) {
         throw new RequestError(400, "account_alias", "Trade and Hedge need different Hyperliquid accounts");
       }
       const withMargin = async (address: string) => {
-        const [account, margin] = await Promise.all([venue.account(address), exchange.usableUsdc(address)]);
+        const [account, margin] = await Promise.all([venue.account(address), exchange.usableUsdc(address).catch(() => null)]);
+        // A failed margin read degrades to "unknown" instead of failing the whole account read.
+        if (!margin) return { ...account, accountMode: "unknown" as const, usableUsdc: null, maxPayoutUsdc: null };
         // usableUsdc is what the UI should show as margin; maxPayoutUsdc leaves room for the 1 USDC sendAsset fee.
         const usable = toUnitsRounded(margin.usableUsdc, 6, "floor");
         const maxPayout = usable > 1_200_000n ? usable - 1_200_000n : 0n;
@@ -138,6 +141,8 @@ export function createApi(config: AppConfig, request = fetch) {
         return { id: transferId, ...await owner.submit(body, {
           expectedSigner: transfer.quote.venueAddress,
           allowDestination: d => d === transfer.quote.depositAddress?.toLowerCase(),
+          expectedTransfer: transfer.quote.transfer as Record<string, unknown> | null,
+          deadline: transfer.quote.deadline,
         }) };
       }
       if (req.method === "POST" && transferMatch?.[2] === "/deposit") {

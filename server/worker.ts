@@ -30,9 +30,16 @@ const COIN = "SOL";
 // IOC orders that ended without an affirmative fill/cancel record are released only after their venue expiry plus this margin.
 const EXPIRY_GRACE_MS = 5_000;
 const GUARD_FAILURE_LIMIT = 3;
-const TERMINAL = new Set(["filled", "canceled", "rejected", "marginCanceled", "reduceOnlyCanceled",
-  "perpMarginRejected", "iocCancelRejected", "badAloPxRejected", "minTradeNtlRejected", "selfTradeCanceled",
-  "siblingFilledCanceled", "delistedCanceled", "liquidatedCanceled", "scheduledCancel", "openInterestCapCanceled"]);
+// Hyperliquid's documented terminal order statuses (info endpoint, order status).
+const TERMINAL = new Set(["filled", "canceled", "rejected", "marginCanceled", "vaultWithdrawalCanceled",
+  "openInterestCapCanceled", "selfTradeCanceled", "reduceOnlyCanceled", "siblingFilledCanceled", "delistedCanceled",
+  "liquidatedCanceled", "scheduledCancel", "tickRejected", "minTradeNtlRejected", "perpMarginRejected",
+  "reduceOnlyRejected", "badAloPxRejected", "iocCancelRejected", "badTriggerPxRejected", "marketOrderNoLiquidityRejected",
+  "positionIncreaseAtOpenInterestCapRejected", "positionFlipAtOpenInterestCapRejected",
+  "tooAggressiveAtOpenInterestCapRejected", "openInterestIncreaseRejected", "insufficientSpotBalanceRejected",
+  "oracleRejected", "perpMaxPositionRejected"]);
+/** Terminal if documented, or shaped like one (…Rejected / …Canceled) for statuses the venue adds later. */
+const isTerminal = (status: string) => TERMINAL.has(status) || /(Rejected|Canceled)$/.test(status);
 
 /** Decimal string → integer units, rounding as requested when the input has extra precision. */
 export function toUnitsRounded(value: string, decimals: number, mode: "floor" | "ceil"): bigint {
@@ -114,14 +121,16 @@ export function createWorker(deps: WorkerDeps) {
         return true;
       }
       return false; // an IOC can be briefly open; wait for a terminal status
-    } else if (TERMINAL.has(status.status)) {
+    } else if (isTerminal(status.status)) {
       filledLots = toUnitsRounded(status.origSz, sizeDecimals, "floor") - toUnitsRounded(status.remainingSz, sizeDecimals, "floor");
       outcome = filledLots === 0n ? (status.status === "canceled" ? "canceled" : "zero")
         : filledLots === BigInt(action.lots) ? "filled" : "partial";
       const fills = await exchange.fillsForOrder(rule.hedgeAddress, status.oid, action.createdAt - 60_000);
       for (const fill of fills) db.recordFill(env, rule.hedgeAddress, rule.id, { ...fill, oid: status.oid });
     } else {
-      return false; // unknown status string: keep it pending rather than guess
+      // Unknown status: keep it pending, but surface it once the order is well past its venue expiry.
+      if (now() > action.expiresAfter + 60_000) pause(db.rule(rule.id)!, db.rule(rule.id)!.state, `unknown-order-status:${status.status}`.slice(0, 80));
+      return false;
     }
 
     const actionPatch = { outcome, oid: status?.oid ?? null, filledLots: filledLots.toString() };

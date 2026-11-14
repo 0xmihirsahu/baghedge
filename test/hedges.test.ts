@@ -11,7 +11,7 @@ const agent = "0x2222222222222222222222222222222222222222" as const;
 const buildHash = `0x${"cd".repeat(32)}` as const;
 
 const exchange = {
-  market: async () => ({ asset: 0, sizeDecimals: 2, markPx: "75", bestBid: "74.9", bestAsk: "75.1", observedAt: Date.now() }),
+  market: async () => ({ asset: 0, sizeDecimals: 2, markPx: "75", bestBid: "74.9", bestAsk: "75.1", maxLeverage: 10, observedAt: Date.now() }),
   position: async () => ({ szi: "0", liquidationPx: null, withdrawable: "30", accountValue: "30", observedAt: Date.now() }),
   openOrders: async () => [],
   usableUsdc: async () => usable,
@@ -108,4 +108,11 @@ test("a unified account's spot USDC counts as margin; an empty account is refuse
   const armed = await post("/api/hedges", { policy: p, ownerSig, chainId: 1 }) as { phase: string };
   expect(armed.phase).toBe("armed");
   usable = { mode: "standard", usableUsdc: "30", perpsWithdrawable: "30", spotAvailable: "0", observedAt: Date.now() };
+});
+
+test("arm recomputes the margin floor: a signed minMarginE6 of 0 with a big cap is still refused when underfunded", async () => {
+  const { post } = routes();
+  const p = { ...policy, ruleId: `0x${"ef".repeat(32)}` as `0x${string}`, capLots: "100000", minMarginE6: "0" };
+  const ownerSig = await owner.signTypedData(policyTypedData(p, 1));
+  expect(post("/api/hedges", { policy: p, ownerSig, chainId: 1 })).rejects.toThrow("this rule needs");
 });

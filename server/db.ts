@@ -45,8 +45,9 @@ export function openDb(path: string) {
     policy TEXT NOT NULL, owner_sig TEXT NOT NULL, chain_id INTEGER NOT NULL, signer_kind TEXT NOT NULL,
     status TEXT NOT NULL, state TEXT NOT NULL, stop_status TEXT NOT NULL, reason TEXT NOT NULL,
     created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, policy_digest TEXT NOT NULL UNIQUE)`);
-  // Revision counter: bumps on every rule write so a stale decision can't overwrite a newer owner command.
-  try { db.run("ALTER TABLE rules ADD COLUMN rev INTEGER NOT NULL DEFAULT 0"); } catch { /* already present */ }
+  // Revision counter in its own table: bumps on every rule write so a stale decision can't overwrite a newer
+  // owner command. Kept out of `rules` so older builds (positional INSERT) still work after a rollback.
+  db.run("CREATE TABLE IF NOT EXISTS rule_revs (rule_id TEXT PRIMARY KEY, rev INTEGER NOT NULL)");
   // One active hedge rule per Hedge account and environment.
   db.run("CREATE UNIQUE INDEX IF NOT EXISTS rules_one_active ON rules(env, hedge_address) WHERE status = 'active'");
   db.run(`CREATE TABLE IF NOT EXISTS actions (
@@ -64,13 +65,17 @@ export function openDb(path: string) {
     id INTEGER PRIMARY KEY AUTOINCREMENT, env TEXT NOT NULL, rule_id TEXT, kind TEXT NOT NULL,
     data TEXT NOT NULL, at INTEGER NOT NULL)`);
 
+  const revOf = (id: string) =>
+    Number((db.query("SELECT rev FROM rule_revs WHERE rule_id = $id").get({ id }) as { rev: number } | null)?.rev ?? 0);
+  const bumpRev = (id: string) =>
+    db.query("INSERT INTO rule_revs VALUES ($id, 1) ON CONFLICT(rule_id) DO UPDATE SET rev = rev + 1").run({ id });
   const ruleRow = (row: Record<string, unknown> | null): RuleRecord | null => row && {
     id: row.id as string, env: row.env as Env, hedgeAddress: row.hedge_address as string,
     tradeAddress: row.trade_address as string, policy: JSON.parse(row.policy as string),
     ownerSig: row.owner_sig as string, chainId: row.chain_id as number,
     signerKind: row.signer_kind as RuleRecord["signerKind"], status: row.status as RuleRecord["status"],
     state: decode(row.state as string), stopStatus: row.stop_status as StopStatus, reason: row.reason as string,
-    createdAt: row.created_at as number, updatedAt: row.updated_at as number, rev: Number(row.rev ?? 0),
+    createdAt: row.created_at as number, updatedAt: row.updated_at as number, rev: revOf(row.id as string),
   };
   const actionRow = (row: Record<string, unknown> | null): ActionRecord | null => row && {
     id: row.id as string, env: row.env as Env, ruleId: row.rule_id as string, account: row.account as string,
@@ -108,8 +113,11 @@ export function openDb(path: string) {
       const current = api.rule(id);
       if (!current) throw new Error("rule missing");
       const next = { ...current, ...patch };
-      db.query("UPDATE rules SET state = $state, status = $status, stop_status = $stop, reason = $reason, updated_at = $now, rev = rev + 1 WHERE id = $id")
-        .run({ id, state: encode(next.state), status: next.status, stop: next.stopStatus, reason: next.reason, now: Date.now() });
+      db.transaction(() => {
+        db.query("UPDATE rules SET state = $state, status = $status, stop_status = $stop, reason = $reason, updated_at = $now WHERE id = $id")
+          .run({ id, state: encode(next.state), status: next.status, stop: next.stopStatus, reason: next.reason, now: Date.now() });
+        bumpRev(id);
+      })();
       return { ...next, rev: current.rev + 1 };
     },
 
@@ -132,8 +140,8 @@ export function openDb(path: string) {
       const now = Date.now();
       db.transaction(() => {
         if (expectedRev !== undefined) {
-          const row = db.query("SELECT status, rev FROM rules WHERE id = $id").get({ id: action.ruleId }) as { status: string; rev: number } | null;
-          if (!row || row.status !== "active" || Number(row.rev) !== expectedRev) throw new StaleRuleError(action.ruleId);
+          const row = db.query("SELECT status FROM rules WHERE id = $id").get({ id: action.ruleId }) as { status: string } | null;
+          if (!row || row.status !== "active" || revOf(action.ruleId) !== expectedRev) throw new StaleRuleError(action.ruleId);
         }
         db.query(`INSERT INTO actions (id, env, rule_id, account, intent, seq, cloid, stop_cloid, lots, nonce, expires_after,
           signer, action, transport, created_at, updated_at) VALUES ($id, $env, $rule, $account, $intent, $seq, $cloid, $stop,
@@ -141,7 +149,8 @@ export function openDb(path: string) {
           .run({ id: action.id, env: action.env, rule: action.ruleId, account: action.account, intent: action.intent,
             seq: action.seq, cloid: action.cloid, stop: action.stopCloid, lots: action.lots, nonce: action.nonce,
             expires: action.expiresAfter, signer: action.signer, action: JSON.stringify(action.action), now });
-        db.query("UPDATE rules SET state = $state, updated_at = $now, rev = rev + 1 WHERE id = $id").run({ id: action.ruleId, state: encode(state), now });
+        db.query("UPDATE rules SET state = $state, updated_at = $now WHERE id = $id").run({ id: action.ruleId, state: encode(state), now });
+        bumpRev(action.ruleId);
       })();
     },
 
