@@ -1353,17 +1353,16 @@ Pass these JSON arguments to `request_execution` on `outlayer.near` (mainnet) or
 
 [NEAR integration](https://app.outlayer.ai/docs/near-integration)
 
-### Guard operations (proposal; revision 8 asks for a narrow set like "sign entry" and "sign reduction")
+### Guard operations
 
-The probe currently accepts only `public_key` and `sign_challenge`. The venue operations below are planned.
+`public_key` returns the build-bound agent address and public key. `sign_challenge` signs a fixed-format probe challenge. `sign_order` accepts the exact canonical venue action, in the shapes below.
 
-| `operation` | Builds and signs | Must check before signing |
+| Venue action | What it does | Guard checks |
 | --- | --- | --- |
-| `public_key` | Nothing. The probe returns the derived address and public key. Verify the attestation separately. | — |
-| `sign_entry` | The IOC sell and attached reduce-only recovery stop (`normalTpsl`) | Check the policy signature against the pinned Hedge owner, require distinct accounts, and enforce the signed market, per-action size, prices, and opening window. If using `expiresAfter`, it can't outlast either the opening window or rule expiry. The worker also checks policy status, eligible SOL, the cumulative cap, and freshness. |
-| `sign_reduce` | a reduce-only IOC buy (resize or close) | `r: true`; size ≤ confirmed short; price ≤ buyback ceiling (or an owner-reviewed fresh price); policy active, or in its post-expiry reduce-only cleanup |
-| `sign_stop` | a replacement position stop for the remaining short | reduce-only; trigger = recovery mark; limit ≤ ceiling; size ≤ confirmed short |
-| `sign_cancel` | `cancelByCloid` for Baghedge's own hedge orders | the cloids belong to this rule |
+| `normalTpsl` | IOC sell with attached recovery stop | Verify the signed policy; check market, size, price band and expiry. Require `entry` and `stop` client IDs for the same sequence. |
+| `na` | Reduce-only IOC buy to resize or close | Check size and price ceiling; require the matching `resize` or `close` client ID. |
+| `positionTpsl` | Replacement recovery stop | Check reduce-only, exact trigger, size and price ceiling; require the matching `position_stop` client ID. |
+| `cancelByCloid` | Cancel an order from the rule | Recompute each client ID from the signed rule and its supplied reference. |
 
 **Refuse at the signing boundary:**
 - raw digests or bytes;
@@ -1376,32 +1375,32 @@ The probe currently accepts only `public_key` and `sign_challenge`. The venue op
 
 **Bind the owner to the agent.** Trust the approved Hedge owner from provisioned configuration or an independently verified venue association. Verify the policy signature against that owner, not just the address named by the policy. Use a dedicated agent for each Hedge account. Hyperliquid executes a master-account agent's orders under the account that approved it, and an order signature without a vault address doesn't include a target master address.
 
-**Worker checks and attestation.** The worker must reject inactive policy versions, stale observations, and cumulative cap breaches, including unresolved sells. Call them guard checks only once the guard reads trusted current state and reserves size atomically. An attestation binds the code and the data it commits to. It doesn't prove that a worker-supplied wallet balance, fill, reservation, or policy version is current. The same distinction applies to cancellations that depend on the worker's order journal.
+**Worker checks and attestation.** The worker verifies real trigger crossings, the retry deadline after a crossing, active policy versions, fresh balances and positions, and the cumulative cap including unresolved sells. The guard checks the format and bounds of the supplied deadline and derives client IDs from the signed rule ID and version, intent, and sequence. It does not prove that a sequence is unused or reserve capacity. An attestation binds the code and committed data; it does not make worker observations current.
 
-### Input and output (proposal; keep output under 900 bytes)
+### Input and output (keep output under 900 bytes)
 
 ```jsonc
 // stdin
-{ "operation": "sign_entry",
-  "env": "mainnet",
+{ "operation": "sign_order",
   "policy": { /* HedgePolicy fields, section 18 */ },
   "ownerSig": "0x…",                 // EIP-712 over the policy
-  "state": { "filledShortLots": "0", "unresolvedSellLots": "0", "reservationId": "r_…" },
-  "obs":   { "eligibleLamports": "10000000000", "slot": 312345678, "markE8": "13995000000", "at": 1794666000000 },
+  "chainId": 8453,
+  "action": { /* canonical venue action */ },
   "nonce": 1794666000000,
   "expiresAfter": 1794666005000,
-  "cloids": { "entry": "0x…", "stop": "0x…" } }
+  "entryUntilMs": 1794666020000,     // entries only
+  "orderRef": { "intent": "entry", "seq": 0 } } // cancellations use cancelRefs instead
 
 // stdout: ok
-{ "ok": true, "operation": "sign_entry", "agent": "0x…", "n": 1794666000000,
+{ "ok": true, "agent": "0x…", "nonce": 1794666000000,
   "expiresAfter": 1794666005000,
-  "h": "0x<connectionId>", "r": "0x…", "s": "0x…", "v": 27, "sz": "6", "px": "137.2" }
+  "connectionId": "0x…", "r": "0x…", "s": "0x…", "v": 27 }
 
 // stdout: refusal
-{ "ok": false, "operation": "sign_entry", "reason": "price_out_of_bounds" }
+{ "ok": false, "error": "expected bounded entry sell IOC" }
 ```
 
-The worker rebuilds the exact action from the same fields and recomputes `h` using section 19's official SDK layout. For these master-account orders, the hash input is `msgpack(action) ‖ nonce_u64_be ‖ 0x00`. When `expiresAfter` is present, append `0x00 ‖ expiresAfter_u64_be` before hashing. Verify the recovered signer against the expected agent and submit the same nonce and expiry.
+The worker journals the canonical action before asking the guard to sign and independently recovers the signer using section 19's SDK layout. For these master-account orders, the hash input is `msgpack(action) ‖ nonce_u64_be ‖ 0x00 ‖ 0x00 ‖ expiresAfter_u64_be`. Submit those same signed action bytes, nonce and expiry.
 
 ### Rust skeleton (proposal)
 

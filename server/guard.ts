@@ -5,6 +5,7 @@ type Signature = { r: Hex; s: Hex; v: number };
 type L1Action = Record<string, unknown>;
 type Policy = { guardAgent: Hex; guardBuildHash: Hex; environment: "mainnet" | "testnet" };
 type CancelRef = { intent: "entry" | "stop" | "resize" | "close" | "position_stop"; seq: number };
+type OrderRef = { intent: Exclude<CancelRef["intent"], "stop">; seq: number };
 type GuardRequest = {
   operation: "sign_order";
   policy: Policy;
@@ -14,6 +15,7 @@ type GuardRequest = {
   nonce: number;
   expiresAfter: number;
   entryUntilMs?: number;
+  orderRef?: OrderRef;
   cancelRefs?: readonly CancelRef[];
 };
 
@@ -36,6 +38,7 @@ export function createGuardSigner(context: {
   ownerSig: Hex;
   chainId: number;
   entryUntilMs?: number;
+  orderRef?: OrderRef;
   cancelRefs?: readonly CancelRef[];
 }, executor: OutLayerExecutor) {
   const address = context.policy.guardAgent.toLowerCase() as Hex;
