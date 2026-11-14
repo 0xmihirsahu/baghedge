@@ -239,6 +239,32 @@ export function createApi(config: AppConfig, request = fetch) {
   };
 }
 
+/**
+ * One line per API request: method, path (no query string, so no addresses from ?owner=/&hedge=), status,
+ * duration and, for JSON errors, the error code. Never headers, cookies or bodies. /api/health is skipped
+ * (platform health checks). LOG_REQUESTS=0 turns it off.
+ */
+export function withRequestLog(handler: (req: Request) => Promise<Response>, log: (line: string) => void = console.log) {
+  return async (req: Request) => {
+    const { pathname } = new URL(req.url);
+    if (pathname === "/api/health" || !pathname.startsWith("/api/")) return handler(req);
+    const started = Date.now();
+    try {
+      const res = await handler(req);
+      let code = "";
+      if (res.status >= 400 && res.headers.get("content-type")?.includes("application/json")) {
+        const body = await res.clone().json().catch(() => null) as { error?: unknown } | null;
+        if (typeof body?.error === "string") code = ` ${body.error}`;
+      }
+      log(`${req.method} ${pathname} ${res.status}${code} ${Date.now() - started}ms`);
+      return res;
+    } catch (error) {
+      log(`${req.method} ${pathname} 500 thrown ${Date.now() - started}ms`);
+      throw error;
+    }
+  };
+}
+
 if (import.meta.main) {
   const mode = process.env.APP_MODE || "testnet";
   if (mode !== "mainnet" && mode !== "testnet") throw new Error("APP_MODE must be testnet or mainnet");
@@ -259,7 +285,8 @@ if (import.meta.main) {
     throw new Error(`Refusing to bind ${host} without an https:// APP_ORIGIN.`);
   }
   const server = Bun.serve({
-    hostname: host, port: Number(process.env.PORT || 3001), maxRequestBodySize: 8192, fetch: api.fetch,
+    hostname: host, port: Number(process.env.PORT || 3001), maxRequestBodySize: 8192,
+    fetch: process.env.LOG_REQUESTS === "0" ? api.fetch : withRequestLog(api.fetch),
     // A first per-owner agent lookup runs the guard on OutLayer (~10–30 s); Bun's 10 s default cut it off.
     idleTimeout: 120,
   });

@@ -27,6 +27,10 @@ Bun.serve({
     const cookies = res.headers.getSetCookie();
     out.delete("set-cookie");
     for (const c of cookies) out.append("set-cookie", c.replace(/;\s*Secure/i, "").replace(/SameSite=None/i, "SameSite=Lax"));
+    if (process.env.PROXY_LOG === "1") {
+      const hasSession = (req.headers.get("cookie") ?? "").includes("baghedge_session=");
+      console.log(new Date().toISOString().slice(11, 19), req.method, url.pathname + url.search, res.status, hasSession ? "session" : "no-session");
+    }
     return new Response(res.body, { status: res.status, headers: out });
   },
 });

@@ -176,10 +176,10 @@ const { message, nonce } = await post("/api/session/challenge", { address });
 const signature = await wallet.signMessage({ account: address, message });
 await post("/api/session/verify", { nonce, signature }); // sets the cookie
 ```
-- Sign in as the **Hedge owner** to read the hedge.
+- Sign in as the **Hedge owner** to look up its agent (section 3) and to read the hedge.
 - One session per browser; signing in again replaces it.
-- `GET /api/session` returns the signed-in address.
-- A `401 sign_in_required` means: run this again.
+- `GET /api/session` returns `{ addresses: string[] }` (lowercase), **not** `{ address }`. Signed in as the Hedge owner means `addresses.includes(hedgeOwner.toLowerCase())`.
+- A `401 sign_in_required` means: run this again, then retry the call that failed.
 
 ## 2. Fund an account (from any chain)
 With Privy, `venueAddress` is the user's **embedded** Trade or Hedge address. `baseAddress` is the **external** source wallet on the funding chain (for example Phantom for SOL, or a wallet holding Base USDC): it sends the transfer and receives any refund. The embedded wallets never need tokens or gas.
@@ -221,7 +221,7 @@ Show **Credited** only when the second condition holds too.
 ## 3. Approve the hedge agent (Hedge owner, once)
 ```ts
 // Each Hedge owner has their own agent (multi-owner guard). Sign in as the Hedge owner first (section 1).
-const { agentAddress } = await get(`/api/hedges/agent?owner=${hedgeOwner}`);   // first call for a new owner takes ~5–10 s
+const { agentAddress } = await get(`/api/hedges/agent?owner=${hedgeOwner}`);   // first call for a new owner: 10–30 s
 const { action, typedData } = await post("/api/hl/approve-agent", { agentAddress, chainId, purpose: "hedge", validDays: 90 });
 const signature = await signTyped(wallet, hedgeOwner, typedData);
 await post("/api/hl/approve-agent/submit", { owner: hedgeOwner, action, signature });
@@ -231,6 +231,18 @@ await post("/api/hl/approve-agent/submit", { owner: hedgeOwner, action, signatur
 - If `hedgeSigner.kind === "fallback"`, label it **Demo signer (not attested)**.
 - Show `GET /api/health` → `disclosures` (if non-empty) before the user funds their Hedge account.
 - Errors: `agent_unknown` (call `/api/hedges/agent` first), `agent_lookup_rate_limited`/`agent_lookup_busy` (retry later), `owner_unsupported`.
+
+**Order of the first-run flow (multi-owner guard).** Seen live on mainnet:
+1. Sign in as the Hedge owner (section 1).
+2. `GET /api/hedges/agent?owner=` → the owner's agent. The **first** lookup for a new owner runs the guard on OutLayer and takes **10–30 s**. Show a spinner ("Preparing your hedge agent…"), not an error, and don't time the request out under 60 s. Later lookups are cached and instant.
+3. Fund the Hedge account (section 2). Hyperliquid refuses agent approval on an unfunded account.
+4. Approve that agent once (above).
+5. Draft and arm (section 4).
+
+Handling failures:
+- `401 sign_in_required` on the lookup: the session is missing or for another address. Sign in as the Hedge owner, then retry the lookup.
+- `agent_unknown` from `/api/hedges/draft`: the lookup didn't finish for this owner. Run step 2 again before drafting. Never draft until you hold `agentAddress`.
+- Use the `agentAddress` from this endpoint for this owner only. Each Hedge owner has a different agent; there is no shared agent (`/api/health` → `hedgeSigner.agentAddress` is `null` in multi-owner mode).
 
 ## 4. Arm the hedge (Hedge owner signs the policy)
 ```ts
