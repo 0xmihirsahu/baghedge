@@ -5,7 +5,7 @@ import { build, empty, hash, type Layer, type Source } from "@/lib/field";
 import { cn } from "@/lib/utils";
 
 const GLYPHS = "$#%&*+=/\\<>?!0123456789";
-const DOT = "#ecebe6";
+const DOT = "#ffffff";
 const DIM = "#34302d";
 const HOT = "#f0645a";
 const WIPE = 0.12;
@@ -36,10 +36,16 @@ export function Field({
   intro,
   hover,
   dim,
+  color = DOT,
+  accent = HOT,
+  square,
   morph = [0.35, 0.75],
   className,
 }: {
   sources: Source[];
+  color?: string;
+  accent?: string;
+  square?: boolean;
   morph?: [number, number];
   at?: () => number;
   pitch: [number, number];
@@ -50,6 +56,7 @@ export function Field({
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const atRef = useRef(at);
+  const [m0, m1] = morph;
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const live = useRef<Live>({
     layers: [],
@@ -138,7 +145,7 @@ export function Field({
       raf = requestAnimationFrame(frame);
       if (!L.visible || !L.layers.length || !L.none) return;
       const s = atRef.current?.() ?? 0;
-      if (intro && L.introAt < 0) L.introAt = reduced || s > morph[0] ? 0 : now;
+      if (intro && L.introAt < 0) L.introAt = reduced || s > m0 ? 0 : now;
       const introT = L.introAt > 0 ? clamp((now - L.introAt) / 1800) : 1;
       const busy = s !== lastS || introT < 1 || L.dirty;
       // idle frames only need the glyph flicker, so draw them at a film-ish rate
@@ -157,14 +164,13 @@ export function Field({
         const i = clamp(Math.floor(s), 0, n - 1);
         A = L.layers[i];
         B = L.layers[Math.min(i + 1, n - 1)];
-        t = smooth(clamp((s - i - morph[0]) / (morph[1] - morph[0])));
+        t = smooth(clamp((s - i - m0) / (m1 - m0)));
       }
 
       const { cols, rows, pitch: p, thr, pointer } = L;
       const T = t * (1 + 2 * WIPE) - WIPE;
-      const R = p * 0.56;
+      const R = p * (square ? 0.47 : 0.56);
       const tickG = Math.floor(now / 70);
-      const tickT = Math.floor(now / 160);
       const white = new Path2D();
       const red = new Path2D();
       const gi: number[] = [];
@@ -184,7 +190,6 @@ export function Field({
             const dx = c + 0.5 - pointer.x, dy = r + 0.5 - pointer.y;
             if (dx * dx + dy * dy < 20) kind = 1;
           }
-          if (!kind && !reduced && tone > 0.3 && hash(k, tickT) < 0.0022) kind = 2;
           if (kind) {
             gi.push(k);
             gk.push(kind);
@@ -194,15 +199,18 @@ export function Field({
           if (rad < 0.45) continue;
           const x = (c + 0.5) * p, y = (r + 0.5) * p;
           const path = hot ? red : white;
-          path.moveTo(x + rad, y);
-          path.arc(x, y, rad, 0, Math.PI * 2);
+          if (square) path.rect(x - rad, y - rad, rad * 2, rad * 2);
+          else {
+            path.moveTo(x + rad, y);
+            path.arc(x, y, rad, 0, Math.PI * 2);
+          }
         }
       }
 
       ctx.clearRect(0, 0, L.w, L.h);
-      ctx.fillStyle = dim ? DIM : DOT;
+      ctx.fillStyle = dim ? DIM : color;
       ctx.fill(white);
-      ctx.fillStyle = HOT;
+      ctx.fillStyle = accent;
       ctx.fill(red);
       if (gi.length) {
         ctx.font = `600 ${p * 1.25}px ${family}`;
@@ -210,9 +218,11 @@ export function Field({
         ctx.textBaseline = "middle";
         for (let j = 0; j < gi.length; j++) {
           const k = gi[j];
-          ctx.fillStyle = gk[j] === 1 ? HOT : "rgba(236,235,230,0.5)";
+          ctx.fillStyle = gk[j] === 1 ? accent : color;
+          ctx.globalAlpha = gk[j] === 1 ? 1 : 0.5;
           ctx.fillText(GLYPHS[Math.floor(hash(k, tickG) * GLYPHS.length)], ((k % cols) + 0.5) * p, (Math.floor(k / cols) + 0.5) * p);
         }
+        ctx.globalAlpha = 1;
       }
     };
     raf = requestAnimationFrame(frame);
@@ -223,7 +233,7 @@ export function Field({
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerleave", leave);
     };
-  }, [intro, hover, dim, morph]);
+  }, [intro, hover, dim, m0, m1, color, accent, square]);
 
   return <canvas ref={ref} aria-hidden className={cn("block h-full w-full", className)} />;
 }

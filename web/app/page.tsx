@@ -1,11 +1,13 @@
-import { Film } from "@/components/film";
+import { Hero } from "@/components/hero";
+import { Story } from "@/components/story";
 import { Wordmark } from "@/components/wordmark";
 
 export default function Home() {
   return (
     <>
       <main>
-        <Film />
+        <Hero />
+        <Story />
       </main>
       <footer className="px-2 pb-6 pt-24 sm:px-3 sm:pt-40">
         <Wordmark />

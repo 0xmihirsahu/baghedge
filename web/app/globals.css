@@ -13,7 +13,7 @@
   }
   body {
     background-color: var(--color-page);
-    color: #f1f0ef;
+    color: #ffffff;
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
@@ -22,6 +22,13 @@
     background: var(--color-brand);
     color: #fff;
   }
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 html.lenis,
