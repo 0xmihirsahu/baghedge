@@ -82,27 +82,29 @@ export function AboutPage() {
         <Reveal>
           <h2 className="text-[26px] leading-[1.15] tracking-[-0.02em] sm:text-[36px]">The team.</h2>
         </Reveal>
-        <div className="mt-8 grid gap-2 sm:mt-10 sm:grid-cols-3 sm:gap-3">
+        <div className="mt-8 sm:mt-10">
           {PEOPLE.map((p, i) => (
-            <Reveal key={p.name} delay={i * 0.08} className="flex flex-col overflow-hidden rounded-[16px] bg-[#151413] sm:rounded-[20px]">
-              <div className="aspect-[1/0.9] w-full px-6 pt-6">
-                <Field sources={p.art} pitch={[4, 5]} square intro hover />
+            <Reveal
+              key={p.name}
+              delay={i * 0.06}
+              className="grid gap-6 border-t border-white/10 py-8 sm:grid-cols-[minmax(0,300px)_1fr] sm:gap-12 sm:py-10"
+            >
+              <div className="aspect-square w-full max-w-[300px] rounded-[16px] bg-[#151413] p-4">
+                <Field sources={p.art} pitch={[4, 4]} square intro hover />
               </div>
-              <div className="flex flex-1 flex-col border-t border-white/10 px-6 pb-7 pt-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-[22px] font-semibold leading-tight">{p.name}</p>
-                    <p className="mt-1 text-[15px] text-white/60">{p.title}</p>
-                  </div>
-                  <div className="flex gap-3 pt-1 text-white/70">
+              <div className="flex max-w-[620px] flex-col justify-center">
+                <p className="text-[15px] text-white/55">{p.title}</p>
+                <div className="mt-2 flex items-center gap-4">
+                  <p className="text-[30px] leading-tight tracking-[-0.02em] sm:text-[40px]">{p.name}</p>
+                  <div className="flex gap-3 text-white/70">
                     {p.links.map((l) => (
                       <a key={l.href} href={l.href} target="_blank" rel="noopener noreferrer" aria-label={`${p.name} on ${l.label}`} className="transition-colors hover:text-brand">
-                        {l.icon === "x" ? <XLogo size={19} /> : <LinkedinLogo size={19} />}
+                        {l.icon === "x" ? <XLogo size={20} /> : <LinkedinLogo size={20} />}
                       </a>
                     ))}
                   </div>
                 </div>
-                <p className="mt-4 text-[15px] leading-[1.6] text-white/75">{p.bio}</p>
+                <p className="mt-4 text-[17px] leading-[1.6] text-white/80 sm:text-[18px]">{p.bio}</p>
               </div>
             </Reveal>
           ))}

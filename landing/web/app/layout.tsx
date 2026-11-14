@@ -2,12 +2,13 @@ import type { Metadata, Viewport } from "next";
 import { Figtree } from "next/font/google";
 import { SmoothScroll } from "@/components/smooth-scroll";
 import { MarketsProvider } from "@/lib/markets";
+import { SITE_URL } from "@/lib/site";
 import "./globals.css";
 
 const figtree = Figtree({ variable: "--font-figtree", subsets: ["latin"], display: "swap" });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3300"),
+  metadataBase: new URL(SITE_URL),
   title: "baghedge | Protect your bags without selling a coin",
   description:
     "Draw a line under any coin you hold. If the price falls through it, a short on Hyperliquid covers what's in your wallet. Your coins never move.",
