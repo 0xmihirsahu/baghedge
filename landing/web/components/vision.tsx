@@ -19,18 +19,9 @@ export function VisionPage() {
     <div className="flex flex-col gap-2 p-2 sm:gap-3 sm:p-3">
       <section className="bg-coal relative overflow-hidden rounded-[20px] px-3 pb-3 pt-[88px] sm:rounded-[24px] sm:px-6 sm:pb-6 sm:pt-[104px]">
         <Header />
-        <motion.video
-          src="/media/vision.mp4"
-          poster="/media/vision.jpg"
-          autoPlay
-          muted
-          loop
-          playsInline
-          className="aspect-video w-full rounded-[14px] sm:rounded-[18px]"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.8, ease: EASE }}
-        />
+        {/* the film is pure black; screen blends it into the card so only the type and dots show. no fade on the
+            element itself: an opacity animation would isolate the blend and flash the black */}
+        <video src="/media/vision.mp4" poster="/media/vision.jpg" autoPlay muted loop playsInline className="aspect-video w-full mix-blend-screen" />
       </section>
 
       <section className="bg-coal rounded-[20px] px-6 py-16 sm:rounded-[24px] sm:px-12 sm:py-24">
