@@ -1,5 +1,6 @@
 // Localhost-only owner console for verification runs. Runs in the browser; signs with the injected wallet.
 import { ExchangeClient, HttpTransport, InfoClient } from "@nktkas/hyperliquid";
+import { EthereumProvider } from "@walletconnect/ethereum-provider";
 import { createWalletClient, custom, erc20Abi, type Hex } from "viem";
 import { base } from "viem/chains";
 import { policyTypedData, type HedgePolicy } from "../../shared/policy";
@@ -20,13 +21,16 @@ const api = async (path: string, body?: unknown) => {
 
 declare global { interface Window { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<unknown> } } }
 
+type Eip1193 = { request(args: { method: string; params?: unknown[] }): Promise<unknown> };
 let account: Hex | null = null;
+// The connected wallet: a browser extension (window.ethereum) or a phone wallet over WalletConnect.
+let eth: Eip1193 | null = null;
 let mode: "testnet" | "mainnet" = "testnet";
 const wallet = () => {
-  if (!window.ethereum || !account) throw new Error("Connect a wallet first");
-  return createWalletClient({ account, transport: custom(window.ethereum) });
+  if (!eth || !account) throw new Error("Connect a wallet first");
+  return createWalletClient({ account, transport: custom(eth) });
 };
-const chainId = async () => Number(await window.ethereum!.request({ method: "eth_chainId" }));
+const chainId = async () => Number(await eth!.request({ method: "eth_chainId" }));
 const exchange = () => new ExchangeClient({ transport: new HttpTransport({ isTestnet: mode === "testnet" }), wallet: wallet() });
 const info = () => new InfoClient({ transport: new HttpTransport({ isTestnet: mode === "testnet" }) });
 
@@ -49,9 +53,27 @@ async function boot() {
 }
 
 guard("btn-connect", async () => {
-  const [address] = await window.ethereum!.request({ method: "eth_requestAccounts" }) as Hex[];
+  if (!window.ethereum) throw new Error("No browser wallet found. Use 'Connect phone wallet (WalletConnect)'.");
+  eth = window.ethereum;
+  const [address] = await eth.request({ method: "eth_requestAccounts" }) as Hex[];
   account = address!.toLowerCase() as Hex;
   log("out-connect", { account, walletChainId: await chainId(), mode });
+});
+
+guard("btn-wc", async () => {
+  const config = await fetch("/ops/config.json").then(r => r.json());
+  if (!config.walletConnectProjectId) throw new Error("Set WALLETCONNECT_PROJECT_ID in the env file and restart the backend");
+  const provider = await EthereumProvider.init({
+    projectId: config.walletConnectProjectId, showQrModal: true,
+    chains: [8453], optionalChains: [1, 42161, 421614],
+    methods: ["eth_sendTransaction", "personal_sign", "eth_signTypedData_v4", "eth_chainId", "wallet_switchEthereumChain"],
+    metadata: { name: "Baghedge ops", description: "Owner console", url: location.origin, icons: [] },
+  });
+  await provider.connect();
+  eth = provider as unknown as Eip1193;
+  const [address] = await eth.request({ method: "eth_accounts" }) as Hex[];
+  account = address!.toLowerCase() as Hex;
+  log("out-connect", { account, walletChainId: await chainId(), mode, via: "WalletConnect" });
 });
 
 guard("btn-signin", async () => {
@@ -121,8 +143,8 @@ guard("btn-fund-send", async () => {
   const quote = (window as unknown as Record<string, any>).fundQuote;
   if (!quote?.transfer || quote.transfer.type !== "baseErc20Transfer") throw new Error("Get an executable fund quote first");
   if (Date.parse(quote.deadline) <= Date.now()) throw new Error("Quote deadline passed; get a new quote");
-  if (await chainId() !== base.id) await window.ethereum!.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
-  const hash = await createWalletClient({ account: account!, chain: base, transport: custom(window.ethereum!) }).writeContract({
+  if (await chainId() !== base.id) await eth!.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
+  const hash = await createWalletClient({ account: account!, chain: base, transport: custom(eth!) }).writeContract({
     address: quote.transfer.contract, abi: erc20Abi, functionName: "transfer", args: [quote.transfer.to, BigInt(quote.transfer.amount)],
   });
   const submitted = await api(`/api/transfers/${quote.id}/deposit`, { txHash: hash }).catch(e => ({ error: String(e) }));
