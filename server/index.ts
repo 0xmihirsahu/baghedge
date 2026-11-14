@@ -260,6 +260,8 @@ if (import.meta.main) {
   }
   const server = Bun.serve({
     hostname: host, port: Number(process.env.PORT || 3001), maxRequestBodySize: 8192, fetch: api.fetch,
+    // A first per-owner agent lookup runs the guard on OutLayer (~10–30 s); Bun's 10 s default cut it off.
+    idleTimeout: 120,
   });
   console.log(`Baghedge API (${mode}) listening at ${server.url}`);
 }
