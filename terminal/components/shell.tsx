@@ -1,6 +1,6 @@
 "use client";
 
-import { ChartLineUp, ClockCounterClockwise, ShieldCheck, Wallet, X } from "@phosphor-icons/react";
+import { ChartBar, ClockCounterClockwise, Handbag, Wallet, X } from "@phosphor-icons/react";
 import { WalletAvatar } from "./avatar";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -12,8 +12,8 @@ import { COINS, DOWN, coinHref, pct, tone, usd } from "./app/format";
 import { short } from "./app/wallet";
 
 const NAV = [
-  { href: "/markets", label: "Markets", icon: ChartLineUp },
-  { href: "/", label: "Hedge", icon: ShieldCheck },
+  { href: "/markets", label: "Markets", icon: ChartBar },
+  { href: "/", label: "Hedge", icon: Handbag },
   { href: "/portfolio", label: "Portfolio", icon: Wallet },
   { href: "/activity", label: "Activity", icon: ClockCounterClockwise },
 ];
@@ -36,12 +36,12 @@ export function Shell({ children }: { children: ReactNode }) {
             <img src="/mascot.webp" alt="" className="size-6" />
             <span className="text-[18px] font-semibold tracking-[-0.03em]">baghedge</span>
           </Link>
-          <nav className="mt-6 flex flex-col gap-1 text-[15px] font-medium">
+          <nav className="mt-6 flex flex-col gap-1">
             {NAV.map((n) => {
               const on = active(path, n.href);
               return (
-                <Link key={n.href} href={n.href} className={`flex items-center gap-3 rounded-[12px] px-3 py-2.5 transition-colors duration-150 ${on ? "bg-[#1c1b1a] text-white" : "text-white/55 hover:text-white"}`}>
-                  <n.icon size={20} weight={on ? "fill" : "regular"} />
+                <Link key={n.href} href={n.href} aria-current={on ? "page" : undefined} className={`flex items-center gap-3 rounded-[12px] px-2 py-2 text-[15px] font-semibold transition-colors duration-150 ${on ? "text-white" : "text-white/55 hover:text-white"}`}>
+                  <NavTile icon={n.icon} on={on} size={30} />
                   {n.label}
                 </Link>
               );
@@ -83,8 +83,8 @@ export function Shell({ children }: { children: ReactNode }) {
           {NAV.map((n) => {
             const on = active(path, n.href);
             return (
-              <Link key={n.href} href={n.href} className={`flex flex-col items-center justify-center gap-1 text-[11px] font-medium ${on ? "text-white" : "text-white/45"}`}>
-                <n.icon size={22} weight={on ? "fill" : "regular"} />
+              <Link key={n.href} href={n.href} aria-current={on ? "page" : undefined} className={`flex flex-col items-center justify-center gap-1 text-[11px] font-semibold ${on ? "text-white" : "text-white/50"}`}>
+                <NavTile icon={n.icon} on={on} size={28} />
                 {n.label}
               </Link>
             );
@@ -92,11 +92,12 @@ export function Shell({ children }: { children: ReactNode }) {
         </nav>
       </div>
 
-      <div className="fixed right-4 top-4 z-[60] flex flex-col gap-2">
+      {/* toasts size to their text and wrap: top-centre on a phone, top-right on desktop, never past the edge */}
+      <div className="pointer-events-none fixed inset-x-4 top-4 z-[60] flex flex-col items-center gap-2 lg:inset-x-auto lg:right-4 lg:items-end">
         {toasts.map((t) => (
-          <div key={t.id} className="toast-in flex w-[260px] items-center gap-3 rounded-[14px] bg-[#1c1b1a] px-4 py-3">
-            <span className="text-[13px] text-white/50">{t.kind === "replay" ? `Replay · ${t.title}` : t.title}</span>
-            <StatusText text={t.status} className="text-[15px] font-medium" />
+          <div key={t.id} className="toast-in relative flex min-w-[220px] max-w-[min(360px,100%)] items-center gap-3 rounded-[14px] bg-[#1c1b1a] px-4 py-3">
+            <span className="shrink-0 text-[13px] text-white/50">{t.kind === "replay" ? `Replay · ${t.title}` : t.title}</span>
+            <StatusText text={t.status} className="min-w-0 break-words text-[15px] font-medium" />
             {t.kind === "error" && <span className="ml-auto size-2 shrink-0 rounded-full" style={{ background: DOWN }} />}
           </div>
         ))}
@@ -168,5 +169,14 @@ function WalletChip() {
       <WalletAvatar address={wallet.address} size={26} />
       {wallet.sol === null ? short(wallet.address) : `${wallet.sol.toFixed(2)} SOL`}
     </Link>
+  );
+}
+
+// an app-style nav icon: a filled phosphor glyph in a rounded tile. coral when you're on it
+function NavTile({ icon: Icon, on, size }: { icon: typeof Wallet; on: boolean; size: number }) {
+  return (
+    <span className="grid shrink-0 place-items-center rounded-[9px] transition-colors duration-150" style={{ width: size, height: size, background: on ? "#f0645a" : "#1c1b1a" }}>
+      <Icon size={Math.round(size * 0.58)} weight="fill" color={on ? "#ffffff" : "rgba(255,255,255,0.7)"} />
+    </span>
   );
 }
