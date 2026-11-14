@@ -117,6 +117,8 @@ guard("btn-signin", async () => {
   const challenge = await api("/api/session/challenge", { address: account });
   const signature = await wallet().signMessage({ message: challenge.message });
   log("out-connect", await api("/api/session/verify", { nonce: challenge.nonce, signature }));
+  // Multi-owner guards only look up a Hedge owner's agent for a signed-in owner.
+  await prefillAgent();
 });
 
 guard("btn-agents", async () => {
