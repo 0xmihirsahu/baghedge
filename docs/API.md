@@ -128,7 +128,8 @@ An action with `transport: unknown` means **Checking order**. Show it as pending
 Server-sent events. The event types are `armed`, `reserved`, `order`, `stop`, `phase`, `paused`, `disarm`, `close` and `cancel-leftovers`. Each event's data is `{ id, env, ruleId, kind, data, at }`. On reconnect, pass `after` (or rely on `Last-Event-ID`) and refetch `GET /api/hedges/<ruleId>`.
 
 ## Funding (unchanged)
-- `POST /api/transfers/quote` with `{ direction: "fund" | "withdraw", role, baseAddress, venueAddress, amount, dry }` returns a quote. With `dry: false` (mainnet only), it includes `depositAddress` and `transfer`.
+- `GET /api/transfers/assets` returns every external asset 1Click routes to or from Hyperliquid USDC: `{ assetId, symbol, blockchain, decimals, contractAddress, evmChainId, priceUsd }`.
+- `POST /api/transfers/quote` with `{ direction: "fund" | "withdraw", role, baseAddress, venueAddress, amount, dry, externalAsset? }` returns a quote. `externalAsset` is any `assetId` from `/assets` (default Base USDC). `baseAddress` is the wallet on that asset's chain (EVM, Solana, NEAR and so on), and `amount` is in that asset's units. The response includes `externalAsset` and a `transfer` whose `type` is `baseErc20Transfer`, `evmErc20Transfer`, `evmNativeTransfer`, `solanaTransfer`, `deposit` or `hypercoreSendAsset`. With `dry: false` (mainnet only), it includes `depositAddress` and `transfer`.
   - `transfer.type === "baseErc20Transfer"`: the Base wallet sends USDC `transfer(to, amount)` on chain 8453.
   - `transfer.type === "hypercoreSendAsset"`: the Hedge or Trade owner signs `sendAsset` with exactly these fields. Never use `usdSend`.
 - `POST /api/transfers/<id>/deposit` with `{ txHash }`: after the Base transfer (or `sendAsset`) is sent, report its hash. This speeds up 1Click and records the source transaction. It's optional but recommended.

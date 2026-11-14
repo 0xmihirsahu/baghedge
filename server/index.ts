@@ -112,6 +112,9 @@ export function createApi(config: AppConfig, request = fetch) {
     }
     const hedgeResult = await hedges.route(req, url);
     if (hedgeResult !== undefined) return hedgeResult;
+    if (req.method === "GET" && url.pathname === "/api/transfers/assets") {
+      return { assets: await intents.assets() };
+    }
     const transferMatch = /^\/api\/transfers\/([\da-f-]{36})(\/deposit|\/send-asset|\/send-asset\/submit)?$/.exec(url.pathname);
     const transferId = transferMatch?.[1];
     if (transferId) {
