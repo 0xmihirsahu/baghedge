@@ -80,6 +80,8 @@ export function ruleLabel(r: Rule): string {
   if (r.reason === "exit-price-outside-band") return "Close blocked";
   if (r.reason === "resize-price-outside-band") return "Resize blocked";
   if (r.reason === "cancelling-hedge-orders") return "Closing";
+  if (r.reason === "recovery-stop-filled") return "Closed by recovery stop";
+  if (r.reason === "recovery-stop-partial") return "Recovery stop partially filled";
   if (r.pending?.kind === "entry") return "Entry pending";
   if (r.pending?.kind === "resize") return "Buyback pending";
   if (r.pending?.kind === "close" || r.phase === "closing") return "Closing";
@@ -165,8 +167,9 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
           expiresAt: Date.now() + 7 * 24 * 3600e3,
           chainId: chainId(),
         });
-        const acc = await api<{ hedge: { withdrawableUsdc: string; spotUsdc: { total: string } | null } | null }>(`/api/accounts?trade=${o.trade}&hedge=${owner}`).catch(() => null);
-        const have = Math.max(Number(acc?.hedge?.withdrawableUsdc ?? 0), Number(acc?.hedge?.spotUsdc?.total ?? 0));
+        // usableUsdc is the margin that counts on both standard and unified accounts (docs/API.md)
+        const acc = await api<{ hedge: { usableUsdc?: string; withdrawableUsdc: string; spotUsdc: { total: string } | null } | null }>(`/api/accounts?trade=${o.trade}&hedge=${owner}`).catch(() => null);
+        const have = acc?.hedge?.usableUsdc != null ? Number(acc.hedge.usableUsdc) : Math.max(Number(acc?.hedge?.withdrawableUsdc ?? 0), Number(acc?.hedge?.spotUsdc?.total ?? 0));
         setMargin({ need: Number(d.requiredMarginUsdc), have });
         setDraft(d);
         return d;
@@ -236,7 +239,7 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
     if (!o.enabled || !rule?.id || rule.status === "done") return;
     const es = new EventSource(`/api/events?rule=${rule.id}`);
     const on = () => refresh();
-    ["armed", "reserved", "order", "stop", "phase", "paused", "close", "disarm", "cancel-leftovers"].forEach((k) => es.addEventListener(k, on));
+    ["armed", "reserved", "order", "stop", "phase", "paused", "close", "disarm", "cancel-leftovers", "stop-filled"].forEach((k) => es.addEventListener(k, on));
     es.onerror = () => {};
     return () => es.close();
   }, [o.enabled, rule?.id, rule?.status, refresh]);
