@@ -29,7 +29,7 @@ A Hyperliquid terminal that hedges the SOL you already hold, without moving it.<
 
 Built at the NEAR Hackathon, track **Unstoppable DeFi**. Live on mainnet.
 
-Backend health: [mainnet](https://baghedge-api-mainnet.onrender.com/api/health) (attested guard) · [testnet sandbox](https://baghedge-api.onrender.com/api/health)
+Backend health: [mainnet](https://baghedge-api-mainnet.onrender.com/api/health) (attested guard)
 
 ## The idea
 
@@ -102,12 +102,10 @@ The details:
 
 **The full flow ran on mainnet with real funds:** fund through NEAR Intents, then an attested guard signs the hedge entry with its recovery stop, then SOL leaves the wallet and the hedge buys back reduce-only, then the owner closes the hedge while the manual Trade position stays put, then USDC is paid back to Base.
 
-Every row links to on-chain or venue evidence. Raw records: [`docs/evidence/mainnet.jsonl`](docs/evidence/mainnet.jsonl) and [`docs/evidence/testnet.jsonl`](docs/evidence/testnet.jsonl).
+Every row links to on-chain or venue evidence. Raw records: [`docs/evidence/mainnet.jsonl`](docs/evidence/mainnet.jsonl).
 
 | Step | Network | Evidence | Status |
 | --- | --- | --- | --- |
-| Manual order: place, cancel, fill (owner key) | Hyperliquid testnet | GTC `65304864631` open → canceled; IOC long 0.2 SOL filled @ 64.794 (`65304872996`) | ✅ |
-| Manual order through a browser trading agent approved via our relay | Hyperliquid testnet | agent approved by owner signature; GTC `65309395507` open → canceled by the agent | ✅ |
 | Fund the Hedge account from Base through NEAR Intents | **Mainnet** | Base tx [`0x2ba434e0…16ba`](https://basescan.org/tx/0x2ba434e01c6a154a23f3ab65e662d88152f4dba9ea9510918c2b62be017416ba) 15.0 USDC → Intents `SUCCESS` → Hyperliquid credit `0x6e6d6cf4…e6ed`: **14.683072 USDC usable margin** (~90 s) | ✅ |
 | Guard build attested on OutLayer | **NEAR mainnet** | `public_key` run [`2oDKos4B…7buA`](https://api.outlayer.ai/attestations/by-tx/2oDKos4BKHkQXERKVKUUqiRD1DmsQnctVvHoaUBk7buA) by `anotherbaghedge.near`, WASM `ffe0e1dd…ced1c` → agent `0x38f05746…a70e`. REPORTDATA, measurements and Intel DCAP (`UpToDate`) independently verified. | ✅ |
 | Guard agent approved on the Hedge account | **Mainnet** | `extraAgents(0x59c3…85cc)` lists `baghedge` → `0x38f05746…a70e` | ✅ |
@@ -118,7 +116,6 @@ Every row links to on-chain or venue evidence. Raw records: [`docs/evidence/main
 | Owner closes the hedge; Trade position unchanged | **Mainnet** | owner-signed close → guard signed ([`BbsrLb94…2VDJ`](https://api.outlayer.ai/attestations/by-tx/BbsrLb945mjbCmAXcgVYe9dbDyx545asp9TsY8s32VDJ)) → reduce-only `605241804534` **filled 0.14 @ 72.262** (fill `0xd4150293…8602`); Hedge flat, no orders (stop `reduceOnlyCanceled`); **Trade still +0.14 SOL** | ✅ |
 | Pay Hedge USDC back to Base | **Mainnet** | owner-signed `sendAsset` 13.5 USDC (`0x83ea1acf…df8c`) → Intents `SUCCESS` → Base tx [`0xb4b7bdef…f0a3`](https://basescan.org/tx/0xb4b7bdefc4261d3ccc9a0ccc4f043f53f3fd86a5da720bfedd649971a3e1f0a3): **13.29703 USDC received** by the owner (receipt checked on Base) | ✅ |
 | **Multi-owner guard: full cycle for a per-owner agent** (public service, release `6d85a8f`) | **Mainnet** | Hedge `0x59c3…85cc` approves its own derived agent `0x96fd5f5a…c65a` → guard ([`CcWtZNNA…rRiG`](https://api.outlayer.ai/attestations/by-tx/CcWtZNNAkvZzGojji6YHbtNq7WCviW6o4FmPeu8MrRiG), build `1a847d88…`, `sign_order`/entry) → IOC sell `605392198623` **filled 0.2 SOL @ 70.573**, recovery stop `605392198624` open → owner close, guard ([`Dt7F2RmA…JCS`](https://api.outlayer.ai/attestations/by-tx/Dt7F2RmAmFXzEcZFMpG48hPAua4aZ6hX5BujUuZJDJCS)) → reduce-only `605394485511` **filled 0.2 @ 70.238**, stop `reduceOnlyCanceled`, Trade untouched → `sendAsset` 8.69 USDC → Base tx [`0x94e83167…5bf3`](https://basescan.org/tx/0x94e83167a29a80a405909f554529370ee5d438b62bf39343f09cabee7b075bf3): **8.486894 USDC received** | ✅ |
-| Rule expiry without a crossing ends flat | Hyperliquid testnet | rule `0x243019ab…3b1a`: low 64.794 vs entry 64.76, expired with 0 actions | ✅ |
 
 The same flow ran again through the app on 2026-11-14 with a fresh Privy account; its transactions are in [`JUDGES.md`](JUDGES.md#the-full-flow-on-mainnet-through-the-ui).
 
@@ -138,17 +135,11 @@ bun install && bun run demo:replay
 ```
 It prints the two-account flow (manual long, hedge entry, wallet transfer, buyback, closes) with exposure after each step. **The replay uses sample fills.**
 
-**The live API, end to end** (testnet sandbox):
-```sh
-bun run smoke:api https://baghedge-api.onrender.com
-```
-→ 18 checks against the deployed backend: markets, accounts, wallet reads, policy draft, owner signature and arm, refusals, sign-in sessions, live events, and owner-signed disarm. It needs `.env.testwallets` (test keys) for the signing steps.
-
 **Run it yourself:**
 ```sh
 bun install                       # root dependencies first
-cp .env.example .env.testnet      # fill in; see comments
-bun run start:testnet             # API + hedge worker on :3001
+cp .env.example .env.mainnet      # fill in; see comments
+bun run start:mainnet             # API + hedge worker on :3001
 bun run check                     # typecheck + 68 unit tests
 cargo +stable test --locked --manifest-path guard/Cargo.toml   # guard tests
 cd terminal && bun install && bun run dev                      # the app, see terminal/README.md
