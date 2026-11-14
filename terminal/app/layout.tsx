@@ -12,7 +12,6 @@ export const metadata: Metadata = {
   description: "A Hyperliquid perps terminal that can hedge the SOL you already hold in your own wallet. Fund from any token through NEAR Intents, sign in with email or Google. Live on mainnet.",
   applicationName: "baghedge",
   keywords: ["Hyperliquid", "perps", "hedge", "SOL", "Solana", "NEAR Intents", "OutLayer", "TEE", "DeFi", "NEAR Hackathon", "Privy"],
-  alternates: { canonical: "/" },
   manifest: "/manifest.webmanifest",
   appleWebApp: { title: "baghedge", statusBarStyle: "black-translucent" },
   openGraph: { type: "website", siteName: "baghedge", title: "baghedge: trade perps, hedge your bag", description: "A Hyperliquid perps terminal that can hedge the SOL you already hold in your own wallet. Fund from any token through NEAR Intents, sign in with email or Google. Live on mainnet." },
