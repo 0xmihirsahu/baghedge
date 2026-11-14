@@ -270,10 +270,12 @@ if (import.meta.main) {
  * (Codex), configured by OUTLAYER_CALLER, OUTLAYER_NEAR_PRIVATE_KEY, OUTLAYER_WASM_URL, OUTLAYER_WASM_SHA256,
  * OUTLAYER_AGENT_ADDRESS and optional OUTLAYER_NEAR_RPC_URL.
  */
-let agentDb: ReturnType<typeof openDb> | null = null;
-function dbForAgents() {
-  agentDb ??= openDb(process.env.BAGHEDGE_DB_PATH || "data/baghedge.sqlite");
-  return agentDb;
+// A function-scoped holder (not a module `let`): startup runs signerFromEnv before later top-level
+// declarations initialize, so a `let` here would be in its temporal dead zone.
+function dbForAgents(): ReturnType<typeof openDb> {
+  const holder = dbForAgents as unknown as { db?: ReturnType<typeof openDb> };
+  holder.db ??= openDb(process.env.BAGHEDGE_DB_PATH || "data/baghedge.sqlite");
+  return holder.db;
 }
 
 /**
