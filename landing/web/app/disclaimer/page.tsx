@@ -52,8 +52,8 @@ export default function Page() {
 
           <h2>The numbers on this site</h2>
           <p>
-            Prices on this site come from Hyperliquid. The film on the vision page shows what a line 7% under each coin would have kept over the
-            last 30 days, before fees, funding and slippage. Past prices don&apos;t predict future ones.
+            Prices on this site come from Hyperliquid. The film on the vision page uses real SOL prices from the last 30 days to
+            show the idea of a line under a coin, before fees, funding and slippage. Past prices don&apos;t predict future ones.
           </p>
         </Legal>
       </main>
