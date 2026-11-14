@@ -6,12 +6,13 @@ import { BagLoader, ExposureDots, StatusText, TransferTrack } from "@/components
 import { CoinLogo } from "./coin-logo";
 import { Tip } from "./tip";
 import { AUTO, FUNDING, STATUS, useStore, type Phase } from "./app/store";
+import { ruleLabel } from "./app/live";
 import { CORAL, DOWN, INK, TAKER, UP, pct, risk, usd } from "./app/format";
 
 // fomo's buy panel: coin row, big amount, chips, pad, summary, action, estimates.
 // Hedge (SOL only) sizes against the watched wallet; Trade sizes a market order in dollars
 export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string; mark?: number; change: number; maxLev: number; onReview: () => void }) {
-  const { wallet, hedge: h, toast } = useStore();
+  const { wallet, hedge: h, toast, liveEnabled, liveHedge, backend } = useStore();
   const canHedge = coin === "SOL";
   const [modeState, setMode] = useState<"Hedge" | "Trade">("Hedge");
   const mode = canHedge ? modeState : "Trade";
@@ -19,7 +20,11 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
   const [usdIn, setUsdIn] = useState("100");
   const [lev, setLev] = useState(5);
   const leverage = Math.min(lev, maxLev);
-  const draft = h.phase === "draft";
+  // live: the backend's rule drives the ticket; replay: the local phases do
+  const L = liveEnabled ? liveHedge : null;
+  const ruleOn = !!L?.rule && L.rule.status === "active";
+  const net = backend.mode === "testnet" ? "Testnet" : "Mainnet";
+  const draft = L ? !ruleOn : h.phase === "draft";
   const connected = !!wallet.address;
   const editable = !hedgeMode || draft;
   const value = hedgeMode ? h.cap : usdIn;
@@ -32,12 +37,21 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
     setValue(value === "0" && k !== "." ? k : value + k);
   };
 
-  const step = FUNDING.indexOf(h.phase);
-  const busy = hedgeMode && !!AUTO[h.phase];
+  const step = L ? -1 : FUNDING.indexOf(h.phase);
+  const busy = hedgeMode && (L ? !!L.busy : !!AUTO[h.phase]);
+  const BUSY = { signin: "Sign in in your wallet", approve: "Approve the hedge agent", draft: "Drafting your hedge", arm: "Sign the policy", close: "Sign to close" } as const;
   const over = hedgeMode && (Number(h.cap) || 0) > h.held + 1e-9;
   const label = !connected
     ? "Connect wallet"
-    : ({ draft: "Review hedge", credited: "Arm", armed: "Simulate a crossing", open: "Close hedge", closed: "New hedge" } as Partial<Record<Phase, string>>)[h.phase];
+    : L
+      ? L.busy
+        ? BUSY[L.busy]
+        : ruleOn
+          ? L.rule!.phase === "armed"
+            ? "Disarm"
+            : "Close hedge"
+          : "Review hedge"
+      : ({ draft: "Review hedge", credited: "Arm", armed: "Simulate a crossing", open: "Close hedge", closed: "New hedge" } as Partial<Record<Phase, string>>)[h.phase];
   const MIN = 10;
   const belowMin = hedgeMode && !!mark && h.capN > 0 && h.capN * mark < MIN;
   const why = !connected || !draft ? null : h.capN <= 0 ? "Enter an amount" : over ? "More than you hold" : belowMin ? `Below the $${MIN} minimum` : h.recovery <= h.entry ? "Recovery must sit above entry" : null;
@@ -45,6 +59,10 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
   const tradeBelowMin = !hedgeMode && (Number(usdIn) || 0) < MIN;
   const act = () => {
     if (!connected) return wallet.connect();
+    if (L) {
+      if (ruleOn) return L.close();
+      return L.prepare({ cap: h.capN, entry: h.entry, recovery: h.recovery }).then((d) => d && onReview());
+    }
     if (h.phase === "draft") onReview();
     else if (h.phase === "credited") h.setPhase("armed");
     else if (h.phase === "armed") h.setPhase("entry");
@@ -187,7 +205,13 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
           ))}
         </div>
       )}
-      {hedgeMode && !draft && <StatusText text={`Replay · ${STATUS[h.phase]}`} className="mt-2 block text-center text-[13px] text-white/55" />}
+      {hedgeMode && !draft && !L && <StatusText text={`Replay · ${STATUS[h.phase]}`} className="mt-2 block text-center text-[13px] text-white/55" />}
+      {hedgeMode && L && ruleOn && <StatusText text={`${net} · ${ruleLabel(L.rule!)}`} className="mt-2 block text-center text-[13px] text-white/55" />}
+      {hedgeMode && L && (
+        <p aria-live="polite" className="mt-2 min-h-[18px] text-center text-[12px] leading-snug text-[#f2554b]">
+          {L.error?.message ?? ""}
+        </p>
+      )}
 
       {(!hedgeMode || h.capN > 0) && (
         <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-white/[0.08] pt-4">
