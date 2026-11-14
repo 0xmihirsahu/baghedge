@@ -289,6 +289,26 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rule, owner, refresh]);
 
+  // on load: an armed hedge must show without pressing anything. reuse the backend session if there is one (it lasts
+  // 12 h, no signature); otherwise a Privy wallet signs in silently. then read the rule
+  useEffect(() => {
+    if (!o.enabled || !owner) return;
+    let gone = false;
+    (async () => {
+      const s = await api<{ addresses?: string[] }>("/api/session").catch(() => ({}) as { addresses?: string[] });
+      if (gone) return;
+      if (s.addresses?.some((a) => a.toLowerCase() === owner.toLowerCase())) signedIn.current = owner.toLowerCase();
+      else if (signerRef.current?.kind === "privy") await signIn().catch(() => {});
+      if (!gone) {
+        setBusy(null);
+        refresh();
+      }
+    })();
+    return () => {
+      gone = true;
+    };
+  }, [o.enabled, owner, signIn, refresh]);
+
   // live status: server-sent events for every rule change, and a slow poll as a fallback
   useEffect(() => {
     if (!o.enabled) return;
