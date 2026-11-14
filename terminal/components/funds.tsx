@@ -77,7 +77,7 @@ export function FundsSheet() {
 
   // the external side: where funds come from (refunds go back there) or where a payout lands
   const external =
-    kind === "solana" ? (fund ? sol.publicKey?.toBase58() ?? "" : address || wallet.address || "") : kind === "evm" ? (fund ? evm.address ?? "" : address || evm.address || "") : address;
+    kind === "solana" ? (fund ? sol.publicKey?.toBase58() ?? "" : address || (wallet.connected ? wallet.address : "") || "") : kind === "evm" ? (fund ? evm.address ?? "" : address || evm.address || "") : address;
   useEffect(() => {
     const t = setTimeout(() => setAddress(""), 0);
     return () => clearTimeout(t);
