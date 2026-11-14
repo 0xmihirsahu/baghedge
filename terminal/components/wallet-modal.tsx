@@ -11,9 +11,9 @@ import { CORAL } from "./app/format";
 // edge cases: nothing installed (install links), a phone with no wallet (open the app inside one),
 // a wallet mid-connect (loader, the rest wait), a rejection (the store turns it into a toast)
 const INSTALL = [
-  { name: "Phantom", icon: "/wallets/phantom.svg", bg: "#ab9ff2", url: "https://phantom.com/download", open: (u: string) => `https://phantom.app/ul/browse/${encodeURIComponent(u)}?ref=${encodeURIComponent(location.origin)}` },
-  { name: "Solflare", icon: "/wallets/solflare.svg", bg: "#ffef46", url: "https://solflare.com/download", open: (u: string) => `https://solflare.com/ul/v1/browse/${encodeURIComponent(u)}?ref=${encodeURIComponent(location.origin)}` },
-  { name: "Backpack", icon: "/wallets/backpack.png", bg: "#e33e3f", url: "https://backpack.app/download", open: null },
+  { name: "Phantom", icon: "/wallets/phantom.svg", bg: "#ab9ff2", pad: "p-1.5", white: true, url: "https://phantom.com/download", open: (u: string) => `https://phantom.app/ul/browse/${encodeURIComponent(u)}?ref=${encodeURIComponent(location.origin)}` },
+  { name: "Solflare", icon: "/wallets/solflare.svg", bg: "#ffef46", pad: "p-0", white: false, url: "https://solflare.com/download", open: (u: string) => `https://solflare.com/ul/v1/browse/${encodeURIComponent(u)}?ref=${encodeURIComponent(location.origin)}` },
+  { name: "Backpack", icon: "/wallets/backpack.png", bg: "#1c1b1a", pad: "p-1.5", white: false, url: "https://backpack.app/download", open: null },
 ];
 
 export function WalletModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -93,7 +93,7 @@ export function WalletModal({ open, onClose }: { open: boolean; onClose: () => v
                 return (
                   <a key={i.name} href={href} target={phone ? undefined : "_blank"} rel="noreferrer" className="flex h-14 items-center gap-3 rounded-[14px] px-3 transition-colors duration-150 hover:bg-[#1c1b1a]">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={i.icon} alt="" className="size-9 rounded-[10px] p-1" style={{ background: i.bg }} />
+                    <span className={`grid size-9 shrink-0 place-items-center overflow-hidden rounded-[10px] ${i.pad}`} style={{ background: i.bg }}><img src={i.icon} alt="" className="size-full object-contain" style={{ filter: i.white ? "brightness(0) invert(1)" : undefined }} /></span>
                     <span className="text-[16px] font-semibold">{i.name}</span>
                     <span className="ml-auto flex items-center gap-1 text-[13px] text-white/45">
                       {phone && i.open ? "Open" : "Install"} <ArrowUpRight size={14} />

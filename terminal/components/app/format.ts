@@ -5,9 +5,10 @@ export const UP = "#3ecf8e";
 export const DOWN = "#f2554b";
 export const TAKER = 0.00045;
 
+// −$29.90, not $-29.90
 export const usd = (n: number, d?: number) => {
   const f = d ?? (n !== 0 && Math.abs(n) < 1 ? 4 : 2);
-  return `$${n.toLocaleString("en-US", { minimumFractionDigits: f, maximumFractionDigits: f })}`;
+  return `${n < 0 ? "−" : ""}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: f, maximumFractionDigits: f })}`;
 };
 export const pct = (n: number) => `${n >= 0 ? "+" : "−"}${Math.abs(n * 100).toFixed(2)}%`;
 export const compact = (n: number) => `$${Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(n)}`;
