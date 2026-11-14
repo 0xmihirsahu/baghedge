@@ -21,7 +21,7 @@ export function CopyAddress({ address, prefix, className = "" }: { address: stri
       }}
       title="Copy address"
       aria-label={done ? "Address copied" : `Copy address ${address}`}
-      className={`group inline-flex items-center gap-1.5 text-white/45 transition-colors duration-150 hover:text-white ${className}`}
+      className={`group inline-flex items-center gap-1.5 whitespace-nowrap text-white/45 transition-colors duration-150 hover:text-white ${className}`}
     >
       <span className="tabular-nums">{done ? "Copied" : `${prefix ? `${prefix} ` : ""}${short(address)}`}</span>
       {done ? <Check size={13} weight="bold" className="text-[#3ecf8e]" /> : <Copy size={13} className="opacity-70 group-hover:opacity-100" />}
