@@ -265,6 +265,45 @@ if (import.meta.main) {
  * (Codex), configured by OUTLAYER_CALLER, OUTLAYER_NEAR_PRIVATE_KEY, OUTLAYER_WASM_URL, OUTLAYER_WASM_SHA256,
  * OUTLAYER_AGENT_ADDRESS and optional OUTLAYER_NEAR_RPC_URL.
  */
+let agentDb: ReturnType<typeof openDb> | null = null;
+function dbForAgents() {
+  agentDb ??= openDb(process.env.BAGHEDGE_DB_PATH || "data/baghedge.sqlite");
+  return agentDb;
+}
+
+/**
+ * Durable owner → agent mapping for a multi-owner guard, keyed by network, build and executor (a new build or
+ * executor yields new agents). Concurrent misses for an owner share one guard call; misses are rate-limited.
+ */
+export function multiOwnerAgentCache(db: ReturnType<typeof openDb>, network: string, buildHash: string, caller: string) {
+  db.raw.run(`CREATE TABLE IF NOT EXISTS guard_agents (network TEXT NOT NULL, build_hash TEXT NOT NULL, caller TEXT NOT NULL,
+    owner TEXT NOT NULL, agent TEXT NOT NULL, attestation_tx TEXT, created_at INTEGER NOT NULL,
+    PRIMARY KEY (network, build_hash, caller, owner))`);
+  const inflight = new Map<string, Promise<{ agentAddress: Hex; attestationTxHash?: string | null }>>();
+  const lastMiss = new Map<string, number>();
+  const MISS_INTERVAL_MS = 60_000;
+  return {
+    async get(owner: Hex, discover: boolean, lookup: (o: Hex) => Promise<{ agentAddress: Hex; attestationTxHash?: string | null }>) {
+      const o = owner.toLowerCase() as Hex;
+      const row = db.raw.query("SELECT agent, attestation_tx FROM guard_agents WHERE network=$n AND build_hash=$b AND caller=$c AND owner=$o")
+        .get({ n: network, b: buildHash, c: caller, o }) as { agent: string; attestation_tx: string | null } | null;
+      if (row) return { agentAddress: row.agent as Hex, attestationTxHash: row.attestation_tx };
+      if (!discover) return null;
+      const pending = inflight.get(o);
+      if (pending) return pending;
+      if (Date.now() - (lastMiss.get(o) ?? 0) < MISS_INTERVAL_MS) throw new RequestError(429, "agent_lookup_rate_limited", "Try again in a minute");
+      lastMiss.set(o, Date.now());
+      const p = lookup(o).then(result => {
+        db.raw.query("INSERT OR REPLACE INTO guard_agents VALUES ($n, $b, $c, $o, $a, $t, $now)")
+          .run({ n: network, b: buildHash, c: caller, o, a: result.agentAddress.toLowerCase(), t: result.attestationTxHash ?? null, now: Date.now() });
+        return result;
+      }).finally(() => inflight.delete(o));
+      inflight.set(o, p);
+      return p;
+    },
+  };
+}
+
 async function signerFromEnv(mode: "testnet" | "mainnet"): Promise<AppConfig["signer"]> {
   const kind = process.env.HEDGE_SIGNER;
   if (!kind) return undefined;
@@ -292,13 +331,8 @@ async function signerFromEnv(mode: "testnet" | "mainnet"): Promise<AppConfig["si
       throw new Error("OUTLAYER_MULTI_OWNER=1 needs the multi-owner guard adapter in server/guard.ts");
     }
     const executor = g.multiOwnerExecutorFromEnv(mode);
-    const cache = new Map<string, Promise<{ agentAddress: Hex; attestationTxHash?: string | null }>>();
-    const agentFor = (owner: Hex) => {
-      const key = owner.toLowerCase();
-      // One attested public-key lookup per owner per process; failures aren't cached.
-      if (!cache.has(key)) cache.set(key, g.agentFor!(executor, key as Hex).catch(error => { cache.delete(key); throw error; }));
-      return cache.get(key)!;
-    };
+    const agents = multiOwnerAgentCache(dbForAgents(), mode, executor.buildHash, process.env.OUTLAYER_CALLER ?? "");
+    const agentFor = (owner: Hex, opts: { discover: boolean }) => agents.get(owner, opts.discover, o => g.agentFor!(executor, o));
     console.log(`Hedge signer: OutLayer MULTI-OWNER guard build ${executor.buildHash} (${mode}).`);
     return {
       kind: "guard", agentAddress: null, buildHash: executor.buildHash.toLowerCase() as Hex, agentFor,

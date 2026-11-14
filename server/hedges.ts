@@ -12,13 +12,17 @@ export type SignerConfig = {
   /** Single-owner builds: the one approved agent. Multi-owner builds: null (use agentFor). */
   agentAddress: Hex | null;
   buildHash: Hex;
-  /** Multi-owner guard: the attested agent for one Hedge owner (derived per owner inside the guard). */
-  agentFor?(owner: Hex): Promise<{ agentAddress: Hex; attestationTxHash?: string | null }>;
+  /**
+   * Multi-owner guard: the attested agent for one Hedge owner (derived per owner inside the guard).
+   * `discover: false` reads only the durable cache; a cache miss costs a paid guard call, so only an
+   * authenticated owner may trigger discovery.
+   */
+  agentFor?(owner: Hex, opts: { discover: boolean }): Promise<{ agentAddress: Hex; attestationTxHash?: string | null } | null>;
 };
 
-/** The agent this server will use for a Hedge owner, or null when the build can't sign for that owner. */
-export async function agentForOwner(signer: SignerConfig, owner: Hex): Promise<Hex | null> {
-  if (signer.agentFor) return (await signer.agentFor(owner)).agentAddress.toLowerCase() as Hex;
+/** The agent this server uses for a Hedge owner, or null when unknown (multi-owner: not yet discovered). */
+export async function agentForOwner(signer: SignerConfig, owner: Hex, discover = false): Promise<Hex | null> {
+  if (signer.agentFor) return (await signer.agentFor(owner, { discover }))?.agentAddress.toLowerCase() as Hex ?? null;
   return signer.agentAddress;
 }
 
@@ -123,7 +127,10 @@ export function createHedgeRoutes(opts: {
       throw new RequestError(400, "invalid_size", "Size exceeds SOL lot precision");
     }
     const guardAgent = await agentForOwner(opts.signer, body.hedgeAddress.toLowerCase() as Hex);
-    if (!guardAgent) throw new RequestError(409, "owner_unsupported", "This server's guard can't sign for that Hedge account");
+    if (!guardAgent) {
+      throw new RequestError(409, opts.signer.agentFor ? "agent_unknown" : "owner_unsupported", opts.signer.agentFor
+        ? "Sign in as the Hedge owner and call GET /api/hedges/agent first" : "This server's guard can't sign for that Hedge account");
+    }
     const ruleId = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
     const policy: HedgePolicy = {
       environment: env, ruleId, version: 1, policyNonce: String(Date.now()),
@@ -271,7 +278,10 @@ export function createHedgeRoutes(opts: {
         if (!opts.signer) throw new RequestError(503, "signer_unconfigured", "No hedge signer is configured on this server");
         const owner = url.searchParams.get("owner")?.toLowerCase();
         if (!isEvmAddress(owner)) throw new RequestError(400, "invalid_address", "Provide ?owner=<Hedge account>");
-        const agentAddress = await agentForOwner(opts.signer, owner as Hex);
+        // Discovery may cost a paid guard call: only the signed-in owner can trigger it.
+        const signedIn = opts.sessionAddresses(req).has(owner);
+        if (opts.signer.agentFor && !signedIn) throw new RequestError(401, "sign_in_required", "Sign in as this Hedge owner");
+        const agentAddress = await agentForOwner(opts.signer, owner as Hex, signedIn);
         if (!agentAddress) throw new RequestError(409, "owner_unsupported", "This server's guard can't sign for that Hedge account");
         return { owner, agentAddress, signerKind: opts.signer.kind, buildHash: opts.signer.buildHash, multiOwner: Boolean(opts.signer.agentFor) };
       }
