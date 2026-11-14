@@ -4,7 +4,9 @@ import { previewHedge } from "./preview";
 import { RequestError } from "./http";
 import { createIntents, parseQuoteInput } from "./intents";
 import { openTransfers } from "./transfers";
-import { createVenue, readSolBalance } from "./venue";
+import { createInfoClient } from "./hlinfo";
+import { createMarketStream } from "./hlstream";
+import { createVenue, HYPERLIQUID_URL, readSolBalance } from "./venue";
 import { openDb } from "./db";
 import { serveOps } from "./ops/serve";
 import { createSessions } from "./session";
@@ -29,11 +31,17 @@ type AppConfig = {
 };
 
 export function createApi(config: AppConfig, request = fetch) {
-  const venue = createVenue(config.mode, request);
+  // One /info client for the whole process: the API's UI reads and the worker share its cache and in-flight requests.
+  const infoClient = createInfoClient(HYPERLIQUID_URL[config.mode], request);
+  const venue = createVenue(config.mode, request, infoClient);
   const intents = createIntents(config.intentsUrl, config.intentsJwt, request);
   const transfers = openTransfers(config.dbPath);
   const db = openDb(config.dbPath);
-  const exchange = createExchange(config.mode, request);
+  // The worker reads SOL's mark and book from the websocket (no /info weight); only started when it writes.
+  const stream = config.signer && config.worker
+    ? createMarketStream(HYPERLIQUID_URL[config.mode].replace(/^https:/, "wss:") + "/ws", ["SOL"])
+    : undefined;
+  const exchange = createExchange(config.mode, request, { infoClient, stream });
   const readWallet = (address: string) => readSolBalance(config.solanaRpc, address, request);
   const worker = config.signer
     ? createWorker({ env: config.mode, db, exchange, readWallet, signerFor: config.signer.signerFor })

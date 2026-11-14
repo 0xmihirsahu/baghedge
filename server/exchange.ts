@@ -3,6 +3,8 @@ import { canonicalize, createL1ActionHash, signL1Action } from "@nktkas/hyperliq
 import { recoverTypedDataAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { isDecimal, isRecord, RequestError } from "./http";
+import { createInfoClient, type InfoClient } from "./hlinfo";
+import type { MarketStream } from "./hlstream";
 import { HYPERLIQUID_URL } from "./venue";
 
 export type Network = keyof typeof HYPERLIQUID_URL;
@@ -80,20 +82,22 @@ export type SubmitResult =
   | { transport: "rejected"; message: string; raw: unknown }
   | { transport: "unknown"; message: string };
 
-export function createExchange(network: Network, request = fetch) {
-  const base = HYPERLIQUID_URL[network];
+/** How long a websocket quote stays usable, and how old an HTTP market read may be (served from the shared cache). */
+const STREAM_MAX_AGE_MS = 3_000;
+const MARKET_HTTP_MAX_AGE_MS = 1_000;
+/** Asset metadata (index, szDecimals, maxLeverage) barely changes; the mark comes from the stream when live. */
+const META_MAX_AGE_MS = 60_000;
+/** API-side account reads (balances shown in the UI, the arm margin check). The worker's own reads are never cached. */
+const ACCOUNT_VIEW_MAX_AGE_MS = 2_000;
 
-  async function info(payload: object): Promise<unknown> {
-    const response = await request(new URL("/info", base), {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload), signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new RequestError(502, "provider_error", `Hyperliquid info returned HTTP ${response.status}`);
-    }
-    return response.json();
-  }
+export function createExchange(
+  network: Network,
+  request = fetch,
+  opts: { infoClient?: InfoClient; stream?: MarketStream } = {},
+) {
+  const base = HYPERLIQUID_URL[network];
+  const client = opts.infoClient ?? createInfoClient(base, request);
+  const info = async (payload: object, maxAgeMs = 0) => (await client.read(payload, maxAgeMs)).data;
 
   return {
     network,
@@ -164,7 +168,7 @@ export function createExchange(network: Network, request = fetch) {
 
     /** Signed SOL position size in coin units (decimal string; short is negative) plus usable margin. */
     async position(user: string, coin: string) {
-      const state = await info({ type: "clearinghouseState", user });
+      const { data: state, fetchedAt } = await client.read({ type: "clearinghouseState", user });
       if (!isRecord(state) || !Array.isArray(state.assetPositions) || !isDecimal(state.withdrawable)) {
         throw new RequestError(502, "invalid_account_data", "Hyperliquid returned incomplete account data");
       }
@@ -177,7 +181,7 @@ export function createExchange(network: Network, request = fetch) {
         liquidationPx: position && isDecimal(position.liquidationPx) ? position.liquidationPx : null,
         withdrawable: state.withdrawable,
         accountValue: isDecimal(margin.accountValue) ? margin.accountValue : "0",
-        observedAt: Date.now(),
+        observedAt: fetchedAt,
       };
     },
 
@@ -187,9 +191,9 @@ export function createExchange(network: Network, request = fetch) {
      */
     async usableUsdc(user: string) {
       const [mode, state, spot] = await Promise.all([
-        info({ type: "userAbstraction", user }).catch(() => null),
-        info({ type: "clearinghouseState", user }),
-        info({ type: "spotClearinghouseState", user }).catch(() => null),
+        info({ type: "userAbstraction", user }, ACCOUNT_VIEW_MAX_AGE_MS).catch(() => null),
+        info({ type: "clearinghouseState", user }, ACCOUNT_VIEW_MAX_AGE_MS),
+        info({ type: "spotClearinghouseState", user }, ACCOUNT_VIEW_MAX_AGE_MS).catch(() => null),
       ]);
       const perps = isRecord(state) && isDecimal(state.withdrawable) ? state.withdrawable : "0";
       const pairs = isRecord(spot) && Array.isArray(spot.tokenToAvailableAfterMaintenance) ? spot.tokenToAvailableAfterMaintenance : [];
@@ -208,27 +212,35 @@ export function createExchange(network: Network, request = fetch) {
       return orders.filter(isRecord);
     },
 
-    /** Mark price (for triggers) and the top of book (for execution bounds), as decimal strings. */
+    /**
+     * Mark price (for triggers) and the top of book (for execution bounds), as decimal strings. Live from the
+     * websocket when it's fresh, otherwise from HTTP via the shared cache. `observedAt` is when the oldest
+     * input was observed, so the worker's freshness checks see the data's real age.
+     */
     async market(coin: string) {
+      const live = opts.stream?.quote(coin, STREAM_MAX_AGE_MS) ?? null;
       const [ctx, book] = await Promise.all([
-        info({ type: "metaAndAssetCtxs" }),
-        info({ type: "l2Book", coin }),
+        client.read({ type: "metaAndAssetCtxs" }, live ? META_MAX_AGE_MS : MARKET_HTTP_MAX_AGE_MS),
+        live ? null : client.read({ type: "l2Book", coin }, MARKET_HTTP_MAX_AGE_MS),
       ]);
-      const universe = Array.isArray(ctx) && isRecord(ctx[0]) && Array.isArray(ctx[0].universe) ? ctx[0].universe : null;
-      const contexts = Array.isArray(ctx) && Array.isArray(ctx[1]) ? ctx[1] : null;
+      const universe = Array.isArray(ctx.data) && isRecord(ctx.data[0]) && Array.isArray(ctx.data[0].universe) ? ctx.data[0].universe : null;
+      const contexts = Array.isArray(ctx.data) && Array.isArray(ctx.data[1]) ? ctx.data[1] : null;
       const asset = universe?.findIndex(item => isRecord(item) && item.name === coin && item.isDelisted !== true) ?? -1;
       const meta = universe?.[asset];
       const assetCtx = contexts?.[asset];
-      const levels = isRecord(book) && Array.isArray(book.levels) ? book.levels : null;
+      if (asset < 0 || !isRecord(meta) || typeof meta.szDecimals !== "number") {
+        throw new RequestError(502, "invalid_market_data", `Hyperliquid returned no ${coin} market`);
+      }
+      const base = { asset, sizeDecimals: meta.szDecimals, maxLeverage: typeof meta.maxLeverage === "number" ? meta.maxLeverage : 1 };
+      if (live) return { ...base, markPx: live.markPx, bestBid: live.bestBid, bestAsk: live.bestAsk, observedAt: live.observedAt };
+      const levels = book && isRecord(book.data) && Array.isArray(book.data.levels) ? book.data.levels : null;
       const topPx = (side: unknown) => Array.isArray(side) && isRecord(side[0]) && isDecimal(side[0].px) ? side[0].px : null;
-      if (asset < 0 || !isRecord(meta) || typeof meta.szDecimals !== "number" || !isRecord(assetCtx) ||
-        !isDecimal(assetCtx.markPx) || !levels) {
+      if (!isRecord(assetCtx) || !isDecimal(assetCtx.markPx) || !levels || !book) {
         throw new RequestError(502, "invalid_market_data", `Hyperliquid returned no ${coin} market`);
       }
       return {
-        asset, sizeDecimals: meta.szDecimals, markPx: assetCtx.markPx,
-        maxLeverage: typeof meta.maxLeverage === "number" ? meta.maxLeverage : 1,
-        bestBid: topPx(levels[0]), bestAsk: topPx(levels[1]), observedAt: Date.now(),
+        ...base, markPx: assetCtx.markPx, bestBid: topPx(levels[0]), bestAsk: topPx(levels[1]),
+        observedAt: Math.min(ctx.fetchedAt, book.fetchedAt),
       };
     },
   };

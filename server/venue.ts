@@ -1,3 +1,4 @@
+import { createInfoClient, type InfoClient } from "./hlinfo";
 import { isDecimal, isRecord, providerJson, RequestError } from "./http";
 
 export const HYPERLIQUID_URL = {
@@ -5,14 +6,12 @@ export const HYPERLIQUID_URL = {
   testnet: "https://api.hyperliquid-testnet.xyz",
 };
 
-export function createVenue(network: keyof typeof HYPERLIQUID_URL, request = fetch) {
-  async function info(payload: object) {
-    return providerJson(new URL("/info", HYPERLIQUID_URL[network]), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }, "Hyperliquid", request);
-  }
+/** UI reads (markets list, account balances) may be this old; frontends poll, and each poll used to cost venue weight. */
+const VIEW_MAX_AGE_MS = 2_000;
+
+export function createVenue(network: keyof typeof HYPERLIQUID_URL, request = fetch, client?: InfoClient) {
+  const shared = client ?? createInfoClient(HYPERLIQUID_URL[network], request);
+  const info = async (payload: object) => (await shared.read(payload, VIEW_MAX_AGE_MS)).data;
 
   return {
     async markets() {
