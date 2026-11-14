@@ -159,7 +159,9 @@ if (opt("fresh-profile", false) || !fs.existsSync(PROFILE)) {
 
 // any error: restart the flow from the top (the rails make a rerun safe), up to --retries times
 for (let attempt = 0; attempt <= retries; attempt++) {
-  const t = await open({ url, email, allow, solKey, name: `${flow}${attempt ? `-retry${attempt}` : ""}`, video: !!opt("video", false), slowMo: Number(opt("slow", 120)) });
+  // the recording is named after the part it shows: fund-hedge, payout-trade, trade, arm…
+  const label = ["fund", "payout"].includes(flow) ? `${flow}-${role}` : flow;
+  const t = await open({ url, email, allow, solKey, name: `${label}${attempt ? `-retry${attempt}` : ""}`, video: !opt("no-video", false), shots: !!opt("shots", false), slowMo: Number(opt("slow", 250)) });
   try {
     await t.signedIn();
     await FLOWS[flow](t);

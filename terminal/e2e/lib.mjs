@@ -38,7 +38,9 @@ export function copyProfile(port) {
 
 // solKey: a Solana keypair file ({ solana: { secretKeyArray } }) for a test wallet the page sees as "Test Wallet".
 // it signs in node, only when the run allows the "solana" rail, and logs what each transaction does first
-export async function open({ url, email, allow = [], slowMo = 120, video = false, name = "run", solKey = null }) {
+// video (on by default): one continuous recording of the whole flow, saved as <flow>.mp4 when the run ends, even on a
+// failure or an interrupt. screenshots are off; a failing step still keeps one, for debugging
+export async function open({ url, email, allow = [], slowMo = 250, video = true, shots = false, name = "run", solKey = null }) {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const dir = path.join(HERE, "runs", `${stamp}-${name}`);
   fs.mkdirSync(path.join(dir, "shots"), { recursive: true });
@@ -58,6 +60,29 @@ export async function open({ url, email, allow = [], slowMo = 120, video = false
     args: ["--window-size=1480,960"],
     ...(video ? { recordVideo: { dir: path.join(dir, "video"), size: { width: 1440, height: 860 } } } : {}),
   });
+
+  // a recording shows no mouse: draw one, with a ripple on each click
+  if (video)
+    await ctx.addInitScript(() => {
+      const css = "position:fixed;z-index:2147483647;pointer-events:none;border-radius:50%;transform:translate(-50%,-50%);";
+      const add = () => {
+        if (document.getElementById("__cursor")) return;
+        const dot = document.createElement("div");
+        dot.id = "__cursor";
+        dot.style.cssText = css + "width:18px;height:18px;background:rgba(255,255,255,.9);border:2px solid #0b0908;box-shadow:0 0 0 2px rgba(240,100,90,.8);left:-40px;top:-40px;transition:left .08s linear,top .08s linear;";
+        document.documentElement.appendChild(dot);
+        addEventListener("mousemove", (e) => ((dot.style.left = e.clientX + "px"), (dot.style.top = e.clientY + "px")), true);
+        addEventListener("mousedown", (e) => {
+          const r = document.createElement("div");
+          r.style.cssText = css + `left:${e.clientX}px;top:${e.clientY}px;width:16px;height:16px;border:2px solid #f0645a;transition:all .45s ease-out;opacity:1;`;
+          document.documentElement.appendChild(r);
+          requestAnimationFrame(() => Object.assign(r.style, { width: "56px", height: "56px", opacity: "0" }));
+          setTimeout(() => r.remove(), 500);
+        }, true);
+      };
+      if (document.readyState === "loading") addEventListener("DOMContentLoaded", add);
+      else add();
+    });
 
   // the test Solana wallet: a wallet-standard wallet in the page, its key in node
   if (solKey) {
@@ -163,7 +188,9 @@ export async function open({ url, email, allow = [], slowMo = 120, video = false
   await page.goto(url, { waitUntil: "domcontentloaded" });
 
   let n = 0;
-  const shot = async (label, p = page) => {
+  // force: a picture even with screenshots off (a failing step)
+  const shot = async (label, p = page, force = false) => {
+    if (!shots && !force) return null;
     const f = path.join(dir, "shots", `${String(++n).padStart(3, "0")}-${label.replace(/[^\w-]+/g, "-")}.png`);
     await p.screenshot({ path: f }).catch(() => {});
     return f;
@@ -194,7 +221,7 @@ export async function open({ url, email, allow = [], slowMo = 120, video = false
       write(rec);
       steps.push(rec);
     } catch (e) {
-      const f = await shot(`${name}-error`);
+      const f = await shot(`${name}-error`, page, true);
       const rec = { type: "step", step: name, ok: false, ms: Date.now() - t0, url: page.url(), shot: f, error: String(e.message ?? e).split("\n")[0], status: await status(), api, errors };
       write(rec);
       steps.push(rec);
@@ -212,13 +239,13 @@ export async function open({ url, email, allow = [], slowMo = 120, video = false
       // Privy's own confirm window (the dashboard can force it): approve it and keep the picture
       const privyOk = page.locator("#privy-modal-content button, [id*='privy'] button").filter({ hasText: /^(Approve|Sign|Confirm|Sign and continue|Continue)$/i });
       if (await privyOk.first().isVisible().catch(() => false)) {
-        await shot(`${name}-privy-confirm`);
+        await page.waitForTimeout(1200); // let the recording show the confirm window before approving it
         await privyOk.first().click().catch(() => {});
         write({ type: "privy", step: name, action: "approved the confirm window" });
       }
       if (text !== last) {
         last = text;
-        write({ type: "watch", step: name, text, shot: await shot(`${name}-watch`) });
+        write({ type: "watch", step: name, text, shot: (await shot(`${name}-watch`)) ?? undefined });
       }
       if (done(text)) return text;
       if (/failed|try again|couldn't|can't|refused|cancelled|Nothing was sent/i.test([...s.live, ...s.toasts].join(" ") + " " + (s.dialog?.match(/(Something went wrong[^|]*|You cancelled[^|]*|Refunded[^|]*)/)?.[0] ?? ""))) throw new Error(`${name}: ${text}`);
@@ -235,10 +262,22 @@ export async function open({ url, email, allow = [], slowMo = 120, video = false
       const link = links.nth(i);
       const href = await link.getAttribute("href");
       await step(`${name}-view-${i + 1}`, async () => {
+        if (video) {
+          // in the same tab, so the recording stays one continuous video: hover the link, open it, come back
+          const back = page.url();
+          await link.hover();
+          await page.waitForTimeout(600);
+          await page.goto(href, { waitUntil: "domcontentloaded" });
+          await page.waitForTimeout(5000);
+          write({ type: "view", href, url: page.url(), title: await page.title().catch(() => "") });
+          await page.goto(back, { waitUntil: "domcontentloaded" });
+          await page.waitForTimeout(2500);
+          return;
+        }
         const [popup] = await Promise.all([ctx.waitForEvent("page", { timeout: 15_000 }), link.click()]);
         await popup.waitForLoadState("domcontentloaded").catch(() => {});
         await popup.waitForTimeout(4000);
-        write({ type: "view", href, url: popup.url(), title: await popup.title().catch(() => ""), shot: await shot(`${name}-explorer-${i + 1}`, popup) });
+        write({ type: "view", href, url: popup.url(), title: await popup.title().catch(() => ""), shot: (await shot(`${name}-explorer-${i + 1}`, popup)) ?? undefined });
         await popup.close();
       });
     }
@@ -254,13 +293,30 @@ export async function open({ url, email, allow = [], slowMo = 120, video = false
     if (!ok) throw new Error(`not signed in as ${email}: copy the profile again (--fresh-profile) after signing in on Chrome`);
   };
 
+  let closed = false;
   const close = async () => {
-    const lines = [`# ${name} · ${stamp}`, "", `${url} · signed in as ${email} · allowed: ${allow.join(", ") || "nothing"}`, "", "| | step | ms | screenshot | outcome |", "|---|---|---|---|---|"];
-    for (const s of steps) lines.push(`| ${s.ok ? "✓" : "✗"} | ${s.step} | ${s.ms} | [${path.basename(s.shot)}](shots/${path.basename(s.shot)}) | ${(s.error ?? [...s.status.live, ...s.status.toasts].join(" · ")).replace(/\|/g, "/").slice(0, 140)} |`);
+    if (closed) return;
+    closed = true;
+    const lines = [`# ${name} · ${stamp}`, "", `${url} · signed in as ${email} · allowed: ${allow.join(", ") || "nothing"}`, "", "| | step | s | outcome |", "|---|---|---|---|"];
+    for (const s of steps) lines.push(`| ${s.ok ? "✓" : "✗"} | ${s.step} | ${(s.ms / 1000).toFixed(1)} | ${(s.error ?? [...s.status.live, ...s.status.toasts].join(" · ")).replace(/\|/g, "/").slice(0, 140)} |`);
+    const raw = video ? await page.video()?.path().catch(() => null) : null;
+    await ctx.close().catch(() => {});
+    // the recording is complete only once the browser closes: then make an mp4 named after the flow
+    if (raw && fs.existsSync(raw)) {
+      const mp4 = path.join(dir, `${name}.mp4`);
+      try {
+        execSync(`ffmpeg -y -loglevel error -i "${raw}" -c:v libx264 -pix_fmt yuv420p -crf 20 -movflags +faststart "${mp4}"`);
+        lines.splice(2, 0, `Recording: [${name}.mp4](${name}.mp4)`, "");
+        console.log("recording:", mp4);
+      } catch {
+        console.log("recording (webm):", raw);
+      }
+    }
     fs.writeFileSync(path.join(dir, "summary.md"), lines.join("\n") + "\n");
-    await ctx.close();
     console.log("run folder:", dir);
   };
+  // an interrupt (Ctrl-C, a stopped run) still finishes the recording
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.once(sig, () => close().finally(() => process.exit(130)));
 
   return { page, ctx, dir, step, watch, views, shot, status, signedIn, close, log: write };
 }
