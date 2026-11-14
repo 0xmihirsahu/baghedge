@@ -3,6 +3,7 @@
 import { ArrowLeft, X } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useState } from "react";
+import { haptic } from "@/lib/haptics";
 import { BagLoader, NumberRoll, StatusText } from "@/components/motion";
 import { Chart } from "./chart";
 import { Ticket } from "./ticket";
@@ -19,7 +20,8 @@ const RANGES: Record<string, [Interval, number]> = { "1H": ["1m", 1], "1D": ["15
 // SOL also carries the hedge (entry and recovery on the chart, the hedge ticket)
 export function CoinPage({ coin }: { coin: string }) {
   const store = useStore();
-  const { markets, mids, hedge: h, wallet, accounts, liveEnabled, liveHedge, backend } = store;
+  const { markets, mids, hedge: h, wallet, accounts, liveEnabled, liveHedge, backend, canTrade, trading } = store;
+  const [closing, setClosing] = useState<string | null>(null);
   const L = liveEnabled ? liveHedge : null;
   const [range, setRange] = useState("1D");
   const market = markets.find((m) => m.name === coin);
@@ -120,7 +122,32 @@ export function CoinPage({ coin }: { coin: string }) {
                 />
               )}
               {positions.map((p) => (
-                <Row key={p.coin} title={p.size < 0 ? "Short" : "Long"} sub={`Trade account · ${p.leverage}x`} value={`${p.size} ${coin}`} note={<span style={{ color: tone(p.pnl) }}>{usd(p.pnl, 2)}</span>} coin={coin} />
+                <Row
+                  key={p.coin}
+                  title={p.size < 0 ? "Short" : "Long"}
+                  sub={`Trade account · ${p.leverage}x`}
+                  value={`${Math.abs(p.size)} ${coin}`}
+                  note={<span style={{ color: tone(p.pnl) }}>{usd(p.pnl, 2)}</span>}
+                  coin={coin}
+                  action={
+                    canTrade && mark ? (
+                      <button
+                        disabled={!!trading.busy}
+                        onClick={() => {
+                          haptic("tap");
+                          setClosing(p.coin);
+                          trading.close({ coin: p.coin, size: p.size, mark }).then((r) => {
+                            haptic(r ? "success" : "error");
+                            setClosing(null);
+                          });
+                        }}
+                        className="h-8 rounded-[10px] bg-[#1c1b1a] px-3 text-[13px] font-semibold transition-colors duration-150 hover:bg-[#2e2c2a] disabled:opacity-50"
+                      >
+                        {closing === p.coin ? "Closing" : "Close"}
+                      </button>
+                    ) : null
+                  }
+                />
               ))}
               {!(isSol && (L ? L.rule && Number(L.rule.shortLots) > 0 : h.hedge !== 0)) && !positions.length && (
                 <div className="flex h-full flex-col items-center justify-center gap-2 pb-6 text-center">
@@ -257,7 +284,7 @@ function Tape({ trades, coin, decimals }: { trades: Trade[]; coin: string; decim
   );
 }
 
-function Row({ title, sub, value, note, coin }: { title: string; sub: React.ReactNode; value: React.ReactNode; note: React.ReactNode; coin: string }) {
+function Row({ title, sub, value, note, coin, action }: { title: string; sub: React.ReactNode; value: React.ReactNode; note: React.ReactNode; coin: string; action?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3 py-2.5">
       <CoinLogo coin={coin} className="size-9" />
@@ -269,6 +296,7 @@ function Row({ title, sub, value, note, coin }: { title: string; sub: React.Reac
         <p className="text-[15px] font-semibold">{value}</p>
         <p className="text-[13px] text-white/45">{note}</p>
       </div>
+      {action}
     </div>
   );
 }

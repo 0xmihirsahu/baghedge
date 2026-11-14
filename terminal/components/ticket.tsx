@@ -7,12 +7,14 @@ import { CoinLogo } from "./coin-logo";
 import { Tip } from "./tip";
 import { AUTO, FUNDING, STATUS, useStore, type Phase } from "./app/store";
 import { ruleLabel } from "./app/live";
+import { haptic } from "@/lib/haptics";
 import { CORAL, DOWN, INK, TAKER, UP, pct, risk, usd } from "./app/format";
 
 // fomo's buy panel: coin row, big amount, chips, pad, summary, action, estimates.
 // Hedge (SOL only) sizes against the watched wallet; Trade sizes a market order in dollars
 export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string; mark?: number; change: number; maxLev: number; onReview: () => void }) {
-  const { wallet, hedge: h, toast, liveEnabled, liveHedge, backend, privy, liveCapable, ownerSupported } = useStore();
+  const { wallet, hedge: h, toast, liveEnabled, liveHedge, backend, privy, liveCapable, ownerSupported, canTrade, trading } = useStore();
+  const [pressed, setPressed] = useState<"Long" | "Short" | null>(null);
   const canHedge = coin === "SOL";
   const [modeState, setMode] = useState<"Hedge" | "Trade">("Hedge");
   const mode = canHedge ? modeState : "Trade";
@@ -84,7 +86,20 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
     else if (h.phase === "open") h.setPhase("closing");
     else if (h.phase === "closed") h.setPhase("draft");
   };
-  const trade = (side: "Long" | "Short") => toast(`${side} ${coin}`, "Checking order");
+  // a real market order from the Trade account. the first one also approves the browser trading agent
+  const trade = (side: "Long" | "Short") => {
+    haptic("tap");
+    if (!canTrade) {
+      if (privy && !privy.authenticated) return privy.login();
+      return toast("Trade", "Add your Trade account first", "error");
+    }
+    if (!mark || trading.busy) return;
+    setPressed(side);
+    trading.open({ coin, side, usd: Number(usdIn) || 0, mark, leverage }).then((r) => {
+      haptic(r ? "success" : "error");
+      setPressed(null);
+    });
+  };
   const r = risk(h.capN, h.entry, h.recovery, maxLev);
   const tradeQ = mark ? (Number(usdIn) || 0) / mark : 0;
 
@@ -214,11 +229,16 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
       ) : (
         <div className="mt-3 grid shrink-0 grid-cols-2 gap-2">
           {(["Long", "Short"] as const).map((s) => (
-            <button key={s} disabled={tradeBelowMin} onClick={() => trade(s)} className="h-[52px] rounded-[14px] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-40" style={{ background: s === "Long" ? UP : DOWN, color: INK }}>
-              {s}
+            <button key={s} disabled={tradeBelowMin || (!!trading.busy && pressed !== s)} onClick={() => trade(s)} className="flex h-[52px] items-center justify-center gap-2 rounded-[14px] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-40" style={{ background: s === "Long" ? UP : DOWN, color: INK }}>
+              {trading.busy && pressed === s ? (trading.busy === "approve" ? "Enabling trading" : "Placing order") : s}
             </button>
           ))}
         </div>
+      )}
+      {!hedgeMode && (
+        <p aria-live="polite" className="mt-2 min-h-[18px] text-center text-[12px] leading-snug text-[#f2554b]">
+          {trading.error ?? (!canTrade && privy && !privy.authenticated ? <span className="text-white/45">Sign in to trade</span> : "")}
+        </p>
       )}
       {hedgeMode && !draft && !L && <StatusText text={`Replay · ${STATUS[h.phase]}`} className="mt-2 block text-center text-[13px] text-white/55" />}
       {hedgeMode && L && ruleOn && <StatusText text={`${net} · ${ruleLabel(L.rule!)}`} className="mt-2 block text-center text-[13px] text-white/55" />}

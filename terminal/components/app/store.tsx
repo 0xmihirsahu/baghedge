@@ -12,6 +12,7 @@ import { risk, usd } from "./format";
 import { setNetwork, useMarkets, type Network } from "./hl";
 import { externalSigner, useLiveHedge } from "./live";
 import { PrivyWallets, usePrivyBridge } from "./privy";
+import { useTrading } from "./trade";
 import { isSolAddress, short, useSolBalance } from "./wallet";
 
 // everything the pages share: live markets, the wallet, toasts, activity, the hyperliquid accounts and the hedge.
@@ -240,12 +241,17 @@ function useTerminal(backend: Backend) {
   // otherwise the hedge runs as the labelled replay above
   const liveCapable = backend.reachable && backend.apiMode === backend.mode;
   const liveEnabled = liveCapable && !!accounts.trade && !!accounts.hedge && !!signer;
+  // manual trading: the Trade owner approves a browser trading agent once, then orders go straight to Hyperliquid
+  const tradeSigner = privy?.authenticated && same(privy.trade, accounts.trade) ? privy.signer : same(evm.address, accounts.trade) ? externalSigner : null;
+  const canTrade = liveCapable && !!accounts.trade && !!tradeSigner;
+  const trading = useTrading({ owner: accounts.trade, signer: tradeSigner, notify: (t, s, href) => toast(t, s, "info", href) });
+
   // refused up front, before any signature: this server's guard can't sign for this Hedge account
   const ownerSupported = !backend.pinnedOwner || same(backend.pinnedOwner, accounts.hedge);
   const liveHedge = useLiveHedge({ enabled: liveEnabled, trade: accounts.trade, hedge: accounts.hedge, solana: address, agent: backend.agentAddress, signer, notify: (t, s, href) => toast(t, s, "info", href) });
 
   const hedgeState = { phase, setPhase: go, hedge, cap, setCap, capN, entry, setEntry: setEntryKept, recovery, setRecovery: setRecoveryKept, held };
-  return { backend, evm, privy, liveCapable, liveEnabled, ownerSupported, liveHedge, markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };
+  return { backend, evm, privy, liveCapable, liveEnabled, ownerSupported, liveHedge, canTrade, trading, markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };
 }
 
 const Ctx = createContext<ReturnType<typeof useTerminal> | null>(null);
