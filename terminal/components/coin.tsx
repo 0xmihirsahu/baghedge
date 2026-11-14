@@ -170,7 +170,12 @@ export function CoinPage({ coin }: { coin: string }) {
           </div>
           {L ? (
             <>
-              {L.margin && L.margin.have < L.margin.need && (
+              {L.margin && L.margin.have === null && (
+                <p className="mt-4 rounded-[12px] bg-[#1c1b1a] px-3.5 py-3 text-[13px] leading-snug text-white/75">
+                  Margin unavailable right now. Arming checks it again.
+                </p>
+              )}
+              {L.margin && L.margin.have !== null && L.margin.have < L.margin.need && (
                 <p className="mt-4 rounded-[12px] bg-[#1c1b1a] px-3.5 py-3 text-[13px] leading-snug text-white/75">
                   The Hedge account holds {usd(L.margin.have, 2)} and needs {usd(L.margin.need, 2)}.{" "}
                   {backend.mode === "testnet" ? (

@@ -31,6 +31,7 @@ export type LiveError = { code: string; message: string };
 const MESSAGES: Record<string, string> = {
   entry_already_crossed: "SOL is already below your entry. Lower the entry and try again.",
   insufficient_margin: "The Hedge account needs more USDC for this hedge.",
+  margin_unavailable: "Couldn't read the Hedge account's margin. Try again.",
   rule_active: "A hedge is already running on this account.",
   hedge_account_busy: "The Hedge account has an open position or orders. Clear them first.",
   no_eligible_sol: "The watched wallet has no SOL to hedge.",
@@ -94,7 +95,7 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
   const [busy, setBusy] = useState<null | "signin" | "approve" | "draft" | "arm" | "close">(null);
   const [error, setError] = useState<LiveError | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [margin, setMargin] = useState<{ need: number; have: number } | null>(null);
+  const [margin, setMargin] = useState<{ need: number; have: number | null } | null>(null);
   const signedIn = useRef<string | null>(null);
 
   const owner = o.hedge;
@@ -168,8 +169,9 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
           chainId: chainId(),
         });
         // usableUsdc is the margin that counts on both standard and unified accounts (docs/API.md)
-        const acc = await api<{ hedge: { usableUsdc?: string; withdrawableUsdc: string; spotUsdc: { total: string } | null } | null }>(`/api/accounts?trade=${o.trade}&hedge=${owner}`).catch(() => null);
-        const have = acc?.hedge?.usableUsdc != null ? Number(acc.hedge.usableUsdc) : Math.max(Number(acc?.hedge?.withdrawableUsdc ?? 0), Number(acc?.hedge?.spotUsdc?.total ?? 0));
+        const acc = await api<{ hedge: { usableUsdc?: string | null; accountMode?: string } | null }>(`/api/accounts?trade=${o.trade}&hedge=${owner}`).catch(() => null);
+        // null usableUsdc means the venue read failed: show it as unknown, never as zero
+        const have = acc?.hedge?.usableUsdc != null ? Number(acc.hedge.usableUsdc) : null;
         setMargin({ need: Number(d.requiredMarginUsdc), have });
         setDraft(d);
         return d;
@@ -215,7 +217,9 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
       const command = rule.phase === "armed" ? "disarm" : "close";
       const c = await api<{ typedData: TypedData; issuedAt: number }>(`/api/hedges/${rule.id}?command=${command}&chainId=${chainId()}`);
       const signature = await signTyped(owner, c.typedData);
-      await api(`/api/hedges/${rule.id}/${command}`, { signature, issuedAt: c.issuedAt, chainId: chainId() });
+      // the status comes from the server's answer, never assumed
+      const v = await api<Rule>(`/api/hedges/${rule.id}/${command}`, { signature, issuedAt: c.issuedAt, chainId: chainId() });
+      setRule(v?.status === "active" ? v : null);
       await refresh();
     } catch (e) {
       setError(e as LiveError);
