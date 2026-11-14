@@ -133,9 +133,15 @@ export function createWorker(deps: WorkerDeps) {
       db.updateAction(action.id, { signature, transport: "signed" });
       return signature;
     } catch (error) {
-      // The guard refused or was unreachable. Nothing was sent, so this attempt is a confirmed zero.
-      db.updateAction(action.id, { transport: "rejected", outcome: "rejected", filledLots: "0",
-        error: error instanceof Error ? error.message.slice(0, 300) : "signer error" });
+      const message = error instanceof Error ? error.message.slice(0, 300) : "signer error";
+      if (signer.kind === "guard") {
+        // A direct OutLayer run publishes the signed order in the NEAR receipt even if our RPC call fails,
+        // so anyone could still submit it. Leave it unresolved; reconcile releases it only after expiry.
+        db.updateAction(action.id, { transport: "unknown", error: message });
+        return "unknown" as const;
+      }
+      // A local fallback signer failing means no signature exists anywhere: a confirmed zero.
+      db.updateAction(action.id, { transport: "rejected", outcome: "rejected", filledLots: "0", error: message });
       return null;
     }
   }
@@ -194,6 +200,7 @@ export function createWorker(deps: WorkerDeps) {
 
     const reserved = db.action(id)!;
     const signature = await sign(rule, signer, reserved);
+    if (signature === "unknown") return; // engine action stays pending until reconcile resolves it
     if (!signature) {
       await settleZero(rule, market.sizeDecimals, "signer-refused");
       pause(db.rule(rule.id)!, db.rule(rule.id)!.state, "signer-refused");
@@ -242,7 +249,7 @@ export function createWorker(deps: WorkerDeps) {
       stopCloid: null, lots: current.state.shortLots.toString(), nonce: db.nextNonce(signer.address),
       expiresAfter: now() + expiryMs, signer: signer.address, action: wire }, current.state);
     const signature = await sign(rule, signer, db.action(id)!);
-    if (!signature) return;
+    if (!signature || signature === "unknown") return;
     if (await send(rule, db.action(id)!, signature) !== "zero") await reconcile(db.rule(rule.id)!, db.action(id)!, market.sizeDecimals);
   }
 

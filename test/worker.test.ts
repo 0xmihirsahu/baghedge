@@ -3,7 +3,7 @@ import { generatePrivateKey } from "viem/accounts";
 import { armHedge } from "../shared/hedge";
 import { ruleFromPolicy, solanaToBytes32, type HedgePolicy } from "../shared/policy";
 import { openDb } from "../server/db";
-import { fallbackSigner, verifiedSigner, type Exchange, type L1Action, type OrderStatusResult, type SubmitResult } from "../server/exchange";
+import { fallbackSigner, verifiedSigner, type Exchange, type L1Action, type HedgeSigner, type OrderStatusResult, type SubmitResult } from "../server/exchange";
 import { createWorker } from "../server/worker";
 
 type Order = { cloid: string; oid: number; buy: boolean; reduceOnly: boolean; trigger?: string; origLots: number; filledLots: number; status: string; parent?: string };
@@ -76,10 +76,19 @@ const policy: HedgePolicy = {
   buybackCeilingE8: "8200000000", entryWindowMs: "30000", expiryMs: String(Date.now() + 3_600_000), minMarginE6: "1", oneCycle: true,
 };
 
-function setup() {
+function setup(signerMode: "fallback" | "guard-publishes-then-throws" = "fallback") {
   const { v, exchange } = fakeVenue();
   const db = openDb(":memory:");
-  const signer = verifiedSigner(fallbackSigner(generatePrivateKey(), "testnet"), "testnet");
+  const local = fallbackSigner(generatePrivateKey(), "testnet");
+  const signer: HedgeSigner = signerMode === "fallback" ? verifiedSigner(local, "testnet") : {
+    address: local.address, kind: "guard",
+    async signL1(action, nonce, expiresAfter) {
+      // The guard signed and the receipt is public; a third party submits it before our RPC call fails.
+      const signature = await local.signL1(action, nonce, expiresAfter);
+      await exchange.submit(action, nonce, signature, expiresAfter);
+      throw new Error("NEAR RPC timeout");
+    },
+  };
   const rule = ruleFromPolicy(policy, 2);
   const now = Date.now();
   const state = armHedge(rule, {
@@ -150,6 +159,20 @@ describe("worker", () => {
     const stop = db.actionsForRule("r1").find(a => a.intent === "position_stop")!;
     expect((stop.action as { grouping: string }).grouping).toBe("positionTpsl");
     expect(db.actionsForRule("r1").filter(a => a.intent === "entry")).toHaveLength(1);
+  });
+
+  test("a guard error is not a zero: a published order that fills is reconciled, never re-sent", async () => {
+    const { v, db, tick } = setup("guard-publishes-then-throws");
+    await tick();
+    v.mark = "69.9"; v.bid = "69.8";
+    let rule = await tick();
+    const [entry] = db.actionsForRule("r1");
+    expect(entry).toMatchObject({ intent: "entry", transport: "unknown", outcome: null });
+    expect(rule.state.pending?.kind).toBe("entry");   // still pending, not released as zero
+    rule = await tick();
+    expect(rule.state).toMatchObject({ phase: "open", shortLots: 40n });
+    expect(db.actionsForRule("r1").filter(a => a.intent === "entry")).toHaveLength(1);
+    expect(v.submissions).toBe(1);
   });
 
   test("a gap below the entry floor sends nothing", async () => {
