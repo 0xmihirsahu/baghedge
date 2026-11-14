@@ -7,7 +7,7 @@ Baghedge is a Hyperliquid trading terminal that can hedge the SOL you already ho
 Built at the NEAR Hackathon (track: Unstoppable DeFi).
 
 - **Terminal (Vercel):** https://app.baghedge.xyz (source: [`terminal/`](terminal/))
-- **Backend API (Render):** https://baghedge-api.onrender.com/api/health (source: [`server/`](server/))
+- **Backend API (Render):** mainnet https://baghedge-api-mainnet.onrender.com/api/health (attested guard) · testnet sandbox https://baghedge-api.onrender.com/api/health (source: [`server/`](server/))
 - **Guard (Rust, OutLayer):** [`guard/`](guard/)
 
 ## Try it
@@ -18,7 +18,7 @@ bun install && bun run demo:replay
 ```
 This prints the two-account flow (manual long, hedge entry, wallet transfer, buyback, closes) with exposure after each step. **Replay uses sample fills.**
 
-### 2. Live API (testnet), checked end to end
+### 2. Live API (testnet sandbox), checked end to end
 ```sh
 bun run smoke:api https://baghedge-api.onrender.com
 ```

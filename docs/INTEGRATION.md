@@ -1,9 +1,14 @@
 # Integrating the terminal with the Baghedge backend
 
-**Backend:** https://baghedge-api.onrender.com. It currently runs **testnet** with the labeled demo signer, and switches to mainnet with the attested guard after the current mainnet hedge cycle. Check `GET /api/health` → `mode` and `hedgeSigner.kind`.
+**Backends:**
+- **Production (mainnet):** https://baghedge-api-mainnet.onrender.com, with the attested OutLayer guard, executable NEAR Intents quotes and real funds. Set it as `BAGHEDGE_API_URL` for the Vercel **production** environment.
+- **Sandbox (testnet):** https://baghedge-api.onrender.com, with the labeled demo signer and dry quotes only. Use it for Vercel **preview** and local development.
+- Check `GET /api/health` → `mode` and `hedgeSigner.kind`.
 
 **For:** the `terminal/` Next.js app.
 **Goal:** replace the replay timers in `components/app/store.tsx` with real calls. Every endpoint below is live and tested against Hyperliquid, NEAR Intents, Solana and OutLayer. The exact request and response shapes are in [API.md](API.md).
+
+> **Wallets:** Privy embedded Trade and Hedge wallets, external wallets as the fallback, Phantom read-only (see 0 → Wallets).
 
 > The backend holds no owner keys. Every owner action is signed in the user's wallet in the browser. The backend builds the payloads, checks the signatures, runs the hedge worker, and relays to Hyperliquid.
 
@@ -45,7 +50,7 @@ ETH and BTC on EVM chains are the highest-value next step.
 Sign-in uses an `HttpOnly; SameSite=Lax` cookie, so the browser must reach the backend under the terminal's own origin. In `terminal/next.config.ts`:
 
 ```ts
-const BACKEND = process.env.BAGHEDGE_API_URL!; // https://baghedge-api.onrender.com (live, testnet for now)
+const BACKEND = process.env.BAGHEDGE_API_URL!; // prod: https://baghedge-api-mainnet.onrender.com · preview: https://baghedge-api.onrender.com
 export default {
   async rewrites() {
     return {
@@ -62,21 +67,102 @@ export default {
 - Set the backend's `APP_ORIGIN` to the terminal's https URL.
 - Call everything as relative `/api/...`.
 
-### Wallets
-| Wallet | Used for | Library |
+### Wallets: Privy (decided)
+**Decision:** use **Privy** for login, with **two embedded EVM wallets** (Trade and Hedge) per user. **External wallets** (MetaMask, Rabby, WalletConnect) are the fallback, and **Phantom** stays the watched SOL wallet (read-only). The backend needs no changes: it only verifies EIP-712 signatures, whichever wallet makes them.
+
+| Role | Wallet | Signs |
 | --- | --- | --- |
-| Phantom (Solana) | the watched address (read-only) | already in the app |
-| **EVM wallet** (MetaMask, Rabby, phone via WalletConnect) | Hedge owner, Trade owner, Base funding | **add** `viem` + `wagmi` (or viem only) with WalletConnect |
+| Login | Privy: email, Google or wallet | — |
+| **Trade owner** | Privy embedded EVM wallet, **index 0** | trading-agent approval (once), Trade payout |
+| **Hedge owner** | Privy embedded EVM wallet, **index 1** | guard-agent approval, hedge policy, close or disarm, Hedge payout, hedge sign-in |
+| Watched SOL | **Phantom** (external), linked or pasted | nothing: only its address is read |
+| Base funding source | an external wallet holding Base USDC (MetaMask, Coinbase Wallet, Phantom's EVM account…) | one USDC transfer per funding. Embedded wallets never need to hold tokens or gas, because funds land directly in the Hyperliquid account. |
 
-WalletConnect project id: `3820d0c2a823fa021803a068e89059b5` (public; it's already in the backend env).
+Trade and Hedge **must be different addresses** (AGENTS.md rule 8). Index 0 and index 1 always are.
 
-Gotchas:
-- **Don't require Base in the WalletConnect session.** Pass chains as optional and use whatever chain the wallet approves. Requiring a chain causes `Missing or invalid. request() chainId`.
-- Hedge-policy and command signatures work on **any** chain, as long as you send that chain's `chainId` with them.
-- Only the Base USDC transfer needs chain 8453. Switch to it just before that one transaction.
+#### Setup
+```sh
+cd terminal && bun add @privy-io/react-auth
+```
+- Vercel env: `NEXT_PUBLIC_PRIVY_APP_ID`.
+- Privy dashboard: add `https://app.baghedge.xyz` and `http://localhost:3000` to allowed origins.
+- Enable email, Google and wallet login.
 
-### Signing a `typedData` from the API
-Several endpoints return `typedData` (EIP-712, with uint64 values as decimal strings). Sign it as-is:
+```tsx
+// terminal/components/app/privy.tsx
+"use client";
+import { PrivyProvider } from "@privy-io/react-auth";
+
+export function Wallets({ children }: { children: React.ReactNode }) {
+  return (
+    <PrivyProvider
+      appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID!}
+      config={{
+        loginMethods: ["email", "google", "wallet"],
+        embeddedWallets: { ethereum: { createOnLogin: "all-users" }, showWalletUIs: false }, // our own confirm screens
+        appearance: { walletChainType: "ethereum-and-solana" },                          // lets users link Phantom
+        walletConnectCloudProjectId: "3820d0c2a823fa021803a068e89059b5",                  // external-wallet fallback
+      }}
+    >
+      {children}
+    </PrivyProvider>
+  );
+}
+```
+
+#### Map wallets to roles
+```tsx
+import { useCreateWallet, useWallets } from "@privy-io/react-auth";
+
+export function useAccountsFromPrivy() {
+  const { wallets } = useWallets();
+  const { createWallet } = useCreateWallet();
+  // createWallet({ walletIndex }) returns the existing wallet when that index already exists, so this is safe every session.
+  const ensureHedge = () => createWallet({ walletIndex: 1 });
+  const embedded = wallets.filter(w => w.walletClientType === "privy");
+  return { embedded, ensureHedge };
+}
+```
+- Store the two addresses after first login: Trade is the index-0 wallet and Hedge is the index-1 wallet returned by `ensureHedge()`.
+- Pick wallets **by address** afterwards. Privy's React wallet objects don't expose `walletIndex`.
+
+#### Sign API payloads with an embedded wallet
+Every `typedData` from our API can be passed straight to Privy:
+```tsx
+import { useSignMessage, useSignTypedData } from "@privy-io/react-auth";
+
+const { signTypedData } = useSignTypedData();
+const { signMessage } = useSignMessage();
+
+// policy, HedgeCommand, approveAgent, sendAsset: pick the owner address; confirm in our UI first
+const { signature } = await signTypedData(typedData, { address: hedgeAddress, uiOptions: { showWalletUIs: false } });
+
+// session sign-in (section 1)
+const { signature: login } = await signMessage({ message }, { address: hedgeAddress, uiOptions: { showWalletUIs: false } });
+```
+Security rules:
+- **Payouts keep a visible confirm** (`showWalletUIs: true` for `sendAsset`), and show the exact amount and destination.
+- Show our own confirm screen with the exact policy values before every silent signature.
+- Keep Hedge margin modest, and serve a strict CSP. Silent signing means a compromised page could request signatures.
+
+#### Test these first (≈1 h, mainnet-safe)
+1. Embedded Hedge wallet: `/api/session/challenge` → `signMessage` → `/verify`, giving a cookie.
+2. Draft → `signTypedData(d.typedData)` → `POST /api/hedges`. Use an entry far below market, then disarm with a signed HedgeCommand.
+3. `POST /api/hl/approve-agent` (trade) → `signTypedData` → `/submit` → `extraAgents` lists it.
+4. **Optional:** can the embedded Trade wallet sign Hyperliquid **order** payloads directly (chainId 1337)? If yes, the trading-agent step (section 8) disappears. If not, keep the agent.
+
+#### Fallback: external wallets
+Users who prefer their own wallets log in with `"wallet"` (MetaMask, Rabby, Coinbase Wallet or WalletConnect) and **must connect two different addresses**, one for Trade and one for Hedge. The signing code is the same: pass `address`. Gotchas:
+- **Don't require Base in the WalletConnect session.** Pass chains as optional. Requiring one causes `Missing or invalid. request() chainId`.
+- Policy and command signatures work on **any** chain, as long as you send that chain's `chainId`.
+- Only the Base USDC transfer needs chain 8453.
+- MetaMask won't sign Hyperliquid order payloads (chainId 1337), so external-wallet users always use the trading agent (section 8).
+
+#### Watched wallet (Phantom)
+Keep the existing Solana wallet adapter, or link Phantom through Privy. Either way, only the **address** goes to the backend (`solanaAddress` in the draft, and `/api/wallet/sol?address=`). No signature is needed.
+
+### Signing a `typedData` with viem (external wallets)
+With Privy, pass `typedData` to `signTypedData` as shown above. With a raw viem wallet client:
 ```ts
 async function signTyped(wallet: WalletClient, account: `0x${string}`, typedData: any) {
   const { EIP712Domain, ...types } = typedData.types;
@@ -96,6 +182,7 @@ await post("/api/session/verify", { nonce, signature }); // sets the cookie
 - A `401 sign_in_required` means: run this again.
 
 ## 2. Fund an account (from any chain)
+With Privy, `venueAddress` is the user's **embedded** Trade or Hedge address. `baseAddress` is the **external** source wallet on the funding chain (for example Phantom for SOL, or a wallet holding Base USDC): it sends the transfer and receives any refund. The embedded wallets never need tokens or gas.
 ```ts
 const { assets } = await get("/api/transfers/assets");        // pick one: e.g. SOL on Solana, USDC on Arbitrum
 const q = await post("/api/transfers/quote", {
@@ -219,6 +306,33 @@ await ex.order({ orders: [{ a: asset, b: true, p: limitPx, s: size, r: false, t:
 
 Query positions with the **Trade owner** address, not the agent. Verified on testnet: an agent approved through the relay placed and canceled an order on the owner's account.
 
+## Fees and gas (show these before the user signs)
+
+Measured on the mainnet run (Nov 14). Users **never need gas on Hyperliquid or NEAR**. With Privy, the embedded Trade and Hedge wallets only sign and never pay gas.
+
+| Step | Who pays | What it costs | Where to show it |
+| --- | --- | --- | --- |
+| Funding transfer (source token → deposit address) | User: gas on the source chain, from the funding wallet (ETH on Base or other EVM chains, SOL on Solana) | under $0.01 on Base or Solana | Fund screen ("network fee") |
+| NEAR Intents route Base → Hyperliquid | User, taken from the amount | about $0.32 on $6–15 (`amountIn` − `amountOut` in the quote) | Fund review: show `amountIn`, `amountOut`, `minAmountOut` |
+| First deposit into a new Hyperliquid account | User, in USDC | 1 USDC (activation) | Fund review, first time only |
+| Orders (manual, hedge entry, buyback, close) | The trading account, in USDC | 0.045% taker per fill (~$0.005–0.01 on a $10–20 order); no gas | Ticket and hedge review |
+| Guard signature per hedge order | **Baghedge (operator)**, NEAR on the executor account | ~0.002 NEAR (~$0.006) per signature; ~3 per hedge cycle | Not shown to users (an operator cost) |
+| Payout `sendAsset` from Hyperliquid | User, in USDC | 1 USDC (seen when sending to the quote's deposit address) | Payout review: **leave ≥ 1.2 USDC** in the account, or the transfer fails with "Insufficient USDC balance for token transfer gas" |
+| NEAR Intents route Hyperliquid → Base | User, taken from the amount | about 0.2 USDC (13.5 → 13.297) | Payout review |
+| Signatures (policy, commands, sign-in, agent approvals) | Nobody | free (off-chain) | — |
+| Funding rate on open positions | The position holder | hourly, variable (`fundingRate` in `/api/markets`) | Hedge review: "variable funding" |
+
+**UI rules:**
+- **Payout max** = `maxPayoutUsdc` from `/api/accounts` (usable − 1.2 USDC). Pre-fill that rather than the full balance.
+- Show the **required margin** (`requiredMarginUsdc` from the draft) next to the costs, and label it as margin that comes back, not a fee.
+- Label every quote number as an estimate until the transfer reaches `SUCCESS`.
+
+**Operator side** (not for the UI):
+- The executor account pays every guard call; 1 NEAR covers about 500.
+- Monitor its balance with an alert, and top it up.
+- The worker pauses a rule after 3 failed guard calls, so a broken guard can't drain it.
+- Hyperliquid builder codes (brief §4) can add a small disclosed per-order fee to cover guard gas and hosting.
+
 ## Fewer wallets and signatures
 
 Our end-to-end mainnet run took **4 wallets** (Trade EVM, Hedge EVM, Base funding, Phantom) and about **11 prompts**. This is how to get a user down to **one or two wallets and about 3 prompts for the whole lifecycle**.
@@ -228,23 +342,8 @@ Our end-to-end mainnet run took **4 wallets** (Trade EVM, Hedge EVM, Base fundin
 - **The watched wallet is read-only.** Phantom only needs to share its address, with no signature. A "you control this" badge is optional.
 - **One trading-agent approval** covers manual trading for up to 180 days (`validDays: 180`).
 
-### Recommended: separate addresses behind one wallet interface (Privy)
-Don't derive the Hedge key from a wallet signature. That signature would be a bearer secret that can withdraw principal, and keeping it in the browser removes wallet confirmation. Use **separate wallet addresses under one login** instead:
-
-| Account | With Privy |
-| --- | --- |
-| Trade owner | The user's embedded EVM wallet |
-| Hedge owner | A second embedded wallet under the same login (`createWallet({ createAdditional: true })`) |
-| Watched SOL | The user's own Phantom, linked or pasted, read-only |
-| Funding | One Phantom (or other) transfer through NEAR Intents straight into the Hyperliquid account. The embedded wallets never hold tokens or gas. |
-
-- Keys stay in Privy's infrastructure, not in our JavaScript.
-- Privy handles recovery and export.
-- Privy's prompts can be replaced by your own confirm screens. **Keep an explicit confirm for payouts**, and keep Hedge margin modest.
-- Tradeoffs: you trust Privy's key infrastructure; it's priced per monthly active user; and wallets are app-scoped, so a Privy address here differs from the user's address on hyperliquid.xyz.
-- Verify before relying on them:
-  - typed-data signing for the Baghedge policy and Hyperliquid user-signed actions with Privy embedded wallets;
-  - whether embedded wallets can sign Hyperliquid order payloads directly, which would remove the trading-agent step.
+### Recommended: Privy
+See **0 → Wallets: Privy (decided)**: one login, separate embedded Trade and Hedge addresses, Phantom read-only, in-app confirms with a visible confirm for payouts. Don't derive a Hedge key from a wallet signature: that signature would be a bearer secret able to withdraw principal.
 
 ### Guard scope (unchanged for now)
 The current guard build **pins one Hedge owner address** at build time, so each Hedge owner needs its own guard build and attestation. Serving many owners from one build would need a verified per-owner key namespace and venue-approval isolation. That's a future design item, not a drop-in change.
