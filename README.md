@@ -35,6 +35,8 @@ Open `http://localhost:3001/ops` (with `OPS_PAGE=1`) for the owner console. It c
 
 ## What's verified live
 
+**The full flow ran on mainnet with real funds:** fund through NEAR Intents, then an attested guard signs the hedge entry with its recovery stop, then SOL leaves the wallet and the hedge buys back reduce-only, then the owner closes the hedge while the manual Trade position stays put, then USDC is paid back to Base.
+
 Every row links to on-chain or venue evidence. Raw records: [`docs/evidence/mainnet.jsonl`](docs/evidence/mainnet.jsonl) and [`docs/evidence/testnet.jsonl`](docs/evidence/testnet.jsonl).
 
 | Step | Network | Evidence | Status |
@@ -49,7 +51,7 @@ Every row links to on-chain or venue evidence. Raw records: [`docs/evidence/main
 | Watched SOL moves out → reduce-only buyback | **Mainnet** | Phantom 0.40 → 0.1499 SOL → guard signed ([`9GFonDvJ…5BBx`](https://api.outlayer.ai/attestations/by-tx/9GFonDvJYMEFw9cmy6ucJAGu1oLm1xmjKY3BoL5j5BBx)) → reduce-only IOC `605233441503` **filled 0.14 SOL @ 72.203** (fill `0x67a9b704…cc0b`); hedge −0.28 → **−0.14**. Trade account unaffected (it held no position yet). | ✅ |
 | Manual Trade long (separate account, own agent) | **Mainnet** | IOC long `605239853591` **filled 0.14 SOL @ 72.225** on Trade `0x80FD…6444` | ✅ |
 | Owner closes the hedge; Trade position unchanged | **Mainnet** | owner-signed close → guard signed ([`BbsrLb94…2VDJ`](https://api.outlayer.ai/attestations/by-tx/BbsrLb945mjbCmAXcgVYe9dbDyx545asp9TsY8s32VDJ)) → reduce-only `605241804534` **filled 0.14 @ 72.262** (fill `0xd4150293…8602`); Hedge flat, no orders (stop `reduceOnlyCanceled`); **Trade still +0.14 SOL** | ✅ |
-| Pay Hedge USDC back to Base | **Mainnet** | payout in progress | ⏳ |
+| Pay Hedge USDC back to Base | **Mainnet** | owner-signed `sendAsset` 13.5 USDC (`0x83ea1acf…df8c`) → Intents `SUCCESS` → Base tx [`0xb4b7bdef…f0a3`](https://basescan.org/tx/0xb4b7bdefc4261d3ccc9a0ccc4f043f53f3fd86a5da720bfedd649971a3e1f0a3): **13.29703 USDC received** by the owner (receipt checked on Base) | ✅ |
 | Rule expiry without a crossing ends flat | Hyperliquid testnet | rule `0x243019ab…3b1a`: low 64.794 vs entry 64.76, expired with 0 actions | ✅ |
 
 ## How it works
