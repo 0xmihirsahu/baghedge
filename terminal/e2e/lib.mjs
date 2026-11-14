@@ -323,7 +323,9 @@ export async function open({ url, email, allow = [], slowMo = 250, video = true,
         if (video) {
           // in the same tab, so the recording stays one continuous video: hover the link, open it, come back
           const back = page.url();
-          await link.hover();
+          // a toast's link can expire before its turn: skip what's gone
+          if (!(await link.isVisible().catch(() => false))) return write({ type: "view", href, note: "gone before its turn, skipped" });
+          await link.hover({ timeout: 3000 }).catch(() => {});
           await page.waitForTimeout(600);
           await page.goto(href, { waitUntil: "domcontentloaded" });
           await page.waitForTimeout(5000);

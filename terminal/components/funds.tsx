@@ -202,8 +202,8 @@ export function FundsSheet() {
         const { EIP712Domain, ...types } = p.typedData.types;
         let signature: string;
         try {
-          // payouts keep a visible confirm with the exact amount and destination (docs/INTEGRATION.md security rules)
-          signature = await signer.typed(venue, { domain: p.typedData.domain, types, primaryType: p.typedData.primaryType, message: p.typedData.message }, { confirm: true });
+          // no wallet popup: this sheet is the confirm, it shows the exact amount and destination before Send
+          signature = await signer.typed(venue, { domain: p.typedData.domain, types, primaryType: p.typedData.primaryType, message: p.typedData.message });
         } catch {
           throw new FundsError("rejected", "You cancelled the signature.");
         }
@@ -395,7 +395,7 @@ export function FundsSheet() {
                         : busy === "quote"
                           ? "Locking the quote"
                           : busy === "sign"
-                            ? "Confirm in the window"
+                            ? "Signing"
                             : busy === "send"
                               ? fund && kind !== "manual"
                                 ? "Approve in your wallet"
