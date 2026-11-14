@@ -30,7 +30,7 @@ bun run smoke:api https://baghedge-api.onrender.com
 ```sh
 cp .env.example .env.testnet      # fill in; see comments
 bun run start:testnet             # API + hedge worker on :3001
-bun run check                     # typecheck + 39 unit tests
+bun run check                     # typecheck + 68 unit tests
 cargo +stable test --locked --manifest-path guard/Cargo.toml   # guard tests
 ```
 Open `http://localhost:3001/ops` (with `OPS_PAGE=1`) for the owner console. It connects a browser or phone wallet (WalletConnect) to fund, approve the agent, sign a hedge policy, close and pay out.
