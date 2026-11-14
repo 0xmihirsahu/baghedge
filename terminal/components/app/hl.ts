@@ -223,7 +223,9 @@ export function useCoin(coin: string | null, interval: Interval, hours: number) 
 
 export type Position = { coin: string; size: number; entry: number; value: number; pnl: number; leverage: number; liq: number | null };
 export type Fill = { coin: string; px: number; sz: number; side: "B" | "A"; time: number; dir: string; pnl: number; fee: number; tid: number; hash: string | null };
-export type Account = { equity: number; withdrawable: number; positions: Position[]; fills: Fill[] };
+// unified: Hyperliquid keeps the USDC in spot and backs perps with it, so perps alone can read 0 while funded.
+// usable is the margin that counts in either mode, as the backend computes it (docs/API.md, usableUsdc)
+export type Account = { equity: number; withdrawable: number; usable: number; unified: boolean; positions: Position[]; fills: Fill[] };
 
 // a hyperliquid master account's public state, refreshed every 15 s. query with the master address, never an agent's (rule 7)
 export function useAccount(address: string | null) {
@@ -236,13 +238,24 @@ export function useAccount(address: string | null) {
       Promise.all([
         info<{ marginSummary: { accountValue: string }; withdrawable: string; assetPositions: { position: Record<string, unknown> }[] }>({ type: "clearinghouseState", user: address }),
         info<Record<string, unknown>[]>({ type: "userFills", user: address }),
+        info<{ balances?: { coin: string; total: string }[]; tokenToAvailableAfterMaintenance?: [number, string][] }>({ type: "spotClearinghouseState", user: address }).catch(() => null),
+        info<string>({ type: "userAbstraction", user: address }).catch(() => null),
       ])
-        .then(([s, f]) => {
+        .then(([s, f, spot, mode]) => {
           if (gone) return;
           setError(false);
+          const spotUsdc = Number(spot?.balances?.find((b) => b.coin === "USDC")?.total ?? 0);
+          const pairs = spot?.tokenToAvailableAfterMaintenance ?? [];
+          const unified = mode === "unifiedAccount" || (mode === null && pairs.length > 0);
+          const spotAvailable = Number(pairs.find((p) => p[0] === 0)?.[1] ?? 0);
+          const perps = Number(s.marginSummary.accountValue);
+          const upnl = s.assetPositions.reduce((t, { position: p }) => t + Number(p.unrealizedPnl), 0);
           setAccount({
-            equity: Number(s.marginSummary.accountValue),
+            // standard: perps value plus any spot USDC. unified: the spot USDC plus open profit or loss
+            equity: unified ? spotUsdc + upnl : perps + spotUsdc,
             withdrawable: Number(s.withdrawable),
+            usable: unified ? spotAvailable : Number(s.withdrawable),
+            unified,
             positions: s.assetPositions.map(({ position: p }) => ({
               coin: p.coin as string,
               size: Number(p.szi),

@@ -259,8 +259,8 @@ function Accounts() {
             <div>
               <p className="text-[34px] font-semibold leading-none tracking-[-0.03em] tabular-nums">{usd(account.equity, 2)}</p>
               <p className="mt-2 text-[13px] text-white/45 tabular-nums">
-                <Tip text="Account value, including open profit or loss." side="bottom" align="start">Equity</Tip> · {usd(account.withdrawable, 2)}{" "}
-                <Tip text="USDC you could withdraw now, not held as margin." side="bottom">withdrawable</Tip>
+                <Tip text="Account value, including open profit or loss." side="bottom" align="start">Equity</Tip> · {usd(account.usable, 2)}{" "}
+                <Tip text={account.unified ? "Unified account: USDC sits in spot and backs your trades. This much is free to use." : "USDC free to use as margin or to withdraw."} side="bottom">usable</Tip>
               </p>
             </div>
             <span className="flex h-8 shrink-0 items-center gap-1 rounded-[10px] bg-[#1c1b1a] pl-3 pr-1 text-[12px] text-white/70 tabular-nums">

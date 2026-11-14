@@ -131,8 +131,9 @@ export function useLiveHedge(o: { enabled: boolean; trade: string; hedge: string
   // a session cookie, signed by the Hedge owner, to read the rule and its events
   const signIn = useCallback(async () => {
     if (signedIn.current === owner.toLowerCase()) return;
-    const s = await api<{ address?: string }>("/api/session").catch(() => ({}) as { address?: string });
-    if (s.address?.toLowerCase() === owner.toLowerCase()) {
+    // GET /api/session answers { addresses }: already signed in as the owner means no new signature
+    const s = await api<{ addresses?: string[] }>("/api/session").catch(() => ({}) as { addresses?: string[] });
+    if (s.addresses?.some((a) => a.toLowerCase() === owner.toLowerCase())) {
       signedIn.current = owner.toLowerCase();
       return;
     }
