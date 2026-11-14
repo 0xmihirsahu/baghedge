@@ -154,16 +154,18 @@ export function MarketsPage() {
 
 function Headline({ label, tip, m, value, color }: { label: string; tip: string; m: { name: string; px: number; szDecimals: number }; value: string; color?: string }) {
   return (
-    <Link href={coinHref(m.name)} className="rounded-[16px] bg-[#141312] p-4 transition-colors duration-150 hover:bg-[#1c1b1a]">
-      <p className="text-[12px] text-white/45">
-        <Tip text={tip} side="bottom" align="start">{label}</Tip>
-      </p>
-      <div className="mt-3 flex items-center gap-2.5">
-        <CoinLogo coin={m.name} className="size-7" />
-        <span className="truncate text-[15px] font-semibold">{m.name}</span>
-        <span className="ml-auto text-[15px] font-semibold tabular-nums" style={{ color }}>{value}</span>
+    <Link href={coinHref(m.name)} className="flex items-center gap-3 rounded-[16px] bg-[#141312] px-4 py-3.5 transition-colors duration-150 hover:bg-[#1c1b1a]">
+      <CoinLogo coin={m.name} className="size-9" />
+      <div className="min-w-0 leading-tight">
+        <p className="truncate text-[15px] font-semibold">{m.name}</p>
+        <p className="mt-1 text-[12px] text-white/45">
+          <Tip text={tip} side="bottom" align="start">{label}</Tip>
+        </p>
       </div>
-      <p className="mt-1 text-right text-[12px] text-white/40 tabular-nums">{usd(m.px, priceDecimals(m.px, m.szDecimals))}</p>
+      <div className="ml-auto text-right leading-tight tabular-nums">
+        <p className="text-[16px] font-semibold" style={{ color }}>{value}</p>
+        <p className="mt-1 text-[12px] text-white/40">{usd(m.px, priceDecimals(m.px, m.szDecimals))}</p>
+      </div>
     </Link>
   );
 }

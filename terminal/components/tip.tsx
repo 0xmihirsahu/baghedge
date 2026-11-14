@@ -10,7 +10,7 @@ export function Tip({ text, children, side = "top", align = "center", className 
   const y = side === "top" ? "bottom-full mb-2" : "top-full mt-2";
   return (
     <span className={`group/tip relative inline-flex ${className}`} tabIndex={0} aria-describedby={id}>
-      <span className="cursor-help underline decoration-white/25 decoration-dotted underline-offset-[3px]">{children}</span>
+      <span className="cursor-help underline decoration-transparent decoration-dotted underline-offset-[3px] transition-[text-decoration-color] duration-150 group-hover/tip:decoration-white/40 group-focus-visible/tip:decoration-white/40">{children}</span>
       <span
         id={id}
         role="tooltip"
