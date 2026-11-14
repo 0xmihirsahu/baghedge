@@ -176,33 +176,6 @@ export function BrandPage() {
         </div>
       </Card>
 
-      <Card title="X">
-        <div className="grid gap-2 sm:grid-cols-[1fr_3fr] sm:gap-3">
-          <figure className="flex flex-col rounded-[14px] bg-[#2a2826] p-4 sm:rounded-[16px] sm:p-5">
-            <div className="flex flex-1 items-center justify-center py-6">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/baghedge-x-avatar.png" alt="baghedge profile picture for X" className="size-[140px] rounded-full" />
-            </div>
-            <figcaption className="flex justify-between text-[14px] text-white/70">
-              Profile, 400 × 400
-              <Download file="baghedge-x-avatar.png" />
-            </figcaption>
-          </figure>
-          <figure className="flex flex-col rounded-[14px] bg-[#2a2826] p-4 sm:rounded-[16px] sm:p-5">
-            <div className="flex flex-1 items-center justify-center py-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/baghedge-x-header.png" alt="baghedge header for X" className="w-full rounded-[10px]" />
-            </div>
-            <figcaption className="mt-3 flex justify-between text-[14px] text-white/70">
-              <a href="https://x.com/baghedge" target="_blank" rel="noopener noreferrer" className="hover:text-white">
-                Header, 1500 × 500 · @baghedge
-              </a>
-              <Download file="baghedge-x-header.png" />
-            </figcaption>
-          </figure>
-        </div>
-      </Card>
-
       <Card title="Motion">
         <MotionDemo />
         <p className="mt-6 max-w-[620px] text-[15px] leading-[1.6] text-white/60">
