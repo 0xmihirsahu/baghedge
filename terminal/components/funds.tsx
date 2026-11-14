@@ -373,7 +373,7 @@ export function FundsSheet() {
                     <div className="mt-4 min-h-[118px] space-y-2 text-[13px]">
                       {preview ? (
                         <>
-                          <Line k={fund ? "You get" : "They get"} tip="After every fee. The minimum is guaranteed, or it refunds." v={`≈ ${toFixedTrim(outN, fund ? 2 : 6)} ${fund ? "USDC" : asset?.symbol}`} sub={`min ${toFixedTrim(minN, fund ? 2 : 6)}`} />
+                          <Line k={fund ? "You get" : "They get"} tip="After every fee. At least the minimum arrives, or it refunds." v={`≈ ${toFixedTrim(outN, fund ? 2 : 6)} ${fund ? "USDC" : asset?.symbol}`} sub={`min ${toFixedTrim(minN, fund ? 2 : 6)}`} />
                           <Line k="Route fee" tip="NEAR Intents' spread and fees, taken from the amount." v={usd(Math.max(0, inUsd - outUsd - (fund ? 0 : 1)), 2)} />
                           {fund ? <Line k="New account" tip="Hyperliquid takes 1 USDC from the first deposit into a new account." v="1 USDC, first deposit only" /> : <Line k="Hyperliquid fee" tip="Hyperliquid charges 1 USDC to send out." v="1 USDC" />}
                           <Line k="Arrives in" v={preview.timeEstimate ? `about ${Math.max(1, Math.round(preview.timeEstimate / 60))} min` : "a few minutes"} />

@@ -1,0 +1,40 @@
+# baghedge
+
+> A Hyperliquid perps terminal that can hedge the SOL you already hold in your own wallet. The SOL never moves. Live on mainnet. Built at the NEAR Hackathon, track Unstoppable DeFi.
+
+- App (mainnet): https://app.baghedge.xyz
+- Site: https://baghedge.xyz
+- Source: https://github.com/0xmihirsahu/baghedge
+- For judges: https://github.com/0xmihirsahu/baghedge/blob/main/JUDGES.md
+- Film of a full mainnet run (64 s): https://github.com/0xmihirsahu/baghedge/blob/main/docs/media/baghedge-mainnet-run.mp4
+- Backend health: https://baghedge-api-mainnet.onrender.com/api/health
+
+## What it does
+
+- Trade: all 179 Hyperliquid perps, live charts, market orders and closes from your own Trade account. Orders are signed in the browser by a trading agent that can trade but never withdraw.
+- Wallet Hedge: draw an entry and a recovery on the SOL chart. When the mark crosses down through the entry, a short opens in a separate Hedge account, sized to the SOL your wallet actually holds. It closes on recovery, at the end time, or when you ask. If SOL leaves the wallet, the short buys back the excess, reduce-only. It never adds.
+- Money in and out: fund either account from any of about 228 tokens on 38 chains (SOL, USDC on Solana, Base, Arbitrum, Ethereum and more) through NEAR Intents, and pay out the same way. Every step links to Solana, NEAR Intents and Hyperliquid explorers.
+- One sign-in: email or Google through Privy brings two embedded wallets, Trade and Hedge. Phantom stays read-only, the watched wallet.
+
+## How it fits together
+
+- Two Hyperliquid master accounts per user, Trade and Hedge, never the same.
+- A guard written in Rust runs in an OutLayer TEE (Intel TDX, attested on NEAR). It derives a separate Hyperliquid agent for each Hedge owner and signs only orders inside the owner's EIP-712 policy: cap, entry floor, recovery ceiling, end time.
+- A worker watches the Hyperliquid mark and the watched Solana wallet, keeps running after the browser closes, and reads exposure from confirmed fills.
+- The backend holds no owner keys. Every owner action (sign-in, agent approval, policy, close, payout) is signed in the browser and checked server-side before it's relayed.
+- NEAR Intents 1Click converts between external tokens and Hyperliquid USDC.
+
+## What runs today (verified on mainnet)
+
+- Funding from SOL and Base USDC through NEAR Intents, credited to Hyperliquid.
+- Per-owner guard agents: lookup, one-time approval, owner-signed policy, armed rule, owner-signed disarm.
+- A guard-signed hedge entry with an attached recovery stop, a reduce-only buyback when SOL left the wallet, and an owner close, with OutLayer attestations.
+- Manual market orders and closes from a browser trading agent.
+- Payouts back to SOL and to Base.
+
+Evidence with every transaction: https://github.com/0xmihirsahu/baghedge/blob/main/JUDGES.md and https://github.com/0xmihirsahu/baghedge#whats-verified-live
+
+## Disclosures
+
+- The guard's NEAR execution account key was shared during development and hasn't been rotated. A holder could request extra hedge orders within a user's signed policy limits, trading that Hedge account's margin. It can never withdraw. The app shows this in the hedge review.
+- Perps carry liquidation and funding risk. baghedge reduces downside on SOL you hold while a hedge is armed; it doesn't remove risk.
