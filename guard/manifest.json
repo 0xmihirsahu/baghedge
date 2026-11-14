@@ -1,0 +1,5 @@
+{
+  "signing_keys": [
+    { "path": "guard", "type": "secp256k1", "bind": "wasm", "caller": "signer" }
+  ]
+}

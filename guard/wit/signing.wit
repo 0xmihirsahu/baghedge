@@ -1,0 +1,10 @@
+package outlayer:signing-keys@0.1.0;
+
+interface api {
+    public-key: func(path: string, vault: option<string>) -> result<list<u8>, string>;
+    sign: func(path: string, vault: option<string>, message: list<u8>) -> result<list<u8>, string>;
+}
+
+world signing-probe {
+    import api;
+}
