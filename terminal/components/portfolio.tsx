@@ -6,6 +6,7 @@ import { BagLoader, ExposureDots, NumberRoll, StatusText } from "@/components/mo
 import { WalletAvatar } from "./avatar";
 import { CopyAddress } from "./copy-address";
 import { CoinLogo } from "./coin-logo";
+import { Tip } from "./tip";
 import { info, useAccount } from "./app/hl";
 import { STATUS, useStore } from "./app/store";
 import { DOWN, UP, compact, pct, tone, usd } from "./app/format";
@@ -60,7 +61,7 @@ export function PortfolioPage() {
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] bg-[#141312] p-6">
             <div className="flex items-center justify-between">
               <p className="text-[13px] text-white/45">Hedge</p>
-              <span className="rounded-[7px] bg-[#1c1b1a] px-2 py-0.5 text-[12px] text-white/55">Replay</span>
+              <span className="rounded-[7px] bg-[#1c1b1a] px-2 py-0.5 text-[12px] text-white/55"><Tip text="Simulated hedge. Nothing is signed or sent." side="bottom" align="end">Replay</Tip></span>
             </div>
             {active ? (
               <>
@@ -108,7 +109,7 @@ function Accounts() {
   return (
     <div className={`flex min-h-[420px] flex-col overflow-hidden rounded-[20px] bg-[#141312] px-6 pt-6 lg:min-h-0 ${account && address ? "pb-0" : "pb-6"}`}>
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[13px] text-white/45">Hyperliquid accounts</p>
+        <p className="text-[13px] text-white/45"><Tip text="Trade and Hedge are two separate Hyperliquid accounts." side="bottom" align="start">Hyperliquid accounts</Tip></p>
         <div className="grid grid-cols-2 gap-1 rounded-[12px] bg-[#1c1b1a] p-1">
           {(["trade", "hedge"] as const).map((r) => (
             <button
@@ -152,7 +153,9 @@ function Accounts() {
               ))}
             </div>
             <p className="text-[20px] font-semibold tracking-[-0.02em]">Add your {role === "trade" ? "Trade" : "Hedge"} account</p>
-            <p className="mt-1 text-[14px] text-white/45">{role === "trade" ? "The account you trade from by hand." : "The separate account that holds the hedge short."} Read only.</p>
+            <p className="mt-1 text-[14px] text-white/45">{role === "trade" ? "The account you trade from by hand." : "The separate account that holds the hedge short."}{" "}
+              <Tip text="We only read this account. We never move funds.">Read only.</Tip>
+            </p>
             <div className="mt-5 flex w-full gap-2">
               <input
                 value={input}
@@ -181,7 +184,10 @@ function Accounts() {
           <div className="mt-4 flex items-start justify-between gap-4">
             <div>
               <p className="text-[34px] font-semibold leading-none tracking-[-0.03em] tabular-nums">{usd(account.equity, 2)}</p>
-              <p className="mt-2 text-[13px] text-white/45 tabular-nums">Equity · {usd(account.withdrawable, 2)} withdrawable</p>
+              <p className="mt-2 text-[13px] text-white/45 tabular-nums">
+                <Tip text="Account value, including open profit or loss." side="bottom" align="start">Equity</Tip> · {usd(account.withdrawable, 2)}{" "}
+                <Tip text="USDC you could withdraw now, not held as margin." side="bottom">withdrawable</Tip>
+              </p>
             </div>
             <span className="flex h-8 shrink-0 items-center gap-1 rounded-[10px] bg-[#1c1b1a] pl-3 pr-1 text-[12px] text-white/70 tabular-nums">
               <CopyAddress address={address} />
@@ -192,9 +198,9 @@ function Accounts() {
           </div>
           <div className="mt-6 flex items-center justify-between pb-1 text-[12px] text-white/40">
             <span>
-              Positions <span className="text-white/70">{account.positions.length}</span>
+              <Tip text="Open positions in this account, read live." align="start">Positions</Tip> <span className="text-white/70">{account.positions.length}</span>
             </span>
-            <span>Value · PnL</span>
+            <span><Tip text="Position value in dollars, and unrealised profit or loss." align="end">Value · PnL</Tip></span>
           </div>
           <div className="-mx-2 min-h-0 flex-1 overflow-y-auto border-t border-white/[0.08] pb-3 pt-1">
             {account.positions.length ? (
@@ -256,7 +262,7 @@ function ValueChart({ sol, mark }: { sol: number | null; mark?: number }) {
   return (
     <div className="mt-4 flex min-h-[48px] flex-1 flex-col">
       <div className="flex items-center justify-between text-[12px] text-white/40 tabular-nums">
-        <span>7 days at today&apos;s balance</span>
+        <span><Tip text="Today's SOL balance priced over the last 7 days." align="start">7 days at today&apos;s balance</Tip></span>
         <span style={{ color }}>{usd(sol * (pts[pts.length - 1] - pts[0]), 2)} · {pct(change)}</span>
       </div>
       <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="mt-2 min-h-0 w-full flex-1" aria-label={`Value ${pct(change)} over 7 days`}>

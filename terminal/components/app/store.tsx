@@ -194,7 +194,9 @@ function useTerminal() {
     return () => clearTimeout(t);
   }, [sol, hedge, phase]);
 
-  const hedgeState = { phase, setPhase: go, hedge, cap, setCap, capN, entry, setEntry, recovery, setRecovery, held };
+  const setEntryKept = useCallback((v: number) => setEntry(Math.min(v, Math.round(recovery * 0.998 * 100) / 100)), [recovery]);
+  const setRecoveryKept = useCallback((v: number) => setRecovery(Math.max(v, Math.round(entry * 1.002 * 100) / 100)), [entry]);
+  const hedgeState = { phase, setPhase: go, hedge, cap, setCap, capN, entry, setEntry: setEntryKept, recovery, setRecovery: setRecoveryKept, held };
   return { markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };
 }
 

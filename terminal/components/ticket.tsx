@@ -4,6 +4,7 @@ import { Backspace } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { BagLoader, ExposureDots, StatusText, TransferTrack } from "@/components/motion";
 import { CoinLogo } from "./coin-logo";
+import { Tip } from "./tip";
 import { AUTO, FUNDING, STATUS, useStore, type Phase } from "./app/store";
 import { CORAL, DOWN, INK, TAKER, UP, pct, risk, usd } from "./app/format";
 
@@ -16,6 +17,8 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
   const mode = canHedge ? modeState : "Trade";
   const hedgeMode = mode === "Hedge";
   const [usdIn, setUsdIn] = useState("100");
+  const [lev, setLev] = useState(5);
+  const leverage = Math.min(lev, maxLev);
   const draft = h.phase === "draft";
   const connected = !!wallet.address;
   const editable = !hedgeMode || draft;
@@ -88,7 +91,13 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
         <CoinLogo coin={coin} className="size-10" />
         <div className="leading-tight">
           <p className="text-[16px] font-semibold">{coin}</p>
-          <p className="text-[13px] text-white/45">{hedgeMode ? (connected ? `${h.held.toFixed(2)} in wallet` : "Not connected") : `Up to ${maxLev}x`}</p>
+          <p className="text-[13px] text-white/45">
+            {hedgeMode ? (
+              connected ? <Tip text="Hedge shorts SOL to offset the SOL in your wallet." align="start">{`${h.held.toFixed(2)} in wallet`}</Tip> : "Not connected"
+            ) : (
+              <Tip text={`Trade places a plain long or short, up to ${maxLev}x.`} align="start">{`Up to ${maxLev}x`}</Tip>
+            )}
+          </p>
         </div>
         <div className="ml-auto text-right leading-tight tabular-nums">
           <p className="text-[15px] font-semibold">{mark ? usd(mark) : "…"}</p>
@@ -106,8 +115,10 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
               {usd(h.capN * mark)}
               {connected && h.held > 0 && (
                 <>
-                  {" · covers "}
-                  <span className="text-white">{Math.min(999, Math.round(((Number(h.cap) || 0) / h.held) * 100))}%</span>
+                  {" · "}
+                  <Tip text="Share of your wallet's SOL this hedge would short.">
+                    covers <span className="text-white">{Math.min(999, Math.round(((Number(h.cap) || 0) / h.held) * 100))}%</span>
+                  </Tip>
                 </>
               )}
             </>
@@ -147,15 +158,20 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
         </div>
       )}
 
-      <p className="mt-auto pt-4 text-center text-[13px] text-white/45 tabular-nums">
+      <div className="flex flex-1 flex-col justify-center py-4">
         {hedgeMode ? (
-          <>
-            <span style={{ color: CORAL }}>Entry {usd(h.entry)}</span> · Recovery {usd(h.recovery)}
-          </>
+          <RuleTrack mark={mark} entry={h.entry} recovery={h.recovery} />
         ) : (
-          tradeBelowMin ? `Minimum $${MIN}` : `Fee ${usd((Number(usdIn) || 0) * TAKER, 2)}`
+          <>
+            <Leverage value={leverage} max={maxLev} onChange={setLev} />
+            {tradeBelowMin && (
+              <p className="mt-3 text-center text-[13px] text-[#f2554b]">
+                <Tip text={`Hyperliquid rejects orders under $${MIN}.`}>{`Minimum $${MIN}`}</Tip>
+              </p>
+            )}
+          </>
         )}
-      </p>
+      </div>
 
       {hedgeMode ? (
         <button disabled={disabled} onClick={act} className="mt-3 flex h-[52px] shrink-0 items-center justify-center gap-2 rounded-[14px] bg-[#f0645a] text-[16px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:bg-[#1c1b1a] disabled:text-white/60">
@@ -185,17 +201,82 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
             : [
                 ["Notional", usd(Number(usdIn) || 0)],
                 ["Size", `${tradeQ.toFixed(3)} ${coin}`],
-                ["Taker fee", "0.045%"],
-                ["Max leverage", `${maxLev}x`],
+                ["Margin", usd((Number(usdIn) || 0) / leverage, 2)],
+                ["Fee", usd((Number(usdIn) || 0) * TAKER, 2)],
               ]
-          ).map(([k, v]) => (
+          ).map(([k, v], i) => (
             <div key={k} className="leading-tight">
-              <p className="text-[12px] text-white/45">{k}</p>
+              <p className="text-[12px] text-white/45">{TIPS[k] ? <Tip text={TIPS[k].replace("COIN", coin)} align={i % 2 ? "center" : "start"}>{k}</Tip> : k}</p>
               <p className="mt-1 text-[15px] font-semibold tabular-nums">{v}</p>
             </div>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// one short line per estimate label. COIN is swapped for the market
+const TIPS: Record<string, string> = {
+  "Margin, est.": "USDC the hedge account needs to hold the short.",
+  "Liquidation, est.": "Price where the venue would close the short.",
+  "Fees, est.": "Taker fees to open and close the short.",
+  "Max leverage": "The most leverage Hyperliquid allows on this market.",
+  Notional: "Total dollar value of the order.",
+  Size: "How much COIN the order buys or sells.",
+  Fee: "Taker fee, 0.045% of the order.",
+  Margin: "USDC this order ties up at the chosen leverage.",
+};
+
+// leverage for a trade: one row, the label and the steps up to the market's max
+function Leverage({ value, max, onChange }: { value: number; max: number; onChange: (v: number) => void }) {
+  const steps = [...new Set([1, 2, 5, 10, 20, 40, max].filter((v) => v <= max))].slice(-5);
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-[13px] text-white/45">
+        <Tip text="Higher leverage, smaller margin, closer liquidation." align="start">Leverage</Tip>
+      </span>
+      <div className="ml-auto flex gap-1 rounded-[11px] bg-[#1c1b1a] p-1">
+        {steps.map((v) => (
+          <button key={v} onClick={() => onChange(v)} className={`h-7 min-w-[40px] rounded-[8px] px-2 text-[13px] font-semibold tabular-nums transition-colors duration-150 ${v === value ? "bg-[#2e2c2a] text-white" : "text-white/45 hover:text-white/75"}`}>
+            {v}x
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// where SOL is now against the rule: entry (coral) on the left, recovery (white) on the right,
+// the live price as a dot between them, and how far each line is from here
+function RuleTrack({ mark, entry, recovery }: { mark?: number; entry: number; recovery: number }) {
+  if (!mark || !entry || recovery <= entry) return null;
+  const lo = entry - (recovery - entry) * 0.15;
+  const hi = recovery + (recovery - entry) * 0.15;
+  const at = (v: number) => `${Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100))}%`;
+  const toEntry = entry / mark - 1;
+  const toRecovery = recovery / mark - 1;
+  return (
+    <div>
+      <div className="relative h-8">
+        <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-white/[0.12]" />
+        <span className="absolute top-1/2 h-3.5 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full" style={{ left: at(entry), background: CORAL }} />
+        <span className="absolute top-1/2 h-3.5 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white" style={{ left: at(recovery) }} />
+        <span className="absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white ring-4 ring-[#0b0908] transition-[left] duration-500 ease-out" style={{ left: at(mark) }} />
+      </div>
+      <div className="mt-1 flex justify-between text-[12px] tabular-nums">
+        <span style={{ color: CORAL }}>
+          <Tip text="The short opens if SOL falls to this price." align="start">Entry {usd(entry)}</Tip>
+          <span className="block text-white/40">{pct(toEntry)} from now</span>
+        </span>
+        <span className="text-center text-white/70">
+          Now {usd(mark)}
+        </span>
+        <span className="text-right text-white/70">
+          <Tip text="The hedge closes as SOL recovers here. Runs once." align="end">Recovery {usd(recovery)}</Tip>
+          <span className="block text-white/40">{pct(toRecovery)} from now</span>
+        </span>
+      </div>
     </div>
   );
 }
