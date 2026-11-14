@@ -1,6 +1,8 @@
 "use client";
 
+import { SpeakerHigh, SpeakerSlash } from "@phosphor-icons/react";
 import { motion } from "motion/react";
+import { useRef, useState } from "react";
 import { Header } from "@/components/header";
 import { APP_URL } from "@/lib/site";
 
@@ -19,9 +21,7 @@ export function VisionPage() {
     <div className="flex flex-col gap-2 p-2 sm:gap-3 sm:p-3">
       <section className="bg-coal relative overflow-hidden rounded-[20px] px-3 pb-3 pt-[88px] sm:rounded-[24px] sm:px-6 sm:pb-6 sm:pt-[104px]">
         <Header />
-        {/* the film is pure black; screen blends it into the card so only the type and dots show. no fade on the
-            element itself: an opacity animation would isolate the blend and flash the black */}
-        <video src="/media/vision.mp4" poster="/media/vision.jpg" autoPlay muted loop playsInline className="aspect-video w-full mix-blend-screen" />
+        <Film />
       </section>
 
       <section className="bg-coal rounded-[20px] px-6 py-16 sm:rounded-[24px] sm:px-12 sm:py-24">
@@ -46,6 +46,39 @@ export function VisionPage() {
           </a>
         </motion.div>
       </section>
+    </div>
+  );
+}
+
+// the film is pure black; screen blends it into the card so only the type and dots show (no fade on the element:
+// an opacity animation would isolate the blend and flash the black). it autoplays muted, as browsers require;
+// one button turns the score on, from the start so the build lands on the drop
+function Film() {
+  const video = useRef<HTMLVideoElement>(null);
+  const [sound, setSound] = useState(false);
+  const toggle = () => {
+    const v = video.current;
+    if (!v) return;
+    const on = !sound;
+    v.muted = !on;
+    if (on) {
+      v.currentTime = 0;
+      v.play().catch(() => {});
+    }
+    setSound(on);
+  };
+  return (
+    <div className="relative">
+      <video ref={video} src="/media/vision.mp4" poster="/media/vision.jpg" autoPlay muted loop playsInline className="aspect-video w-full mix-blend-screen" />
+      <button
+        onClick={toggle}
+        aria-pressed={sound}
+        aria-label={sound ? "Turn sound off" : "Turn sound on"}
+        className="absolute bottom-3 right-3 flex h-10 items-center gap-2 rounded-[12px] bg-[#1c1b1a] px-3.5 text-[14px] font-medium text-white/85 transition-[background-color,scale] duration-150 hover:bg-[#2a2826] active:scale-[0.97] sm:bottom-5 sm:right-5"
+      >
+        {sound ? <SpeakerHigh size={18} weight="fill" /> : <SpeakerSlash size={18} weight="fill" />}
+        {sound ? "Sound off" : "Sound on"}
+      </button>
     </div>
   );
 }
