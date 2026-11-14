@@ -96,9 +96,17 @@ export function createHedgeRoutes(opts: {
       throw new RequestError(400, "invalid_hedge", "Provide policy, ownerSig and chainId");
     }
     const policy = body.policy as HedgePolicy;
-    try { await verifyPolicy(policy, body.chainId, body.ownerSig as Hex); } catch (error) {
+    // Canonical lowercase hex only: the same signed bytes must never appear under two different ids.
+    if (typeof policy.ruleId !== "string" || !/^0x[\da-f]{64}$/.test(policy.ruleId) ||
+      typeof policy.hedgeAccount !== "string" || policy.hedgeAccount !== policy.hedgeAccount.toLowerCase() ||
+      typeof policy.tradeAccount !== "string" || policy.tradeAccount !== policy.tradeAccount.toLowerCase()) {
+      throw new RequestError(400, "non_canonical_policy", "ruleId and accounts must be lowercase hex");
+    }
+    let digest: Hex;
+    try { ({ digest } = await verifyPolicy(policy, body.chainId, body.ownerSig as Hex)); } catch (error) {
       throw new RequestError(400, "invalid_policy", error instanceof Error ? error.message : "Invalid policy");
     }
+    if (db.ruleByDigest(digest)) throw new RequestError(409, "duplicate_rule", "This signed policy was already used");
     if (policy.environment !== env) throw new RequestError(409, "wrong_environment", `This server runs ${env}`);
     if (policy.guardAgent.toLowerCase() !== opts.signer.agentAddress.toLowerCase() ||
       policy.guardBuildHash.toLowerCase() !== opts.signer.buildHash.toLowerCase()) {
@@ -129,7 +137,7 @@ export function createHedgeRoutes(opts: {
     try {
       db.insertRule({ id: policy.ruleId, env, hedgeAddress: policy.hedgeAccount.toLowerCase(),
         tradeAddress: policy.tradeAccount.toLowerCase(), policy, ownerSig: body.ownerSig, chainId: body.chainId,
-        signerKind: opts.signer.kind, status: "active", state, stopStatus: "none", reason: "armed" });
+        signerKind: opts.signer.kind, status: "active", state, stopStatus: "none", reason: "armed" }, digest);
     } catch {
       throw new RequestError(409, "rule_active", "This Hedge account already has an active rule");
     }
@@ -168,8 +176,10 @@ export function createHedgeRoutes(opts: {
       if (req.method === "POST" && url.pathname === "/api/hedges/draft") return draft(await json(req));
       if (req.method === "POST" && url.pathname === "/api/hedges") return arm(await json(req));
       if (req.method === "GET" && url.pathname === "/api/hedges") {
+        // TODO(before public deploy): require an owner session (section 17) for rule reads and events.
         const hedge = url.searchParams.get("hedge")?.toLowerCase();
-        const rules = db.activeRules(env).filter(r => !hedge || r.hedgeAddress === hedge);
+        if (!isEvmAddress(hedge)) throw new RequestError(400, "invalid_address", "Provide ?hedge=<Hedge account>");
+        const rules = db.activeRules(env).filter(r => r.hedgeAddress === hedge);
         return { env, signer: opts.signer && { kind: opts.signer.kind, agentAddress: opts.signer.agentAddress, buildHash: opts.signer.buildHash },
           rules: rules.map(r => ruleView(r, db)) };
       }
@@ -184,7 +194,8 @@ export function createHedgeRoutes(opts: {
 
     /** Server-sent events. Reconnect with ?after=<last id> (or Last-Event-ID) and refetch snapshots. */
     events(req: Request, url: URL) {
-      const ruleId = url.searchParams.get("rule")?.toLowerCase() || undefined;
+      const ruleId = url.searchParams.get("rule")?.toLowerCase();
+      if (!ruleId || !/^0x[\da-f]{64}$/.test(ruleId)) throw new RequestError(400, "invalid_rule", "Provide ?rule=<rule id>");
       let after = Number(req.headers.get("last-event-id") ?? url.searchParams.get("after") ?? 0) || 0;
       let unsubscribe = () => {};
       let keepAlive: ReturnType<typeof setInterval> | undefined;

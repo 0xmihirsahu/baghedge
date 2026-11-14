@@ -87,7 +87,7 @@ function setup() {
     venue: { shortLots: 0n, at: now }, book: null,
   });
   db.insertRule({ id: "r1", env: "testnet", hedgeAddress: policy.hedgeAccount.toLowerCase(), tradeAddress: policy.tradeAccount,
-    policy, ownerSig: "0x", chainId: 1, signerKind: "fallback", status: "active", state, stopStatus: "none", reason: "armed" });
+    policy, ownerSig: "0x", chainId: 1, signerKind: "fallback", status: "active", state, stopStatus: "none", reason: "armed" }, "0xdigest");
   const worker = createWorker({
     env: "testnet", db, exchange, signerFor: () => signer,
     readWallet: async () => ({ lamports: v.lamports.toString(), observedAt: Date.now() }),

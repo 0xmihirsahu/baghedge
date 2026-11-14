@@ -6,6 +6,7 @@ import { createIntents, parseQuoteInput } from "./intents";
 import { openTransfers } from "./transfers";
 import { createVenue, readSolBalance } from "./venue";
 import { openDb } from "./db";
+import { serveOps } from "./ops/serve";
 import { createExchange, fallbackSigner, verifiedSigner, type HedgeSigner, type Hex } from "./exchange";
 import { createHedgeRoutes, type SignerConfig } from "./hedges";
 import { createWorker, type SignContext } from "./worker";
@@ -43,7 +44,9 @@ export function createApi(config: AppConfig, request = fetch) {
     if (req.method === "GET" && url.pathname === "/api/health") {
       return {
         mode: config.mode, executableQuotesEnabled: config.mode === "mainnet",
-        hedgeSigner: config.signer ? { kind: config.signer.kind, agentAddress: config.signer.agentAddress } : null,
+        hedgeSigner: config.signer
+          ? { kind: config.signer.kind, agentAddress: config.signer.agentAddress, buildHash: config.signer.buildHash }
+          : null,
         workerRunning: Boolean(worker && config.worker),
       };
     }
@@ -106,6 +109,8 @@ export function createApi(config: AppConfig, request = fetch) {
   return {
     async fetch(req: Request) {
       const url = new URL(req.url);
+      const ops = await serveOps(url);
+      if (ops) return ops;
       const origin = req.headers.get("origin");
       const headers = new Headers({ "Cache-Control": "no-store" });
       if (origin && origin !== url.origin && origin !== config.appOrigin) {
@@ -121,7 +126,13 @@ export function createApi(config: AppConfig, request = fetch) {
       if (req.method === "GET" && url.pathname === "/api/events") {
         headers.set("Content-Type", "text/event-stream");
         headers.set("Connection", "keep-alive");
-        return new Response(hedges.events(req, url), { headers });
+        try {
+          return new Response(hedges.events(req, url), { headers });
+        } catch (error) {
+          headers.delete("Content-Type"); headers.delete("Connection");
+          if (error instanceof RequestError) return Response.json({ error: error.code, message: error.message }, { status: error.status, headers });
+          throw error;
+        }
       }
       try {
         return Response.json(await route(req, url), { headers });

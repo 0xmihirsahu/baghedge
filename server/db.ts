@@ -40,7 +40,7 @@ export function openDb(path: string) {
     id TEXT PRIMARY KEY, env TEXT NOT NULL, hedge_address TEXT NOT NULL, trade_address TEXT NOT NULL,
     policy TEXT NOT NULL, owner_sig TEXT NOT NULL, chain_id INTEGER NOT NULL, signer_kind TEXT NOT NULL,
     status TEXT NOT NULL, state TEXT NOT NULL, stop_status TEXT NOT NULL, reason TEXT NOT NULL,
-    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`);
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, policy_digest TEXT NOT NULL UNIQUE)`);
   // One active hedge rule per Hedge account and environment.
   db.run("CREATE UNIQUE INDEX IF NOT EXISTS rules_one_active ON rules(env, hedge_address) WHERE status = 'active'");
   db.run(`CREATE TABLE IF NOT EXISTS actions (
@@ -82,13 +82,15 @@ export function openDb(path: string) {
 
   const api = {
     raw: db,
-    insertRule(rule: Omit<RuleRecord, "createdAt" | "updatedAt">) {
+    /** policyDigest is UNIQUE: a signed policy can arm at most one rule, ever. */
+    insertRule(rule: Omit<RuleRecord, "createdAt" | "updatedAt">, policyDigest: string) {
       const now = Date.now();
-      db.query(`INSERT INTO rules VALUES ($id, $env, $hedge, $trade, $policy, $sig, $chain, $kind, $status, $state, $stop, $reason, $now, $now)`)
-        .run({ id: rule.id, env: rule.env, hedge: rule.hedgeAddress, trade: rule.tradeAddress,
+      db.query(`INSERT INTO rules VALUES ($id, $env, $hedge, $trade, $policy, $sig, $chain, $kind, $status, $state, $stop, $reason, $now, $now, $digest)`)
+        .run({ digest: policyDigest.toLowerCase(), id: rule.id, env: rule.env, hedge: rule.hedgeAddress, trade: rule.tradeAddress,
           policy: JSON.stringify(rule.policy), sig: rule.ownerSig, chain: rule.chainId, kind: rule.signerKind,
           status: rule.status, state: encode(rule.state), stop: rule.stopStatus, reason: rule.reason, now });
     },
+    ruleByDigest(digest: string) { return ruleRow(db.query("SELECT * FROM rules WHERE policy_digest = $digest").get({ digest: digest.toLowerCase() }) as Record<string, unknown> | null); },
     rule(id: string) { return ruleRow(db.query("SELECT * FROM rules WHERE id = $id").get({ id }) as Record<string, unknown> | null); },
     activeRules(env: Env) {
       return (db.query("SELECT * FROM rules WHERE env = $env AND status = 'active'").all({ env }) as Record<string, unknown>[])
