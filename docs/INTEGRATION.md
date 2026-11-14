@@ -7,6 +7,38 @@
 
 > The backend holds no owner keys. Every owner action is signed in the user's wallet in the browser. The backend builds the payloads, checks the signatures, runs the hedge worker, and relays to Hyperliquid.
 
+## What's supported
+
+| Area | Supported today | Notes |
+| --- | --- | --- |
+| **Manual trading (Trade account)** | **All 179 live Hyperliquid perps** (BTC, ETH, SOL, HYPE, memes, and more) | Read the list, asset ids and `sizeDecimals` from `GET /api/markets`. Orders are signed in the browser by the trading agent (section 8), so any perp works. `k`-prefixed markets (`kPEPE`, `kBONK`, `kSHIB`) are quoted per **1000 tokens**. |
+| **Funding in (to Trade or Hedge)** | **Any of the ~228 tokens on 38 chains** that NEAR Intents lists, converted to Hyperliquid USDC. Examples: USDC on Base, Arbitrum, Ethereum, Optimism, Polygon, BSC or Solana; native **SOL**, **ETH** (mainnet, Base, Arbitrum) and NEAR. | `GET /api/transfers/assets` lists them. Pass `externalAsset: <assetId>` to `/api/transfers/quote`. Dry quotes for all the examples returned 30–60 s routes (Nov 14). Live-funded so far: Base USDC. |
+| **Pay out** | The same list in reverse: Hyperliquid USDC → any listed token or chain | `direction: "withdraw"` with `externalAsset`, and `baseAddress` = the recipient on that chain. |
+| **Wallet Hedge (watched asset)** | **SOL** held liquid in a Solana wallet | The worker, policy and guard are SOL-only today (see below). |
+| **Margin asset** | Hyperliquid perps **USDC** | Unified accounts hold USDC in spot (`spotUsdc`). See section 2. |
+
+### Hedging more than SOL
+The hedge logic is market-generic: sizes and prices use each market's own `sizeDecimals`, and the signed policy already carries `market` and `assetId`. It's SOL-only today because of four things:
+1. the worker reads only native SOL balances;
+2. `shared/policy.ts` and the Rust guard accept only `market: "SOL"`;
+3. the guard build pins one asset id;
+4. `COIN = "SOL"` in the worker.
+
+Any token that **sits in a wallet we can read** and **has a Hyperliquid perp** can be added. Candidates from today's lists:
+
+| Wallet chain | Tokens with a Hyperliquid perp |
+| --- | --- |
+| Solana | SOL ✅ (live), TRUMP, PENGU, BOME, MELANIA, SPX, TURBO, ZEC, STRK, NEAR (bridged), plus LSTs (JitoSOL, mSOL) counted as SOL |
+| Ethereum / Base / Arbitrum / Optimism / Polygon | ETH (native, every chain), BTC (WBTC, cbBTC), LINK, UNI, AAVE, ARB, OP, GMX, POL, kPEPE, kSHIB, BRETT, KAITO, VVV |
+| Other | BNB, AVAX, SUI, APT, XRP, TRX, DOGE, LTC, ADA, NEAR |
+
+What each new asset needs:
+- a balance reader for its chain (an SPL token account or an ERC-20 `balanceOf`), in raw units;
+- unit conversion for `k` markets (1 lot of `kPEPE` = 1000 PEPE);
+- a guard build pinned to that market, or a guard that accepts a list of markets.
+
+ETH and BTC on EVM chains are the highest-value next step.
+
 ## 0. Setup
 
 ### Proxy `/api` to the backend (same origin)
@@ -63,15 +95,28 @@ await post("/api/session/verify", { nonce, signature }); // sets the cookie
 - `GET /api/session` returns the signed-in address.
 - A `401 sign_in_required` means: run this again.
 
-## 2. Fund an account from Base (Hedge or Trade)
+## 2. Fund an account (from any chain)
 ```ts
-const q = await post("/api/transfers/quote", { direction: "fund", role: "hedge", baseAddress, venueAddress: hedgeAddress, amount: "15", dry: false });
-// Show the review: q.recipient, q.refundTo, q.amountIn (6 dec), q.minAmountOut (8 dec), q.deadline
-await switchChain(8453);
-const hash = await wallet.sendTransaction({ account: baseAddress, to: q.transfer.contract, data: q.transfer.data, value: 0n, chain: base });
-await post(`/api/transfers/${q.id}/deposit`, { txHash: hash });
-// Poll every few seconds until status is SUCCESS and recipientAccount.withdrawableUsdc > 0
-const t = await get(`/api/transfers/${q.id}`);
+const { assets } = await get("/api/transfers/assets");        // pick one: e.g. SOL on Solana, USDC on Arbitrum
+const q = await post("/api/transfers/quote", {
+  direction: "fund", role: "hedge", venueAddress: hedgeAddress, amount: "0.2", dry: false,
+  externalAsset: "nep141:sol.omft.near",                         // omit for Base USDC (the default)
+  baseAddress: phantomAddress,                                    // the source wallet on that chain (refunds go here)
+});
+// Show the review: q.externalAsset, q.recipient, q.refundTo, q.amountIn (source decimals), q.minAmountOut (8 dec), q.deadline
+```
+Then send `q.transfer` from the source wallet. Its `type` says how:
+
+| `transfer.type` | Send with |
+| --- | --- |
+| `baseErc20Transfer` / `evmErc20Transfer` | EVM wallet on `chainId`: `{ to: contract, data, value: 0 }` |
+| `evmNativeTransfer` | EVM wallet on `chainId`: `{ to, value }` (native ETH and similar) |
+| `solanaTransfer` | Phantom: `SystemProgram.transfer` of `amount` lamports to `to` when `mint` is null, otherwise an SPL transfer of `mint` |
+| `deposit` | Any other chain: send `amount` of the asset to `to`, including `memo` if one is set |
+
+```ts
+await post(`/api/transfers/${q.id}/deposit`, { txHash });       // optional speed-up
+const t = await get(`/api/transfers/${q.id}`);                   // poll every few seconds until SUCCESS and recipientAccount.withdrawableUsdc > 0
 ```
 UI states (section 12):
 - `PENDING_DEPOSIT` → **Awaiting signature**
@@ -81,8 +126,10 @@ UI states (section 12):
 
 Show **Credited** only when the second condition holds too.
 
-- Use `dry: true` for display-only estimates. A dry quote is not a transfer.
-- Mainnet only (Intents has no testnet). The verified run took about 90 seconds.
+- Use `dry: true` for display-only estimates.
+- Mainnet only (Intents has no testnet).
+- Fees seen live: 1Click about 0.2 USDC, Hyperliquid activation 1 USDC on a new account, and 1 USDC on `sendAsset` payouts.
+- Keep about 1.2 USDC in an account when paying out everything.
 
 ## 3. Approve the hedge agent (Hedge owner, once)
 ```ts
@@ -144,9 +191,9 @@ await post(`/api/hedges/${rule.id}/close`, { signature, issuedAt: c.issuedAt, ch
 - `reason: "cancelling-hedge-orders"` means the position is flat and the worker is clearing the leftover stop.
 - `status: "done"` means finished.
 
-## 7. Pay out to Base (Hedge or Trade owner)
+## 7. Pay out (to Base or any listed chain; Hedge or Trade owner)
 ```ts
-const q = await post("/api/transfers/quote", { direction: "withdraw", role: "hedge", baseAddress, venueAddress: hedgeAddress, amount: "12", dry: false });
+const q = await post("/api/transfers/quote", { direction: "withdraw", role: "hedge", baseAddress: recipientOnThatChain, venueAddress: hedgeAddress, amount: "12", dry: false /* , externalAsset: any listed asset; default Base USDC */ });
 const { action, typedData } = await post(`/api/transfers/${q.id}/send-asset`, { chainId });
 const signature = await signTyped(wallet, hedgeAddress, typedData);
 await post(`/api/transfers/${q.id}/send-asset/submit`, { action, signature });
@@ -172,6 +219,50 @@ await ex.order({ orders: [{ a: asset, b: true, p: limitPx, s: size, r: false, t:
 
 Query positions with the **Trade owner** address, not the agent. Verified on testnet: an agent approved through the relay placed and canceled an order on the owner's account.
 
+## Fewer wallets and signatures
+
+Our end-to-end mainnet run took **4 wallets** (Trade EVM, Hedge EVM, Base funding, Phantom) and about **11 prompts**. This is how to get a user down to **one or two wallets and about 3 prompts for the whole lifecycle**.
+
+### What's already in the backend
+- **Fund from the wallet the user already has.** Phantom users fund with SOL or Solana USDC, so there's no Base wallet and no ETH for gas (section 2).
+- **Arming signs you in.** A successful `POST /api/hedges` sets the session cookie for the Hedge owner, so no separate sign-in is needed after arming.
+- **The watched wallet is read-only.** Phantom only needs to share its address, with no signature. A "you control this" badge is optional.
+- **One trading-agent approval** covers manual trading for up to 180 days (`validDays: 180`).
+
+### Recommended: derive the Hedge account from the main wallet
+Trade and Hedge must be separate Hyperliquid accounts (AGENTS.md rule 8), but the Hedge account doesn't need its own wallet app:
+
+```ts
+// One-time prompt: deterministic signature → deterministic Hedge key. Re-derivable on any device, no seed to back up.
+const sig = await wallet.signMessage({ account: tradeAddress, message: `Baghedge Hedge account v1\n${tradeAddress.toLowerCase()}` });
+const hedgeKey = keccak256(sig);                       // 32-byte private key
+const hedge = privateKeyToAccount(hedgeKey);           // hedge.address = the Hedge master account
+```
+Every Hedge-owner action is then signed **in the app, with no wallet popup**:
+- guard `approveAgent`;
+- the hedge policy;
+- close and disarm;
+- payout;
+- the hedge sign-in.
+
+Show your own confirm screen with the exact policy values instead of a wallet prompt.
+
+Resulting user journey:
+
+| Moment | Wallet prompts |
+| --- | --- |
+| Set up (once) | **1** sign "Hedge account" message, **1** approve trading agent |
+| Fund | **1** transfer from Phantom or any chain |
+| Arm, resize, close, pay out | **0** (in-app confirms; the guard and worker do the rest) |
+
+Tradeoffs to show the user:
+- **The derived key is an owner key.** It can withdraw the Hedge account's USDC. Keep it in memory or `sessionStorage` only (re-derive each session), serve a strict CSP, and keep Hedge margin modest. The guard agent itself still can't withdraw.
+- **It needs a deterministic signer.** MetaMask, Rabby and Phantom (EVM) produce deterministic signatures. Smart-contract wallets and passkeys don't, so let those users connect a separate Hedge wallet instead.
+- **Phantom-only option:** Phantom also has EVM accounts. Its EVM address can be the Trade owner, so one app (Phantom) covers Solana, Trade and the derived Hedge account.
+
+### One backend blocker for this at scale (Codex: guard)
+The current guard build **pins one Hedge owner address** at build time, so each derived Hedge account would need its own guard build and attestation. For multiple users, the guard should derive a key per owner from one attested build: OutLayer signing-key paths keyed by the owner, verifying the owner's policy signature against that path. This is planned work; until then the demo runs one Hedge owner per guard build.
+
 ## 9. Labels and copy (AGENTS.md rule 15)
 - Keep the environment banner (Testnet / Mainnet).
 - Label anything simulated as replay.
@@ -181,7 +272,7 @@ Query positions with the **Trade owner** address, not the agent. Verified on tes
 ## Endpoint cheat sheet
 | Method | Path | Session? |
 | --- | --- | --- |
-| GET | `/api/health`, `/api/markets`, `/api/accounts?trade=&hedge=`, `/api/wallet/sol?address=` | no |
+| GET | `/api/health`, `/api/markets`, `/api/accounts?trade=&hedge=`, `/api/wallet/sol?address=`, `/api/transfers/assets` | no |
 | POST | `/api/session/challenge`, `/api/session/verify`, `/api/session/signout` · GET `/api/session` | no |
 | POST | `/api/transfers/quote` · GET `/api/transfers/:id` · POST `/api/transfers/:id/deposit` | no |
 | POST | `/api/transfers/:id/send-asset`, `/api/transfers/:id/send-asset/submit` | no (signature-checked) |
