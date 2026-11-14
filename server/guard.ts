@@ -89,7 +89,7 @@ export function createOutLayerExecutor(config: {
     throw new Error("OutLayer requires a dedicated caller, a pinned HTTPS WASM and an attested agent");
   }
   const mainnet = environment === "mainnet";
-  const rpc = new JsonRpcProvider({ url: config.rpcUrl ?? `https://rpc.${environment}.near.org` });
+  const rpc = new JsonRpcProvider({ url: config.rpcUrl?.trim() || `https://rpc.${environment}.near.org` });
   const account = new Account(caller, rpc, privateKey);
   return {
     buildHash, agent, environment,
