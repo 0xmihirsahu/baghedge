@@ -42,7 +42,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const tap = (on: boolean) => () => !on && haptic("select");
 
   return (
-    <main className="grid h-svh overflow-hidden bg-[#0b0908] lg:grid-cols-[240px_minmax(0,1fr)]">
+    <main className="grid h-svh overflow-hidden bg-[#0b0908] lg:grid-cols-[264px_minmax(0,1fr)]">
       <aside className="hidden min-h-0 flex-col border-r border-white/[0.08] lg:flex">
         <div className="px-4 pb-4 pt-5">
           <Link href="/" className="flex items-center gap-2 px-2">
