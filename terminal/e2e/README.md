@@ -34,8 +34,10 @@ node run.mjs activity                    # open every fill's explorer link
 | `--sol` | `0.1` | The hedge amount typed on the keypad. |
 | `--retries` | `1` | On any error, restart the flow from the top this many times. |
 | `--fresh-profile` | off | Copy the Chrome session again (after you sign in again or switch accounts). |
-| `--video` | off | Record a `.webm` of the run (written when the run closes). |
-| `--slow` | `120` | Milliseconds between actions, so you can follow along. |
+| `--no-video` | recording on | Skip the recording. |
+| `--shots` | off | A screenshot after every step. |
+| `--stall` | `25` | Seconds with no change on screen before a step counts as stuck. |
+| `--slow` | `250` | Milliseconds between actions, so you can follow along. |
 
 ## Flows
 
@@ -61,6 +63,26 @@ Every call that changes state or moves money is **aborted** unless its rail is p
 | `quote` | `POST /api/transfers/quote` with `dry: false` | Creates an executable funding or payout quote |
 
 Privy's logout call always gets a fake success, so closing the copy never signs your real Chrome out.
+
+## Recording and the stuck detector
+
+- **Every run is recorded** as one continuous video, `runs/<time>-<part>/<part>.mp4`: cursor and clicks drawn in, explorer links opened in the same tab and back. The video is finished even when a run fails or is stopped. `--no-video` turns it off; `--shots` adds a screenshot after every step.
+- **Stuck:** progress means the screen changed (background price polling doesn't count). A heartbeat prints every 5 s; after `--stall` seconds (default 25) with no change, the run prints `⚠ STUCK` with what's on screen, what's still loading and the last console error, saves a picture, and ends. Waits for money in transit use 4 minutes. `node run.mjs selftest` proves it fires.
+- **Done** is always the real control (the Done button, Sign and arm, Disarm), never matched text.
+
+## Money flows
+
+```sh
+KEY=--sol-key ~/path/to/test-wallets/solana.json     # a test Solana wallet the page sees as "Test Wallet"
+node run.mjs payout --role hedge --allow quote,payout $KEY
+node run.mjs fund --role hedge --amount 0.1 --allow quote,solana $KEY
+node run.mjs arm --sol 0.15 --allow approve,arm $KEY
+node run.mjs close --allow command $KEY
+node run.mjs fund --role trade --amount 0.2 --allow quote,solana $KEY
+node run.mjs trade --coin SOL --usd 11 --allow approve $KEY
+node run.mjs payout --role trade --allow quote,payout $KEY
+```
+The test wallet signs in node, only with `--allow solana`, and logs each transfer before signing it.
 
 ## What a run leaves
 
