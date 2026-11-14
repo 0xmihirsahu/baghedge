@@ -10,6 +10,7 @@ import { EvmProviders } from "./evm";
 import { WalletModal } from "../wallet-modal";
 import { risk, usd } from "./format";
 import { setNetwork, useMarkets, type Network } from "./hl";
+import { useLiveHedge } from "./live";
 import { isSolAddress, short, useSolBalance } from "./wallet";
 
 // everything the pages share: live markets, the wallet, toasts, activity, the hyperliquid accounts and the hedge.
@@ -215,8 +216,13 @@ function useTerminal(backend: Backend) {
 
   const setEntryKept = useCallback((v: number) => setEntry(Math.min(v, Math.round(recovery * 0.998 * 100) / 100)), [recovery]);
   const setRecoveryKept = useCallback((v: number) => setRecovery(Math.max(v, Math.round(entry * 1.002 * 100) / 100)), [entry]);
+  // the real hedge, when the backend is up, both accounts are set and the Hedge owner's wallet is connected.
+  // otherwise the hedge runs as the labelled replay above
+  const liveEnabled = backend.reachable && !!accounts.trade && !!accounts.hedge && !!evm.address && evm.address.toLowerCase() === accounts.hedge.toLowerCase();
+  const liveHedge = useLiveHedge({ enabled: liveEnabled, trade: accounts.trade, hedge: accounts.hedge, solana: address, agent: backend.agentAddress });
+
   const hedgeState = { phase, setPhase: go, hedge, cap, setCap, capN, entry, setEntry: setEntryKept, recovery, setRecovery: setRecoveryKept, held };
-  return { backend, evm, markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };
+  return { backend, evm, liveEnabled, liveHedge, markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };
 }
 
 const Ctx = createContext<ReturnType<typeof useTerminal> | null>(null);
