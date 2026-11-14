@@ -1,14 +1,16 @@
 # Baghedge: full build context
 
-Everything you need to build Baghedge for the NEAR Hackathon, in one file. It's written for the team and for Cursor.
+This is the in-repo source of truth for Baghedge's product, engineering, demo, and submission plans. It carries forward the decisions from revision 8. Use [AGENTS.md](../AGENTS.md) for coding rules and the [README](../README.md) for current setup and API commands.
 
 **Snapshot:** November 14, 2026.
-**Submission cutoff:** 2026-11-14 23:59 UTC (Nov 15, 05:29 IST).
 
-**Source of truth**
-- The canonical product brief is **revision 8**, maintained by the coding agent: `~/.codex/visualizations/2026/11/10/01a1c737-e18f-71f1-b46a-8e5fb9e97e1d/baghedge-build-and-submission-brief.md`.
-- This file follows revision 8's decisions. It adds the API details, request formats, conventions and links you need while coding.
-- If this file and revision 8 disagree, revision 8 wins. Then fix this file.
+## What runs today
+
+- **Local API:** reads Hyperliquid markets and account snapshots, reads liquid SOL, and previews a hedge. A preview doesn't sign or arm a rule. Keep the API on localhost while wallet sessions and access controls are pending.
+- **1Click:** returns Base ↔ HyperCore USDC quotes and status. In mainnet mode it can create an executable quote and return an unsigned transfer. A quote or provider status alone doesn't prove settlement.
+- **Replay:** `bun run demo:replay` shows Trade and Wallet Hedge exposure with sample fills. It runs separately from the API.
+- **Guard:** `guard/` builds a local WASM probe for reading a build-bound public key or signing a fixed-format challenge. An attested OutLayer run and a guard-signed venue order still need proof.
+- **Planned:** live hedge worker, signed rule storage, wallet sessions, order submission, native stake reads, and payout verification. The frontend teammate owns the Vite terminal, which isn't in this checkout yet. The rest of this brief describes the target product.
 
 **Labels**
 - **(docs):** checked against the linked docs on Nov 14.
@@ -19,7 +21,7 @@ Everything you need to build Baghedge for the NEAR Hackathon, in one file. It's 
 **Using this with Cursor**
 - Cursor reads `AGENTS.md` at the repo root and in subfolders ([Cursor rules](https://cursor.com/docs/rules)). Project rules go in `.cursor/rules/*.mdc`, and Cursor recommends keeping each rule under 500 lines.
 - So: keep this big file at `docs/BAGHEDGE_CONTEXT.md` and @-mention it, or the relevant section, when you need it.
-- Put the short companion `AGENTS.md` (delivered with this file) at the repo root.
+- Start with the root [AGENTS.md](../AGENTS.md) for the rules that apply to every task.
 
 ---
 
@@ -30,7 +32,7 @@ Everything you need to build Baghedge for the NEAR Hackathon, in one file. It's 
 2. Decisions already made (revision 8)
 3. Pitch and copy
 4. User, job and demand
-5. Scope: in, out, later
+5. Core product, hedge rules, and extensions
 6. What Baghedge adds over existing products
 
 **Part B: UX spec**
@@ -81,7 +83,7 @@ Everything you need to build Baghedge for the NEAR Hackathon, in one file. It's 
   - It opens the hedge on a price crossing, sized to min(cap, eligible SOL).
   - It buys back the excess when the watched balance drops.
   - It closes the hedge on recovery, at expiry, or when the user asks.
-- **A recovery stop is attached to the entry.** Hyperliquid can fire it even if our worker is down. It only counts as active once the venue confirms it.
+- **The entry requests an attached recovery stop.** A stop confirmed active on Hyperliquid can attempt an exit when our worker is down. Test the attached IOC behavior before relying on it.
 - **An OutLayer enclave (TEE) holds the hedge's trading key.** That key is a named, expiring Hyperliquid agent. It signs only actions the user's signed policy allows.
 - **The demo moment.** The user moves SOL out of Phantom. Only the hedge shrinks, and the manual long stays open.
 - **Stack.** One Bun package: Vite + React + TypeScript in the browser, a Bun server and worker with SQLite, and a Rust `wasm32-wasip2` guard.
@@ -96,7 +98,7 @@ Everything you need to build Baghedge for the NEAR Hackathon, in one file. It's 
 | Wallets | Start with connected wallets: Phantom for Solana, and an EVM wallet for each Hyperliquid master account and for Base USDC. Privy is optional. Add its polyfill only if Vite throws `process is not defined`. |
 | Accounts | Two distinct user-owned Hyperliquid master accounts, Trade and Hedge. Reject equal IDs in the UI, the adapter and the signing path. |
 | Entry | Worker-driven. On a fresh mark crossing, the worker reads the wallet and venue state, then the guard signs a bounded IOC sell. |
-| Recovery stop | Attached to the entry as a child order (`grouping: "normalTpsl"`). Show "Recovery stop active" only after the venue confirms it. |
+| Recovery stop | Request a child order with the entry (`grouping: "normalTpsl"`). Verify the venue behavior before relying on it. Show "Recovery stop active" only after the venue confirms it. |
 | Retries | Retry only after a confirmed zero fill, inside the signed price band and entry window. A partial fill ends the opening cycle. |
 | Exits | The worker handles wallet-based resizing, timed exits, and closes. A confirmed venue stop can attempt the price-based recovery exit during an outage. |
 | `scheduleCancel` | Not used for expiry. It cancels every order, including the recovery stop. |
@@ -105,7 +107,7 @@ Everything you need to build Baghedge for the NEAR Hackathon, in one file. It's 
 | Funding | Base USDC ↔ HyperCore perps USDC through 1Click. Start with `EXACT_INPUT`. |
 | Persistence | SQLite (`bun:sqlite`) once the worker handles live rules. |
 | Signer fallback | A server-held, narrowly scoped agent, used only for a clearly labeled demo if the enclave path fails. |
-| Stretch goals | A Chain Signatures-owned Hedge account, a custom NEAR contract, `/judge` and `JUDGES.md`. All optional. |
+| Extensions | A Chain Signatures-owned Hedge account, a custom NEAR contract, `/judge`, and `JUDGES.md`. |
 | Track | Unstoppable DeFi (`defi`). Add others only if the shipped project fits. |
 
 ## 3. Pitch and copy
@@ -157,9 +159,11 @@ Everything you need to build Baghedge for the NEAR Hackathon, in one file. It's 
 - Keep the builder fee separate from venue, route and funding costs.
 - Distribution through a wallet is a later test. [Builder codes](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/builder-codes)
 
-## 5. Scope: in, out, later
+## 5. Core product, hedge rules, and extensions
 
-**In the first build**
+Use the complete SOL flow to validate the shared order, funding, and account logic. Extend it as each new asset, route, or account model passes its own checks.
+
+**Core workflow**
 - **Terminal:** search across Hyperliquid's default perps, with live execution for SOL first. Enable another market only after the same precision, sizing and order-lifecycle checks pass for it.
 - **Trade ticket:** market (bounded IOC) and limit (GTC) orders, cancel, and reduce or close with reduce-only. Positions, open orders, holdings, activity and funds.
 - **Wallet Hedge:**
@@ -174,16 +178,16 @@ Everything you need to build Baghedge for the NEAR Hackathon, in one file. It's 
 - **Guard:** an OutLayer signer. If it fails, a clearly labeled server-held fallback.
 - **Replay:** a no-wallet replay of the full two-mode run, plus one failure run.
 
-**Out of the first build**
-- Wallet hedges for coins other than SOL.
-- More than one watched address.
-- Re-entry after the hedge closes (it's one cycle).
-- Topping up a partial entry.
-- A resting venue entry.
-- Automatic re-hedge after ADL.
-- Hedging LP positions, wrapped SOL, or other addresses.
+**Rules for the SOL hedge**
 
-**Later or optional**
+- Each signed rule covers one cycle. A new hedge needs a new review after close or auto-deleveraging (ADL).
+- A partial fill ends opening. Show the quantity that actually filled and its recovery stop status.
+- A resting venue entry stays an experiment because it can fire against a stale wallet balance.
+
+**Extensions to evaluate**
+
+- Hedge other assets or watch multiple addresses once the product can verify fresh balances and avoid double-counting exposure.
+- Count LP positions or wrapped SOL after validating how they convert into SOL exposure.
 - JitoSOL and mSOL, once balances and conversion rates are verified.
 - A Privy embedded wallet for the Hedge owner.
 - The builder-code fee.
@@ -225,7 +229,6 @@ Everything you need to build Baghedge for the NEAR Hackathon, in one file. It's 
 
 **Chart behavior (proposal)**
 - Typed prices and draggable lines edit the same draft. Any edit that changes what the automation may do needs a fresh review.
-- Prototype screens (sample data; they may show earlier account choices): [landing palettes](./baghedge-landing-palettes.html) · [terminal](./coldhedge-terminal.html) · [rule and replay](./coldhedge-interface.html) · [execution states](./hedge-execution-states.html) · [funding to position](./wallet-to-position.html). These sit next to the revision 8 brief.
 
 ## 8. Accounts and signers
 
@@ -364,12 +367,12 @@ baghedge/
   guard/        standalone OutLayer signer and early signing probe
 ```
 
-- **Dev and build.** `bun run dev` runs Vite; `bun run build` builds the browser bundle. When `server/` lands, add `bun run dev:server` and proxy `/api` from Vite ([Vite proxy](https://vite.dev/config/server-options.html#server-proxy)).
+- **Dev and build.** Run the API now with `bun run dev:server`. When the frontend lands, use `bun run dev` for Vite and `bun run build` for the browser bundle. Proxy `/api` to the local server ([Vite proxy](https://vite.dev/config/server-options.html#server-proxy)).
 - **Imports.** Import `shared/` with ordinary imports. Keep it safe to run in the browser.
 - **Who sends what.** The browser signs manual orders and sends them straight to Hyperliquid. The server holds the routing credentials and runs Wallet Hedge after the browser closes.
 - **Persistence.** Give the worker a persistent SQLite file once it handles live rules ([Bun SQLite](https://bun.sh/docs/runtime/sqlite)).
 - **Hosting.** Serve `dist/` with `/api` routed to the worker ([Vite static deploy](https://vite.dev/guide/static-deploy.html)).
-- **The guard.** It's a standalone Rust crate in `guard/`, with its `Cargo.toml`, `Cargo.lock`, manifest and WIT files inside it. Start the signer probe there on day one, alongside the terminal.
+- **The guard.** It's a standalone Rust crate in `guard/`, with its `Cargo.toml`, `Cargo.lock`, manifest and WIT files inside it. Validate the signer probe alongside the terminal so order integration has a verified signer to work with.
 
 **Detailed file tree (proposal)**
 
@@ -417,7 +420,7 @@ baghedge/
 │  └─ guard/client.ts                # OutLayer call; checks the action hash before submit
 ├─ shared/                           # browser-safe, pure
 │  ├─ units.ts                       # lamports, lots, USD e8 prices, token base units
-│  ├─ precision.ts                   # tick/lot rules: 5 sig figs, 6 − szDecimals decimals
+│  ├─ precision.ts                   # perp tick/lot rules, including the integer price exception
 │  ├─ exposure.ts                    # section 11 math
 │  ├─ policy.ts                      # EIP-712 HedgePolicy types + helpers (section 18)
 │  ├─ hlWire.ts                      # order/cancel/modify wire builders; cloid derivation
@@ -437,17 +440,17 @@ baghedge/
    └─ build_github_wasm.sh           # copied from OutLayer
 ```
 
-**Commands.** Revision 8 agreed these as the target entry points. Add each one when its feature lands.
+**Commands.** The [README](../README.md#run-it) is the runnable setup. The planned commands below become available when their features land.
 
-| Command | Does |
-| --- | --- |
-| `bun run dev` | Vite dev server for the browser app |
-| `bun run dev:server` | Bun server and worker, with `/api` proxied from Vite |
-| `bun run build` | Browser bundle into `dist/` |
-| `bun run check` | Typecheck and tests (for example `tsc --noEmit && bun test`) |
-| `bun run demo:replay` | The full two-mode run from fixtures. No wallets, no keys, an injected clock, real writes disabled. |
-| `bun run verify:quotes` | 1Click `dry: true` quotes in both directions. No signer. |
-| `./scripts/build_github_wasm.sh --dir ./guard --target wasm32-wasip2 --twice --keep` | Reproducible guard build in a pinned Docker image. `--target` is required, because the script defaults to `wasm32-wasip1`. `--twice` builds twice and checks the bytes match. `--keep` keeps the artifact for upload. |
+| Command | Status | Does |
+| --- | --- | --- |
+| `bun run dev:server` | Now | Local Bun API with reload |
+| `bun run check` | Now | Typecheck and Bun tests |
+| `bun run demo:replay` | Now | Standalone sample-fill run showing both account roles, without keys or network writes |
+| `bun run verify:quotes` | Now | 1Click `dry: true` quotes in both directions, without a signer |
+| `cargo +stable build --locked --manifest-path guard/Cargo.toml --target wasm32-wasip2 --release` | Now | Local WASM probe build. Install the target as shown in the [README](../README.md#outlayer-probe). |
+| `bun run dev`, `bun run build` | Planned | Vite dev server and browser bundle |
+| Reproducible guard build | Planned | Pin the toolchain and add the upstream build script. See section 22. |
 
 **Read-only probes to run first** (from a fresh checkout, before wiring a signer):
 
@@ -476,29 +479,27 @@ curl -fsS https://1click.chaindefuser.com/v0/tokens
 - 1Click: `https://1click.chaindefuser.com` (mainnet only; Intents has no testnet).
 - OutLayer: `https://api.outlayer.ai` (testnet: `https://testnet-api.outlayer.ai`). On-chain contracts: `outlayer.near` and `outlayer.testnet`.
 
-**`.env.example` (proposal; revision 8's names where it gives them)**
+The API accepts only `APP_MODE=testnet` and `APP_MODE=mainnet`. Run replay with `bun run demo:replay`; it doesn't need an API server. Copy [`.env.example`](../.env.example) for the current API settings. The following example also shows planned frontend and signer settings.
 
 ```bash
 # ---- browser (public) ----
-VITE_APP_MODE=replay            # replay | testnet | mainnet
+VITE_APP_MODE=testnet           # planned browser mode: replay | testnet | mainnet
 VITE_PRIVY_APP_ID=              # optional; only if Privy is added
 
 # ---- server / worker ----
-APP_MODE=replay                 # must match the browser; the browser checks before writes
+APP_MODE=testnet                # testnet | mainnet; match the connected browser mode
 APP_ORIGIN=http://localhost:5173
 BAGHEDGE_DB_PATH=./data/baghedge.sqlite
-SOLANA_RPC_URL=                 # provider that supports getProgramAccounts on the Stake program
-SOLANA_WS_URL=
+# SOLANA_RPC_URL=https://api.devnet.solana.com  # optional; omit to use the mode's default
 INTENTS_BASE_URL=https://1click.chaindefuser.com
-INTENTS_JWT=                    # optional; without it 1Click adds 0.25% (docs)
+INTENTS_JWT=                    # optional provider credential
 
-# OutLayer (pick the invocation path; see section 22)
+# OutLayer project mode only (a separate build, see section 22)
 OUTLAYER_API_URL=https://api.outlayer.ai
-OUTLAYER_PROJECT=<owner>.near/baghedge-guard
+OUTLAYER_PROJECT=example.near/baghedge-guard
 OUTLAYER_PAYMENT_KEY=           # header X-Payment-Key, format owner:nonce:secret
 OUTLAYER_COMPUTE_LIMIT=50000    # USD micro-units per call (default 10000 = $0.01; min 1000)
-NEAR_ACCOUNT_ID=                # only for on-chain request_execution
-NEAR_PRIVATE_KEY=
+# Direct WasmUrl mode uses the NEAR transaction signer, the published WASM URL, and its SHA-256.
 
 # fallback signer (labeled demo only)
 FALLBACK_AGENT_PRIVATE_KEY=
@@ -522,10 +523,10 @@ Keep these in configuration. A settings change can't widen the limits of a rule 
 1. **Money and sizes are never JavaScript floats.**
    - Use decimal strings at JSON boundaries.
    - Store wallet amounts in lamports, Hyperliquid sizes in integer market lots (1 lot = 10^-szDecimals; SOL has szDecimals 2, observed), and route amounts in the token's smallest units.
-   - Compare prices with decimal arithmetic. Convert to `number` only for charts and display.
+   - Compare prices with fixed-point integers or exact decimal arithmetic. Convert to `number` only for charts and display.
 2. **Timestamps** are UTC milliseconds. Record where each observation came from (stream or snapshot, slot).
 3. **Addresses.** Normalize EVM addresses (lowercase) for equality checks. Keep Solana base58 exactly as given; it's case-sensitive.
-4. **Journal before writing.** Every external write (venue action, transfer) gets a persisted record with its action ID, cloid and nonce *before* it's sent.
+4. **Journal before writing.** Persist the action ID and the fields needed to reconcile before submitting. Use the venue nonce for signed venue actions and one cloid per new order leg. For transfers, save the reviewed quote, deposit address, and signing account, then record the source receipt once known.
 5. **Reconcile before retrying.**
    - An unknown result stays pending until order status, fills and positions rule it out.
    - Hyperliquid can report an order error inside a successful HTTP response. A fill can be smaller than the IOC size.
@@ -640,7 +641,7 @@ export interface Transfer {
 
 ## 17. Internal API (browser ↔ server)
 
-Revision 8 suggests these endpoints:
+The [README](../README.md#call-it-from-the-terminal) lists the implemented API. The table below is the target API. Today, hedge preview returns informational sizing and checks, without typed data or rule creation.
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -782,13 +783,13 @@ async function tick(acct: HedgeAccountCtx) {
 
 - **Entry.**
   - The worker observes the mark crossing. Right before a bounded IOC sell, it reads the selected wallet and the venue state.
-  - Retry confirmed zero fills inside the entry deadline and band, while data stays fresh and earlier child orders are resolved.
+  - Retry confirmed zero fills inside the entry deadline and band, while data stays fresh and earlier child orders are resolved. Journal this as a new attempt with new cloids and nonce.
   - Reconcile an unknown submission before sending another.
   - A confirmed partial ends the opening cycle and leaves the rest unhedged.
   - The balance can move between the read and the fill. Show the observed coverage and any correction after it.
 - **Cumulative cap.**
-  - Enforce it at the signing boundary: the filled short plus every unresolved sell.
-  - The guard needs a reliable, serialized view of reservations and state. If it relies on the worker's inputs or storage, disclose that, and scope the attestation claim to match.
+  - Count the filled short plus every unresolved sell. The worker must serialize reservations and reconcile pending orders before assigning more size.
+  - To claim the guard enforces the cumulative cap, it needs a trusted current view of fills and reservations and an atomic way to reserve before signing. A worker-supplied snapshot alone is a worker check.
 - **Resize and close.**
   - Use reduce-only buys, and reconcile every fill before the next size decision.
   - Serialize close and resize.
@@ -879,7 +880,7 @@ All are `POST /info` with `Content-Type: application/json`, using the master add
 
 ### Exchange actions: wire shapes (docs)
 
-Every request is `POST /exchange` with `{ action, nonce, signature, vaultAddress?, expiresAfter? }`. We don't use `vaultAddress`. Use short `expiresAfter` values where supported (revision 8).
+Every request is `POST /exchange` with `{ action, nonce, signature, vaultAddress?, expiresAfter? }`. We don't use `vaultAddress`. Use short `expiresAfter` values where supported. The wire shapes below use `5` only as an example. Get the numeric asset ID from the selected network's metadata.
 
 ```jsonc
 // order
@@ -952,7 +953,7 @@ Every request is `POST /exchange` with `{ action, nonce, signature, vaultAddress
 - Normalize like the SDK: round to the venue rules, then strip trailing zeros.
 - Keep the field order `a, b, p, s, r, t, c` inside each order, because the msgpack hash depends on it.
 
-**Cloids (proposal):** use the first 16 bytes of `keccak256(ruleId ‖ version ‖ intent ‖ seq)`, so every retry reuses the same ID. For manual orders, use random bytes, saved locally before sending.
+**Cloids (proposal):** use the first 16 bytes of `keccak256(ruleId ‖ version ‖ intent ‖ seq)`. Use a separate `intent` for the entry and stop legs. Reconcile an ambiguous submission using the IDs already in the journal. If resending the same action is safe, use the same signed body, nonce, and cloids. After a confirmed zero fill, a new attempt gets a new sequence, cloids, and nonce. For manual orders, use random bytes saved locally before sending.
 
 **Responses**
 - An HTTP 200 with `"status":"ok"` can still carry a per-order error in `response.data.statuses[i]`.
@@ -965,11 +966,10 @@ The TypeScript SDK handles signing in the browser and the server. The guard has 
 - **L1 actions** (`order`, `cancel`, `cancelByCloid`, `modify`, `updateLeverage`, `scheduleCancel`):
   1. msgpack-encode the action;
   2. append the nonce as 8 bytes big-endian, then `0x00` for no vault (`0x01` plus a 20-byte address if there is one);
-  3. `connectionId = keccak256(bytes)`;
-  4. sign the EIP-712 struct `Agent { source: string, connectionId: bytes32 }`, with `source` `"a"` on mainnet and `"b"` on testnet. The domain is `{ name: "Exchange", version: "1", chainId: 1337, verifyingContract: 0x0000000000000000000000000000000000000000 }`;
-  5. split the result into `{ r, s, v }`.
-
-  How `expiresAfter` is appended isn't on the Chainstack page; copy the official SDK.
+  3. if `expiresAfter` is present, append `0x00` followed by the expiry timestamp in milliseconds as 8 bytes big-endian. If absent, append nothing;
+  4. `connectionId = keccak256(bytes)`;
+  5. sign the EIP-712 struct `Agent { source: string, connectionId: bytes32 }`, with `source` `"a"` on mainnet and `"b"` on testnet. The domain is `{ name: "Exchange", version: "1", chainId: 1337, verifyingContract: 0x0000000000000000000000000000000000000000 }`;
+  6. split the result into `{ r, s, v }`.
 - **User-signed actions** (`approveAgent`, `sendAsset`, `approveBuilderFee`, withdrawals):
   - Domain: `{ name: "HyperliquidSignTransaction", version: "1", chainId: <signatureChainId as a number>, verifyingContract: 0x0 }`.
   - Primary type `HyperliquidTransaction:ApproveAgent`, with `hyperliquidChain: string`, `agentAddress: address`, `agentName: string` and `nonce: uint64`.
@@ -978,7 +978,20 @@ The TypeScript SDK handles signing in the browser and the server. The guard has 
   - The SDK's `signatureChainId` defaults to the browser provider's active chain, and `hyperliquidChain` follows the venue environment.
   - Check the account and the provider chain at signing time, and record the wallet and chain that worked.
   - Prove `approveAgent` with a connected EVM wallet on a dedicated Hedge test account, then owner-signed `sendAsset` in the funding round trip.
-- **Golden vectors.** Generate fixed vectors (action → msgpack hex → connectionId → signature) with the official SDK. Make both the TypeScript wire builder and the Rust guard reproduce them, and compare the recovered signer.
+- **Golden vectors.** Generate fixed vectors (action → msgpack hex → connectionId → signature) from the official SDK with and without `expiresAfter`. Make the TypeScript and Rust paths reproduce them, and compare the recovered signer. A change to a signed field, including expiry, must fail verification.
+
+Start with this unsigned hash vector. Asset ID `0` is a fixture value. Do not submit it as an order.
+
+```json
+{"type":"order","orders":[{"a":0,"b":false,"p":"140","s":"0.1","r":false,"t":{"limit":{"tif":"Ioc"}}}],"grouping":"na"}
+```
+
+With nonce `1794666000000` and no vault, the official SDK returns:
+
+| `expiresAfter` | `connectionId` |
+| --- | --- |
+| Omitted | `0x05cede95adc1f93d2097439b1d4ec0d5ae7e002e02a6881d9bc842b5a6d7aa53` |
+| `1794666005000` | `0x834ba2dace98eccc2436d18abe35f66b07e39a63bfc88b85aa628e4032b70110` |
 
 [L1 action signing](https://docs.chainstack.com/docs/hyperliquid-l1-action-signing) · [User-signed actions](https://docs.chainstack.com/docs/hyperliquid-user-signed-actions) · [Debugging signature errors](https://docs.chainstack.com/docs/hyperliquid-debugging-signature-errors) · [SDK signing](https://nktkas.gitbook.io/hyperliquid/signing) · [SDK browser wallets](https://nktkas.gitbook.io/hyperliquid/guides/browser-wallets) · [Official signing.py](https://github.com/hyperliquid-dex/hyperliquid-python-sdk/blob/master/hyperliquid/utils/signing.py) · [Hyperliquid signing notes](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/signing)
 
@@ -989,7 +1002,7 @@ The TypeScript SDK handles signing in the browser and the server. The guard has 
 - **Agents per account.** One **unnamed** agent and up to **three named** agents. Approving a new unnamed agent prunes the old unnamed one, and the same goes for a named agent with a matching name. So use a unique name for the guard.
 - **Expiry.** Write it as `valid_until <timestamp>` after the agent name, up to 180 days out. Check the timestamp unit with a test.
 - **Pruning.** An agent is pruned when it's deregistered, expires, or its account has no funds. Pruned nonce state can make old signed actions replayable, so use a new agent address on rotation.
-- **What agents can sign.** Orders, cancels and leverage changes. They can't sign transfers, withdrawals or new agent approvals (Chainstack). An agent's `agentSendAsset` can only send to the same address it comes from (docs).
+- **What agents can sign.** The venue allows orders, cancels, leverage changes, and `agentSendAsset` between balances at the same address. Owner authorization is needed for third-party transfers, withdrawals, and agent approvals. Baghedge's guard refuses all transfer and leverage actions. The Hedge owner sets leverage during account setup.
 
 [Nonces and API wallets](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/nonces-and-api-wallets) · [Exchange endpoint](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint)
 
@@ -1021,25 +1034,24 @@ The TypeScript SDK handles signing in the browser and the server. The guard has 
 ### TypeScript SDK quick start (docs)
 
 ```ts
-// npm/bun: bun add @nktkas/hyperliquid viem
-import { HttpTransport, WebSocketTransport, InfoClient, ExchangeClient, SubscriptionClient } from "@nktkas/hyperliquid";
+import { HttpTransport, InfoClient, SubscriptionClient, WebSocketTransport } from "@nktkas/hyperliquid";
 
-const transport = new HttpTransport({ isTestnet: mode === "testnet" });
-const info = new InfoClient({ transport });
-const subs = new SubscriptionClient({ transport: new WebSocketTransport() }); // check testnet option for WS
+// The caller supplies the selected network and the Hedge master address.
+export async function connectHedge(mode: "testnet" | "mainnet", hedgeAddress: `0x${string}`) {
+  const options = { isTestnet: mode === "testnet" };
+  const info = new InfoClient({ transport: new HttpTransport(options) });
+  const { universe } = await info.meta(); // default perp DEX
+  const assetId = universe.findIndex((market) => market.name === "SOL" && !market.isDelisted);
+  if (assetId < 0) throw new Error("SOL perp is unavailable on the selected network");
 
-// server-side signer (fallback agent or tests); in the browser, pass the connected wallet per the SDK's browser-wallet guide
-import { privateKeyToAccount } from "viem/accounts";
-const exchange = new ExchangeClient({ transport, wallet: privateKeyToAccount(process.env.FALLBACK_AGENT_PRIVATE_KEY as `0x${string}`) });
-
-await exchange.order({
-  orders: [{ a: 5, b: true, p: "140.5", s: "0.1", r: false, t: { limit: { tif: "Gtc" } } }],
-  grouping: "na",
-});
-await subs.orderUpdates({ user: hedgeAddress }, (orders) => { /* reconcile */ });
+  const socket = new WebSocketTransport(options);
+  const subs = new SubscriptionClient({ transport: socket });
+  // Use assetId as `a` when building the order. Size and price use the market's precision.
+  return { assetId, market: universe[assetId], subs, hedgeAddress, close: () => socket.close() };
+}
 ```
 
-The other `ExchangeClient` method names mirror the action types. Check the SDK docs for the exact names and option shapes. [SDK docs](https://nktkas.gitbook.io/hyperliquid) · [Chainstack SDK guide](https://docs.chainstack.com/docs/hyperliquid-typescript-sdk-nktkas)
+Subscribe with `subs.orderUpdates({ user: hedgeAddress }, onOrderUpdates)` using the Hedge master, not the agent. Close the connection on teardown. Use the browser wallet with `ExchangeClient` for manual Trade orders. The hedge worker rebuilds the action, verifies the guard signature, and submits the same payload. [SDK transports](https://nktkas.gitbook.io/hyperliquid/transports) · [Asset IDs](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/asset-ids) · [Browser wallets](https://nktkas.gitbook.io/hyperliquid/guides/browser-wallets)
 
 ## 20. Funding and payout (NEAR Intents 1Click)
 
@@ -1051,7 +1063,7 @@ The other `ExchangeClient` method names mirror the action types. Check the SDK d
   - `POST /v0/quote`;
   - `POST /v0/deposit/submit` with `{ depositAddress, txHash }`, optional, to speed things up;
   - `GET /v0/status?depositAddress=…`.
-- **Auth:** an optional JWT (`Authorization: Bearer …`). Without it, 1Click adds **0.25%**.
+- **Auth:** an optional JWT (`Authorization: Bearer …`). Use the returned quote for the estimated cost and delivered amount. Don't infer the no-JWT fee from the difference between the amounts in and out.
 - **Statuses:** `PENDING_DEPOSIT`, `KNOWN_DEPOSIT_TX`, `PROCESSING`, `SUCCESS`, `INCOMPLETE_DEPOSIT`, `REFUNDED`, `FAILED`.
 - **Mainnet only.** Intents has no testnet. Use `dry: true` for previews.
 
@@ -1062,7 +1074,7 @@ The other `ExchangeClient` method names mirror the action types. Check the SDK d
 | Base USDC (native) | `nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near` | 6 decimals; $25 is `25000000` |
 | HyperCore perps USDC | `1cs_v1:hypercore:hip1:0x6d1e7cde53ba9467b783cb7c530ce054` | 8 decimals in 1Click; $25 is `2500000000` |
 | HyperCore `erc20` USDC | `1cs_v1:hypercore:erc20:0xb88339CB7199b77E23DB6E890353E22632Ba630f` | 6 decimals. **Not** the perps route; don't use it. |
-| Solana USDC | `nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near` | 6 decimals. Not in the first build. |
+| Solana USDC | `nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near` | 6 decimals. Validate this route separately before enabling it. |
 
 **Three different USDC IDs; don't mix them up.**
 - The Base USDC contract: `0x833589fcd6edb6e08f4c7c32d4f71b54bda02913` on chain 8453.
@@ -1142,7 +1154,7 @@ The other `ExchangeClient` method names mirror the action types. Check the SDK d
 - **Before showing "Sign transfer":**
   1. fetch an executable quote;
   2. confirm the direction and addresses;
-  3. show `amountIn`, `amountOut`, `minAmountOut`, the deadline and the refund destination;
+  3. show `amountIn`, `amountOut`, `minAmountOut`, the review `deadline`, and the refund destination. Keep the provider's `depositDeadline` separate;
   4. save the deposit address and lock the button against double clicks;
   5. recheck the signing account and network right before signing.
 - **Expiry.** An expired quote with nothing sent can be replaced. A transaction already sent stays tied to its original quote.
@@ -1220,10 +1232,7 @@ const stakeAccts = await conn.getParsedProgramAccounts(STAKE, {
 
 **What it is.** OutLayer is "a verifiable off-chain compute platform for NEAR, built by FastNEAR" ([NEAR docs](https://docs.near.org/primitives/off-chain-compute/outlayer)). Contracts and callers send work to Intel TDX enclaves, which return results with an attestation.
 
-**Our use.**
-- The guard is a Rust WASM module running in OutLayer.
-- It holds a `secp256k1` key that the owner approves as a **named, expiring Hyperliquid agent** on the Hedge account.
-- It builds and signs only the actions the owner's signed policy allows.
+**Today's probe.** The [Rust crate](../guard/Cargo.toml) builds a WASM module that can request a public key or sign a fixed-format challenge. It doesn't sign orders. The planned guard will use an OutLayer `secp256k1` key, approved as a named, expiring agent for the Hedge account, and sign only orders and cancels allowed by the owner's policy.
 
 ### Build requirements (docs)
 
@@ -1232,17 +1241,11 @@ const stakeAccts = await conn.getParsedProgramAccounts(STAKE, {
   - HTTP requests (with `wasi-http-client`) also work only on P2.
 - **Entry point.** Use `[[bin]]` with `fn main()`, not `[lib]`. A `[lib]` gives "entry symbol not defined: _initialize".
 - **I/O.** Read JSON from **stdin** and write JSON to **stdout**, then call `flush()`. Without the flush, output can be empty.
-- **Output cap.** The WASI guide caps output at **900 bytes**. Return signatures and hashes, not full actions (confirm the cap for your invocation path).
+- **Output budget.** Keep guard output at or below **900 bytes**. The WASI guide documents that cap for results returned to NEAR. Confirm the limit for the chosen transport. Return signatures and hashes rather than full actions.
 - **The `cabi_realloc` pitfall.** It means the project isn't set up as a P2 component. Start from one of OutLayer's P2 examples rather than dropping to P1, because P1 can't hold keys or make HTTP calls.
 - **Limits for HTTPS calls.** Default 1B instructions, 128 MB and 60 s; maximum 500B, 512 MB and 180 s. On-chain calls allow up to 4,096 MB of memory.
-- **Reproducible build.**
-  - `./scripts/build_github_wasm.sh --dir ./guard --target wasm32-wasip2 --twice --keep` builds in a pinned Docker image.
-  - The script **defaults to `wasm32-wasip1`**, so always pass `--target`.
-  - The hash depends on the exact bytes. A different toolchain gives a different hash, so pin it in `rust-toolchain.toml`.
-- **Deploy.**
-  - `outlayer upload <wasm>` prints the SHA256 and a FastFS URL. Then run `outlayer deploy <project> <url>`, or add a version in the dashboard.
-  - Project IDs look like `owner.near/name`.
-  - `version_key` pins a version by its WASM SHA256.
+- **Build.** Use the local probe commands in the [README](../README.md#outlayer-probe). For a reproducible release, pin the toolchain and add the upstream script, which isn't in the repo yet. Once added, run `./scripts/build_github_wasm.sh --dir ./guard --target wasm32-wasip2 --twice --keep`. Pass `--target` because the script defaults to `wasm32-wasip1`.
+- **Publish.** `outlayer upload <wasm>` returns a SHA-256 and a FastFS URL. Use those values for a direct run of the current probe. `outlayer deploy <project> <url>` is for a registered project, which needs a separate build with `bind: "project"`. A project ID looks like `owner.near/name`, and `version_key` pins its WASM hash.
 
 [Getting started](https://app.outlayer.ai/docs/getting-started) · [Building an app (WASI)](https://app.outlayer.ai/docs/wasi) · [Projects](https://app.outlayer.ai/docs/projects) · [Build script](https://github.com/out-layer/outlayer/blob/main/scripts/build_github_wasm.sh)
 
@@ -1271,16 +1274,18 @@ const stakeAccts = await conn.getParsedProgramAccounts(STAKE, {
   - A build-bound key changes with every new build, so an update means rotating the agent and getting a fresh approval.
   - With a project-bound key, disclose who can publish a new build under the same key.
 - **Rotate to a new agent address,** because Hyperliquid can prune venue nonce state.
-- **Choose an invocation path early and verify it.** Check that it supports the binding and caller you want, trusted state, and RPC reads before counting on all four.
+- **Use a direct run for the current probe.** Its [manifest](../guard/manifest.json) declares `bind: "wasm"` and `caller: "signer"`. Use the same NEAR signer to derive the same key for that binary. Verify caller identity, state access, and RPC reads before picking the invocation path for live signing.
 
-**HTTPS call (docs)**
+**HTTPS project call (alternative build only)**
+
+This endpoint cannot invoke the current `wasm`-bound probe. The example applies if you build it with `bind: "project"` and register that binary as a project version. Keep the probe's input format the same.
 
 ```bash
 curl -X POST "https://api.outlayer.ai/call/<owner>.near/baghedge-guard" \
   -H "X-Payment-Key: <owner:nonce:secret>" \
   -H "X-Compute-Limit: 50000" \
   -H "Content-Type: application/json" \
-  -d '{"input": {"op": "pubkey"}, "async": false}'
+  -d '{"input": {"operation": "public_key"}, "async": false}'
 # 200 → {"call_id","status":"completed","output":"<stdout>","compute_cost","instructions","time_ms","attestation_url"}
 ```
 
@@ -1311,25 +1316,33 @@ curl -X POST "https://api.outlayer.ai/call/<owner>.near/baghedge-guard" \
 | 404 | Project or call not found | Check the ID. |
 | 408 | Sync call didn't finish in time | Use `async: true` and poll `/calls/{call_id}`. |
 | 429 | Rate limited | Back off. |
-| 500 | Server fault; the call may still run and be charged | Don't resend blindly. Reconcile by cloid. |
+| 500 | Server fault; the call may still run and be charged | Check the OutLayer call record before retrying. Reconcile any separately submitted venue order by cloid. |
 | 503 | Temporary; nothing ran | Retry after `Retry-After`. |
 
 **Testnet:** `https://testnet-api.outlayer.ai`.
 
 [HTTPS API](https://app.outlayer.ai/docs/https-api) · [Payment keys](https://app.outlayer.ai/docs/payment-keys) · [Pricing and limits](https://app.outlayer.ai/docs/pricing)
 
-**On-chain call (docs)**
+**On-chain direct run (current probe)**
 
-```bash
-near call outlayer.near request_execution '{
-  "source": {"Project": {"project_id": "<owner>.near/baghedge-guard"}},
-  "input_data": "{\"op\":\"pubkey\"}",
+Pass these JSON arguments to `request_execution` on `outlayer.near` (mainnet) or `outlayer.testnet` (testnet). Use the published probe URL and its exact SHA-256. This is the documented request shape. The repo has only verified the local build so far.
+
+```json
+{
+  "source": {
+    "WasmUrl": {
+      "url": "https://example.com/baghedge-guard.wasm",
+      "hash": "<sha256 of the published WASM>",
+      "build_target": "wasm32-wasip2"
+    }
+  },
+  "input_data": "{\"operation\":\"public_key\"}",
   "resource_limits": {},
   "response_format": "Json"
-}' --accountId <you>.near --deposit 0.1
+}
 ```
 
-- **`source`.** Either `Project {project_id, version_key?}` or `WasmUrl {url, hash, build_target: "wasm32-wasip2"}`. Direct `WasmUrl` runs are the build-bound path.
+- **`source`.** Use `WasmUrl` directly for the checked-in manifest. `Project {project_id, version_key?}` requires a project-bound build, even when the registered version points to a WASM URL.
 - **`resource_limits`.** **Always pass it**, even as `{}`. Without it, nothing runs.
 - **Other optional fields:** `secrets_ref`, `response_format` (`Text`, `Json` or `Bytes`), `payer_account_id` and `params`.
 - **Deposit.**
@@ -1341,48 +1354,53 @@ near call outlayer.near request_execution '{
 
 ### Guard operations (proposal; revision 8 asks for a narrow set like "sign entry" and "sign reduction")
 
-| op | Builds and signs | Must check before signing |
+The probe currently accepts only `public_key` and `sign_challenge`. The venue operations below are planned.
+
+| `operation` | Builds and signs | Must check before signing |
 | --- | --- | --- |
-| `pubkey` | nothing; returns the agent address, build info and attestation context | — |
-| `sign_entry` | the IOC sell plus the attached reduce-only recovery stop (`normalTpsl`) | Owner policy signature and version active; Hedge ≠ Trade; market and asset ID match the policy; size ≤ cumulative cap − (filled short + unresolved sells), and ≤ eligible SOL; sell price ≥ entry floor; stop trigger = recovery mark; stop limit ≤ buyback ceiling; opening window still open; inputs fresh |
+| `public_key` | Nothing. The probe returns the derived address and public key. Verify the attestation separately. | — |
+| `sign_entry` | The IOC sell and attached reduce-only recovery stop (`normalTpsl`) | Check the policy signature against the pinned Hedge owner, require distinct accounts, and enforce the signed market, per-action size, prices, and opening window. If using `expiresAfter`, it can't outlast either the opening window or rule expiry. The worker also checks policy status, eligible SOL, the cumulative cap, and freshness. |
 | `sign_reduce` | a reduce-only IOC buy (resize or close) | `r: true`; size ≤ confirmed short; price ≤ buyback ceiling (or an owner-reviewed fresh price); policy active, or in its post-expiry reduce-only cleanup |
 | `sign_stop` | a replacement position stop for the remaining short | reduce-only; trigger = recovery mark; limit ≤ ceiling; size ≤ confirmed short |
 | `sign_cancel` | `cancelByCloid` for Baghedge's own hedge orders | the cloids belong to this rule |
 
-**Always refuse:**
+**Refuse at the signing boundary:**
 - raw digests or bytes;
 - the wrong account or market;
 - a buy without reduce-only;
-- sells over the cumulative cap;
+- a single sell larger than the signed cap;
 - opening after the window or after expiry;
 - prices outside the reviewed limits;
-- any transfer, withdrawal or agent approval;
-- a stale or replaced policy version.
+- any transfer, withdrawal, agent approval, or leverage change.
 
-**What the attestation proves.** It proves the code and the inputs and outputs it commits to. It doesn't prove a balance or venue observation is true. If the guard relies on worker-supplied observations or reservations, say so plainly.
+**Bind the owner to the agent.** Trust the approved Hedge owner from provisioned configuration or an independently verified venue association. Verify the policy signature against that owner, not just the address named by the policy. Use a dedicated agent for each Hedge account. Hyperliquid executes a master-account agent's orders under the account that approved it, and an order signature without a vault address doesn't include a target master address.
+
+**Worker checks and attestation.** The worker must reject inactive policy versions, stale observations, and cumulative cap breaches, including unresolved sells. Call them guard checks only once the guard reads trusted current state and reserves size atomically. An attestation binds the code and the data it commits to. It doesn't prove that a worker-supplied wallet balance, fill, reservation, or policy version is current. The same distinction applies to cancellations that depend on the worker's order journal.
 
 ### Input and output (proposal; keep output under 900 bytes)
 
 ```jsonc
 // stdin
-{ "op": "sign_entry",
+{ "operation": "sign_entry",
   "env": "mainnet",
   "policy": { /* HedgePolicy fields, section 18 */ },
   "ownerSig": "0x…",                 // EIP-712 over the policy
   "state": { "filledShortLots": "0", "unresolvedSellLots": "0", "reservationId": "r_…" },
   "obs":   { "eligibleLamports": "10000000000", "slot": 312345678, "markE8": "13995000000", "at": 1794666000000 },
   "nonce": 1794666000000,
+  "expiresAfter": 1794666005000,
   "cloids": { "entry": "0x…", "stop": "0x…" } }
 
 // stdout: ok
-{ "ok": true, "op": "sign_entry", "agent": "0x…", "n": 1794666000000,
+{ "ok": true, "operation": "sign_entry", "agent": "0x…", "n": 1794666000000,
+  "expiresAfter": 1794666005000,
   "h": "0x<connectionId>", "r": "0x…", "s": "0x…", "v": 27, "sz": "6", "px": "137.2" }
 
 // stdout: refusal
-{ "ok": false, "op": "sign_entry", "reason": "cap_exceeded" }
+{ "ok": false, "operation": "sign_entry", "reason": "price_out_of_bounds" }
 ```
 
-The worker rebuilds the exact action from the same fields with `shared/hlWire.ts`, checks that `keccak(msgpack(action) ‖ nonce ‖ 0x00)` equals `h`, and only then submits.
+The worker rebuilds the exact action from the same fields and recomputes `h` using section 19's official SDK layout. For these master-account orders, the hash input is `msgpack(action) ‖ nonce_u64_be ‖ 0x00`. When `expiresAfter` is present, append `0x00 ‖ expiresAfter_u64_be` before hashing. Verify the recovered signer against the expected agent and submit the same nonce and expiry.
 
 ### Rust skeleton (proposal)
 
@@ -1398,7 +1416,7 @@ fn main() {
         Err(e) => Response::refuse("bad_input", &e.to_string()),
     };
     let s = serde_json::to_string(&out).unwrap();
-    assert!(s.len() <= 900, "output over OutLayer's 900-byte cap");
+    assert!(s.len() <= 900, "output exceeds guard budget");
     let mut stdout = io::stdout();
     stdout.write_all(s.as_bytes()).unwrap();
     stdout.flush().unwrap();                         // required, or output may be empty
@@ -1450,7 +1468,7 @@ For Hyperliquid signing in Rust, see [hyper-exchange signing.rs](https://docs.rs
    - Declare the `secp256k1` key in the manifest.
    - Rebuild the Hyperliquid L1 action hash and signing domain, and compare the order bytes, digest and recovered signer against the official SDK, using fixed vectors.
 2. **Pick the invocation path and verify it** (key binding, caller, trusted state, RPC reads). For a project-bound prototype, disclose the publisher's upgrade authority and check the attested WASM hash.
-3. **Provision the key.** Use a dedicated guard key. Verify its attestation and expected caller, and approve that address only on the dedicated demo Hedge account.
+3. **Provision the key.** Use a dedicated guard key. Verify its attestation and expected caller, pin the intended Hedge owner in trusted configuration, and approve that agent only on the dedicated demo Hedge account.
 4. **Reserve before signing.**
    - Set a durable reservation before issuing a signature, with compare-and-swap at the signing boundary if the invocation supports it ([storage](https://app.outlayer.ai/docs/storage)).
    - If only SQLite and worker observations enforce pending size and freshness, document that split: the guard enforces the signed fields, and the worker enforces cumulative reservations and live observations.
@@ -1497,7 +1515,7 @@ required margin >= max(initial margin,
 **Costs per cycle (estimates)**
 - Trading fees: 0.045% taker on each side.
 - Route costs:
-  - Base → perps: a $25 dry quote returned $24.68, including the 0.25% no-JWT fee.
+  - Base → perps: a $25 dry quote returned $24.68. The quote doesn't isolate an authentication surcharge.
   - Perps → Base: $25 returned $24.79, from 1Click's 0.2 USDC flat fee plus the rest.
 - A 1 USDC activation fee on a new account.
 - Variable funding.
@@ -1509,7 +1527,7 @@ required margin >= max(initial margin,
 | Actor | Can | Can't |
 | --- | --- | --- |
 | Owner (Hedge EVM wallet) | Fund, approve or revoke agents, sign the policy, close or cancel directly on Hyperliquid, withdraw | — (takes the venue and margin risk on the funded Hedge account) |
-| Guard (enclave agent) | Sign hedge orders, cancels and leverage changes within the policy | Transfer, withdraw or approve agents (Hyperliquid blocks agents from these). Sign anything outside the policy. |
+| Guard (enclave agent, planned) | Sign hedge orders and cancels for the bound account under the policy | Sign transfers, withdrawals, agent approvals, or leverage changes. The guard must refuse same-address transfers even though Hyperliquid accepts them from agents. |
 | Worker (server) | Observe, schedule, reserve, call the guard, submit signed actions, call 1Click | Hold owner keys. Sign venue actions on its own (except the labeled fallback). |
 | Browser | Sign manual Trade orders and owner actions with connected wallets | Act after it's closed |
 | 1Click | Route USDC between Base and HyperCore | Touch Hyperliquid positions |
@@ -1523,7 +1541,7 @@ required margin >= max(initial margin,
 - the wrong market;
 - a buy without reduce-only;
 - an oversized sell;
-- a cumulative cap breach across two individually valid sells;
+- a cumulative cap breach across two individually valid sells, attributed to whichever component actually verifies the current reservations;
 - an expired opening authority;
 - a price outside the bounds;
 - a transfer request;
@@ -1546,7 +1564,7 @@ required margin >= max(initial margin,
 | 6. Intents and Solana | Quote and settlement both ways; wallet and stake reads | Base credit and payout have receipts. Wallet reads match checked accounts, including transfers. |
 | 7. Verification and demo | Fixtures, evidence table, no-wallet run, README, video | The full two-mode sequence and one failure reproduce. Every live claim links to its receipt. |
 
-**Start these three in parallel, on day one (revision 8)**
+**Integration checks that can run in parallel**
 
 - **Terminal.** Load SOL, connect a dedicated Trade **testnet** account, and get one order through the browser ticket. Confirm the fill, then close it.
 - **Guard.**
@@ -1558,7 +1576,7 @@ required margin >= max(initial margin,
 
 **Milestones (revision 8)**
 
-| # | Stop when you can show |
+| # | Milestone is verified when you can show |
 | --- | --- |
 | 1 | Terminal shell and replay state: market search and candles work; both tickets and the exposure panel render the same deterministic fixture. |
 | 2 | Read and trade on Hyperliquid: connect a Trade account, place and cancel a limit, open SOL, reload, then reduce or close. Start on testnet. |
@@ -1576,7 +1594,7 @@ Run these with dedicated accounts, and record the environment, IDs and outcome f
 | --- | --- | --- |
 | V1 | Manual limit place and cancel, IOC open, reduce-only close (testnet first) | The UI matches the venue after a reload |
 | V2 | Connected-wallet `approveAgent` (named, with `valid_until`) on a Hedge test account | The venue shows the agent for the intended owner. Record the wallet and chain used. |
-| V3 | OutLayer `pubkey` plus attestation, then a guard-signed order above $10 on mainnet | The fill shows on the Hedge master account; one invalid request is refused |
+| V3 | OutLayer `public_key` plus attestation, then a guard-signed order above $10 on mainnet | The fill shows on the Hedge master account; one invalid request is refused |
 | V4 | The IOC parent with an attached reduce-only stop (`normalTpsl`) | Record a zero fill, a full fill with the child active, a partial fill (child absent or present), a rejected child, the child staying active with the worker stopped, and coverage after a resize |
 | V5 | (Optional, Claude's suggestion) A standalone reduce-only stop-limit buy at the recovery price, sized to the cap, sent with the entry | If Hyperliquid accepts a reduce-only trigger with no position and trims it to the actual position when it fires, any fill size is covered and the partial-fill gap closes. If it's rejected, keep the revision 8 plan. |
 | V6 | 1Click dry quotes both ways, a Base → perps credit (fresh account, activation), and a perps → Base payout via `sendAsset` | Usable margin is confirmed, and both receipts are saved |
@@ -1686,7 +1704,7 @@ Run the same fixtures through the reducer and the UI.
 ## 31. Submission checklist (HACKATHON.md, checked Nov 14)
 
 **Deadlines and repo**
-- **Cutoff:** 2026-11-14 23:59 UTC. Judging starts Nov 16; results by Nov 18.
+- **Cutoff:** 2026-11-14 23:59 UTC (Nov 15, 05:29 IST). Judging starts Nov 16; results by Nov 18.
 - **Repo:** it can be private while building, but must be **public by the cutoff and stay public through judging**. Add a LICENSE.
 - **Work window:** Oct 19 to Nov 14. Earlier commits are baseline. An existing repo is allowed if the new work is separated, with a README section linking the diff.
 
@@ -1761,7 +1779,7 @@ Attach the video, the public repo and the replay link.
 | Term | Meaning |
 | --- | --- |
 | Master account | A Hyperliquid account owned by an EVM address. Info queries must use this address. |
-| Agent / API wallet | A key approved by a master account to sign L1 actions (orders, cancels, leverage). Can't transfer or withdraw. |
+| Agent / API wallet | A key approved by a master account for venue actions. Hyperliquid allows same-address transfers, but the Baghedge guard must refuse them. |
 | L1 action | An exchange action signed through the "phantom agent" EIP-712 scheme (chainId 1337) |
 | User-signed action | `approveAgent`, `sendAsset` and the like, signed with the `HyperliquidSignTransaction` domain and `signatureChainId` |
 | Mark price | Hyperliquid's robust price index, used for TP/SL triggers and our hedge triggers ([mark prices](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/robust-price-indices)) |
