@@ -1,3 +1,4 @@
+import { encodeFunctionData, erc20Abi } from "viem";
 import { fromUnits, isEvmAddress, toUnits } from "../shared/amounts";
 import { isRecord, isUnits, providerJson, RequestError } from "./http";
 
@@ -131,7 +132,9 @@ export function createIntents(baseUrl = INTENTS_URL, jwt?: string, request = fet
       const transfer = isEvmAddress(depositAddress)
         ? funding
           ? { type: "baseErc20Transfer" as const, chainId: 8453, contract: BASE_USDC.contract,
-              from: input.baseAddress, to: depositAddress, amount: amount.toString() }
+              from: input.baseAddress, to: depositAddress, amount: amount.toString(),
+              // Ready for eth_sendTransaction: { from, to: contract, data, value: "0x0" } on chain 8453.
+              data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [depositAddress as `0x${string}`, amount] }) }
           : { type: "hypercoreSendAsset" as const, hyperliquidChain: "Mainnet",
               from: input.venueAddress, destination: depositAddress, sourceDex: "", destinationDex: "",
               fromSubAccount: "", token: PERPS_USDC.token, amount: fromUnits(amount, origin.decimals) }
