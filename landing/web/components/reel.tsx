@@ -4,6 +4,7 @@ import { motion, useMotionValue, useScroll, useTransform, type MotionValue } fro
 import { useEffect, useRef, useState } from "react";
 import { DotChart } from "@/components/chart";
 import { Field } from "@/components/field";
+import { StatusText } from "@/components/motion";
 import type { Source } from "@/lib/field";
 import { LOGO, fetchCandles, fmtPct, fmtPrice, useMarkets, type Coin } from "@/lib/markets";
 
@@ -45,23 +46,22 @@ const CARDS: Card[] = [
 const BOARD: Coin[] = ["BTC", "ETH", "SOL", "HYPE", "XRP", "DOGE"];
 
 // live perps from hyperliquid, the first thing the terminal shows
+// one big live quote at a time, decoding into the next market, the way the terminal's picker feels
 function Markets() {
   const { markets } = useMarkets();
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setI((v) => (v + 1) % BOARD.length), 2200);
+    return () => clearInterval(t);
+  }, []);
+  const c = BOARD[i], m = markets[c];
   return (
-    <div className="flex h-full flex-col justify-center">
-      <p className="mb-3 text-[13px] text-[#16120f]/70">Live from Hyperliquid</p>
-      {BOARD.map((c) => {
-        const m = markets[c];
-        return (
-          <div key={c} className="flex items-center gap-3 border-t border-[#16120f]/15 py-3 text-[17px] sm:py-3.5 sm:text-[20px]">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={LOGO[c]} alt="" className="size-7 rounded-full" />
-            <span className="font-medium">{c}</span>
-            <span className="ml-auto tabular-nums">${fmtPrice(m?.mark)}</span>
-            <span className="w-[76px] text-right tabular-nums text-[#16120f]/70">{fmtPct(m?.change)}</span>
-          </div>
-        );
-      })}
+    <div className="flex h-full flex-col items-start justify-center">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img key={c} src={LOGO[c]} alt="" className="size-14 rounded-full sm:size-16" />
+      <StatusText text={`${c}-PERP`} className="mt-6 block text-[22px] sm:text-[26px]" />
+      <StatusText text={`$${fmtPrice(m?.mark)}`} className="mt-1 block text-[64px] leading-none tracking-[-0.03em] tabular-nums sm:text-[96px]" />
+      <p className="mt-4 text-[16px] tabular-nums text-[#16120f]/70">{fmtPct(m?.change)} today · live from Hyperliquid</p>
     </div>
   );
 }
