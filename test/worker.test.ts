@@ -401,6 +401,30 @@ describe("worker", () => {
     expect(db.actionsForRule("r1").find(a => a.intent === "resize")!.outcome).toBe("filled");
   });
 
+  test("a venue stop that fills first, then a reduce-only IOC rejected for zero size, closes the rule", async () => {
+    const { v, db, tick, exchange } = setup();
+    await tick();
+    v.mark = "69.9"; v.bid = "69.8"; v.ask = "70";
+    await tick(); await tick();                           // open 0.40, attached stop active
+    const stopCloid = db.actionsForRule("r1").find(a => a.intent === "entry")!.stopCloid!;
+    const submit = exchange.submit;
+    exchange.submit = (async (...args: Parameters<typeof submit>) => {
+      const orders = (args[0] as { orders?: { r: boolean }[] }).orders;
+      if (orders?.[0]?.r) {
+        // The stop fills the whole short first; our reduce-only IOC is then rejected (nothing left to reduce).
+        const stop = v.orders.get(stopCloid)!;
+        stop.filledLots = v.shortLots; stop.status = "filled"; v.shortLots = 0;
+        return { transport: "acked", statuses: [{ kind: "error", message: "Reduce only order would increase position." }], raw: null } as SubmitResult;
+      }
+      return submit(...args);
+    }) as typeof submit;
+    v.lamports = 250_000_000n;                            // wallet drop → resize attempt
+    const rule = await tick();
+    expect(rule.state.phase).toBe("closed");
+    expect(rule.reason).toBe("recovery-stop-filled");
+    expect(db.actionsForRule("r1").find(a => a.intent === "resize")!.outcome).toBe("zero");
+  });
+
   test("a resize the venue keeps refusing backs off instead of re-signing every tick", async () => {
     // Start the fake clock ahead of the real arm time, so the first mark is never older than the armed one.
     let t = Date.now() + 1_000;

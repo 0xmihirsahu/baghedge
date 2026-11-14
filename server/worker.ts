@@ -229,6 +229,20 @@ export function createWorker(deps: WorkerDeps) {
       const state = settleHedgeOrder(current.state, { terminal: true, filledLots: 0n, confirmedShortLots: lots });
       db.atomically(() => { db.updateAction(actionId, patch); db.updateRule(rule.id, { state, reason }); });
     } catch {
+      // The same known-stop reconciliation as a filled IOC: a venue stop may have filled before this order was
+      // refused (e.g. a reduce-only IOC rejected because the position was already gone).
+      const fills = await stopFills(rule, sizeDecimals);
+      if (fills.stopFilled > 0n && journalShort(rule.id) - fills.stopFilled === lots) {
+        await recordStopFills(rule, fills.filledStops);
+        const state = settleHedgeOrder({ ...current.state, shortLots: lots }, { terminal: true, filledLots: 0n, confirmedShortLots: lots });
+        db.atomically(() => {
+          db.updateAction(actionId, patch);
+          db.updateRule(rule.id, { state, reason: lots === 0n ? "recovery-stop-filled" : "recovery-stop-partial",
+            ...(lots === 0n ? { stopStatus: "none" as const } : {}) });
+        });
+        db.emit(env, rule.id, "stop-filled", { filledLots: fills.stopFilled, shortLots: lots, stops: fills.filledStops.map(x => x.cloid) });
+        return;
+      }
       db.atomically(() => { db.updateAction(actionId, patch); pause(current, current.state, "reconcile-mismatch"); });
     }
   }
@@ -264,7 +278,9 @@ export function createWorker(deps: WorkerDeps) {
     if (signature === "unknown") return; // engine action stays pending until reconcile resolves it
     if (!signature) {
       await settleZero(rule, market.sizeDecimals, "signer-refused", id, "rejected");
-      pause(db.rule(rule.id)!, db.rule(rule.id)!.state, "signer-refused");
+      // Don't turn a rule that settleZero just reconciled as closed (e.g. by a venue stop) into "paused".
+      const after = db.rule(rule.id)!;
+      if (after.state.phase !== "closed") pause(after, after.state, "signer-refused");
       return;
     }
     const sent = await send(rule, db.action(id)!, signature);
