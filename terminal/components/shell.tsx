@@ -163,13 +163,13 @@ export function WalletBox() {
           disabled={wallet.connecting}
           className={
             privy?.authenticated
-              ? "group flex h-11 items-center gap-2.5 rounded-[12px] px-1.5 text-left text-[14px] font-semibold text-white/80 transition-colors duration-150 hover:bg-[#1c1b1a] hover:text-white disabled:opacity-70"
+              ? "group flex h-9 items-center gap-2.5 rounded-[10px] px-1 text-left text-[13px] font-semibold text-white/75 transition-colors duration-150 hover:bg-[#1c1b1a] hover:text-white disabled:opacity-70"
               : "h-11 rounded-[12px] bg-[#f0645a] text-[15px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70"
           }
         >
           {privy?.authenticated ? (
             <>
-              <CoinLogo coin="SOL" className="size-7" />
+              <CoinLogo coin="SOL" className="size-[22px]" />
               {wallet.connecting ? "Connecting…" : "Add SOL to hedge"}
               <CaretRight size={14} className="ml-auto text-white/35 transition-[translate,color] duration-150 group-hover:translate-x-0.5 group-hover:text-white/70" />
             </>
@@ -195,12 +195,12 @@ function SignedIn() {
   const total = trade || hedge ? (trade?.equity ?? 0) + (hedge?.equity ?? 0) : null;
   return (
     <>
-      <div className="flex items-center gap-3 px-1">
-        {privy.hedge ? <WalletAvatar address={privy.hedge} size={36} /> : <span className="size-9 shrink-0 rounded-full bg-[#1c1b1a]" />}
-        <div className="min-w-0 leading-tight">
-          <p className="truncate text-[14px] font-semibold">{privy.label ?? "Signed in"}</p>
-          <p className="mt-0.5 text-[13px] text-white/45 tabular-nums">
-            {total === null ? (privy.creating ? "Setting up…" : "…") : <NumberRoll value={total} format={(n) => `${usd(n, 2)} on Hyperliquid`} />}
+      <div className="flex items-center gap-2.5 px-1">
+        {privy.hedge ? <WalletAvatar address={privy.hedge} size={30} /> : <span className="size-[30px] shrink-0 rounded-full bg-[#1c1b1a]" />}
+        <div className="min-w-0 flex-1 whitespace-nowrap leading-tight">
+          <p className="truncate text-[13px] font-semibold">{privy.label ?? "Signed in"}</p>
+          <p className="text-[12px] text-white/45 tabular-nums">
+            {total === null ? (privy.creating ? "Setting up…" : "…") : <NumberRoll value={total} format={(n) => `${usd(n, 2)} total`} />}
           </p>
         </div>
         <Tip text="Sign out" side="top" align="end">
@@ -216,16 +216,16 @@ function SignedIn() {
           </button>
         </Tip>
       </div>
-      <div className="grid grid-cols-2 gap-1.5">
+      <div className="rounded-[12px] bg-[#1c1b1a] px-2.5 py-1">
         {(["trade", "hedge"] as const).map((r) => {
           const a = r === "trade" ? trade : hedge;
           return (
-            <div key={r} className="min-w-0 rounded-[12px] bg-[#1c1b1a] px-2.5 py-2">
-              <Tip text={r === "trade" ? "Your Hyperliquid account for trading by hand." : "A separate Hyperliquid account that holds the hedge."} side="top" align={r === "trade" ? "start" : "end"}>
-                <span className="text-[11px] text-white/45">{r === "trade" ? "Trade" : "Hedge"}</span>
+            <div key={r} className="flex h-7 items-center gap-2 whitespace-nowrap text-[12px]">
+              <Tip text={r === "trade" ? "Your Hyperliquid account for trading by hand." : "A separate Hyperliquid account that holds the hedge."} side="top" align="start">
+                <span className="w-10 text-white/45">{r === "trade" ? "Trade" : "Hedge"}</span>
               </Tip>
-              <p className="mt-0.5 text-[15px] font-semibold leading-tight tabular-nums">{a ? <NumberRoll value={a.equity} format={(n) => usd(n, 2)} /> : "…"}</p>
-              {privy[r] ? <CopyAddress address={privy[r]!} className="mt-1 text-[11px]" /> : <p className="mt-1 text-[11px] text-white/35">{privy.error ? "Not set up" : "Setting up…"}</p>}
+              <span className="font-semibold tabular-nums">{a ? <NumberRoll value={a.equity} format={(n) => usd(n, 2)} /> : "…"}</span>
+              {privy[r] ? <CopyAddress address={privy[r]!} className="ml-auto text-[11px]" /> : <span className="ml-auto text-[11px] text-white/35">{privy.error ? "Not set up" : "Setting up…"}</span>}
             </div>
           );
         })}
