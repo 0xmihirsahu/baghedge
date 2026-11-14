@@ -160,6 +160,12 @@ Open `http://localhost:3001/ops` (with `OPS_PAGE=1`) for the owner console. It c
 
 Every folder has its own README.
 
+## Built at NEAR HACKATHON
+
+- **All new code.** Every commit is from the development window (from 2026-11-14); there's no pre-hackathon baseline. The submitted state is tagged [`hackathon-submission`](../../tree/hackathon-submission).
+- **The NEAR integration:** the hedge guard runs as an attested Rust WASM build on **OutLayer** (NEAR TEE), with a per-owner agent derived inside the enclave; money moves in and out through **NEAR Intents 1Click** from about 228 tokens.
+- **AI assistance:** large parts of the code, docs and tests were written with Claude Code and Codex, then reviewed, tested and run on mainnet by the team.
+
 ## Libraries
 Bun, TypeScript, [`@nktkas/hyperliquid`](https://github.com/nktkas/hyperliquid), viem, WalletConnect, `near-api-js`, `@solana/web3.js` (scripts); Rust `k256`, `sha3`, `serde`, `rmp-serde` (guard); Next.js, React, lightweight-charts and the Solana wallet adapter (terminal). Hyperliquid, NEAR Intents 1Click, OutLayer and FastFS.
 
