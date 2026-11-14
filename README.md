@@ -47,7 +47,9 @@ Every row links to on-chain or venue evidence. Raw records: [`docs/evidence/main
 | Owner-signed hedge policy armed (guard signer) | **Mainnet** | rule `0xb6e01a94…6309`: cap 0.28 SOL, entry 72.19, recovery 74.36 | ✅ armed |
 | Guard-signed hedge entry with attached recovery stop | **Mainnet** | mark crossed 72.19 → guard signed in OutLayer ([`2m4DvN6S…vS3T`](https://api.outlayer.ai/attestations/by-tx/2m4DvN6S8A9j2HFvtopTH4STf6BVNtYwif5ojMLTvS3T), same attested WASM) → IOC sell `605230434689` **filled 0.28 SOL @ 72.205** (fill `0x91278997…0f58`); reduce-only recovery stop `605230434690` (trigger > 74.36, limit 75.08, 0.28) **open at the venue**; Trade account untouched. ~11 s from guard request to fill. | ✅ |
 | Watched SOL moves out → reduce-only buyback | **Mainnet** | Phantom 0.40 → 0.1499 SOL → guard signed ([`9GFonDvJ…5BBx`](https://api.outlayer.ai/attestations/by-tx/9GFonDvJYMEFw9cmy6ucJAGu1oLm1xmjKY3BoL5j5BBx)) → reduce-only IOC `605233441503` **filled 0.14 SOL @ 72.203** (fill `0x67a9b704…cc0b`); hedge −0.28 → **−0.14**. Trade account unaffected (it held no position yet). | ✅ |
-| Close the hedge and pay USDC back to Base | **Mainnet** | after resize | ⏳ |
+| Manual Trade long (separate account, own agent) | **Mainnet** | IOC long `605239853591` **filled 0.14 SOL @ 72.225** on Trade `0x80FD…6444` | ✅ |
+| Owner closes the hedge; Trade position unchanged | **Mainnet** | owner-signed close → guard signed ([`BbsrLb94…2VDJ`](https://api.outlayer.ai/attestations/by-tx/BbsrLb945mjbCmAXcgVYe9dbDyx545asp9TsY8s32VDJ)) → reduce-only `605241804534` **filled 0.14 @ 72.262** (fill `0xd4150293…8602`); Hedge flat, no orders (stop `reduceOnlyCanceled`); **Trade still +0.14 SOL** | ✅ |
+| Pay Hedge USDC back to Base | **Mainnet** | payout in progress | ⏳ |
 | Rule expiry without a crossing ends flat | Hyperliquid testnet | rule `0x243019ab…3b1a`: low 64.794 vs entry 64.76, expired with 0 actions | ✅ |
 
 ## How it works
