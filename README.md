@@ -45,7 +45,7 @@ Every row links to on-chain or venue evidence. Raw records: [`docs/evidence/main
 | Guard build attested on OutLayer | **NEAR mainnet** | `public_key` run [`2oDKos4B…7buA`](https://api.outlayer.ai/attestations/by-tx/2oDKos4BKHkQXERKVKUUqiRD1DmsQnctVvHoaUBk7buA) by `anotherbaghedge.near`, WASM `ffe0e1dd…ced1c` → agent `0x38f05746…a70e`. REPORTDATA, measurements and Intel DCAP (`UpToDate`) independently verified. | ✅ |
 | Guard agent approved on the Hedge account | **Mainnet** | `extraAgents(0x59c3…85cc)` lists `baghedge` → `0x38f05746…a70e` | ✅ |
 | Owner-signed hedge policy armed (guard signer) | **Mainnet** | rule `0xb6e01a94…6309`: cap 0.28 SOL, entry 72.19, recovery 74.36 | ✅ armed |
-| Guard-signed hedge entry with attached recovery stop | **Mainnet** | waiting for the mark to cross the entry | ⏳ |
+| Guard-signed hedge entry with attached recovery stop | **Mainnet** | mark crossed 72.19 → guard signed in OutLayer ([`2m4DvN6S…vS3T`](https://api.outlayer.ai/attestations/by-tx/2m4DvN6S8A9j2HFvtopTH4STf6BVNtYwif5ojMLTvS3T), same attested WASM) → IOC sell `605230434689` **filled 0.28 SOL @ 72.205** (fill `0x91278997…0f58`); reduce-only recovery stop `605230434690` (trigger > 74.36, limit 75.08, 0.28) **open at the venue**; Trade account untouched. ~11 s from guard request to fill. | ✅ |
 | Watched SOL moves out → reduce-only buyback; manual position unchanged | **Mainnet** | after entry | ⏳ |
 | Close the hedge and pay USDC back to Base | **Mainnet** | after resize | ⏳ |
 | Rule expiry without a crossing ends flat | Hyperliquid testnet | rule `0x243019ab…3b1a`: low 64.794 vs entry 64.76, expired with 0 actions | ✅ |
