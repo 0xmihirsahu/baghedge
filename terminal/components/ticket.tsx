@@ -164,9 +164,11 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
         ) : (
           <>
             <Leverage value={leverage} max={maxLev} onChange={setLev} />
-            <p className="mt-3 text-center text-[13px] text-white/45 tabular-nums">
-              {tradeBelowMin ? <Tip text={`Hyperliquid rejects orders under $${MIN}.`}>{`Minimum $${MIN}`}</Tip> : `Fee ${usd((Number(usdIn) || 0) * TAKER, 2)}`}
-            </p>
+            {tradeBelowMin && (
+              <p className="mt-3 text-center text-[13px] text-[#f2554b]">
+                <Tip text={`Hyperliquid rejects orders under $${MIN}.`}>{`Minimum $${MIN}`}</Tip>
+              </p>
+            )}
           </>
         )}
       </div>
@@ -200,7 +202,7 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
                 ["Notional", usd(Number(usdIn) || 0)],
                 ["Size", `${tradeQ.toFixed(3)} ${coin}`],
                 ["Margin", usd((Number(usdIn) || 0) / leverage, 2)],
-                ["Taker fee", "0.045%"],
+                ["Fee", usd((Number(usdIn) || 0) * TAKER, 2)],
               ]
           ).map(([k, v], i) => (
             <div key={k} className="leading-tight">
@@ -222,9 +224,28 @@ const TIPS: Record<string, string> = {
   "Max leverage": "The most leverage Hyperliquid allows on this market.",
   Notional: "Total dollar value of the order.",
   Size: "How much COIN the order buys or sells.",
-  "Taker fee": "Hyperliquid charges 0.045% on orders that fill at once.",
+  Fee: "Taker fee, 0.045% of the order.",
   Margin: "USDC this order ties up at the chosen leverage.",
 };
+
+// leverage for a trade: one row, the label and the steps up to the market's max
+function Leverage({ value, max, onChange }: { value: number; max: number; onChange: (v: number) => void }) {
+  const steps = [...new Set([1, 2, 5, 10, 20, 40, max].filter((v) => v <= max))].slice(-5);
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-[13px] text-white/45">
+        <Tip text="Higher leverage, smaller margin, closer liquidation." align="start">Leverage</Tip>
+      </span>
+      <div className="ml-auto flex gap-1 rounded-[11px] bg-[#1c1b1a] p-1">
+        {steps.map((v) => (
+          <button key={v} onClick={() => onChange(v)} className={`h-7 min-w-[40px] rounded-[8px] px-2 text-[13px] font-semibold tabular-nums transition-colors duration-150 ${v === value ? "bg-[#2e2c2a] text-white" : "text-white/45 hover:text-white/75"}`}>
+            {v}x
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // where SOL is now against the rule: entry (coral) on the left, recovery (white) on the right,
 // the live price as a dot between them, and how far each line is from here
@@ -255,26 +276,6 @@ function RuleTrack({ mark, entry, recovery }: { mark?: number; entry: number; re
           <Tip text="The hedge closes as SOL recovers here. Runs once." align="end">Recovery {usd(recovery)}</Tip>
           <span className="block text-white/40">{pct(toRecovery)} from now</span>
         </span>
-      </div>
-    </div>
-  );
-}
-
-// leverage for a trade: a few common steps up to the market's max
-function Leverage({ value, max, onChange }: { value: number; max: number; onChange: (v: number) => void }) {
-  const steps = [...new Set([1, 2, 5, 10, 20, max].filter((v) => v <= max))];
-  return (
-    <div>
-      <div className="mb-2 flex items-center justify-between text-[12px] text-white/45">
-        <Tip text="Borrowed size. Higher leverage, smaller margin, closer liquidation." align="start">Leverage</Tip>
-        <span className="font-semibold text-white tabular-nums">{value}x</span>
-      </div>
-      <div className="grid gap-1 rounded-[12px] bg-[#1c1b1a] p-1" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
-        {steps.map((v) => (
-          <button key={v} onClick={() => onChange(v)} className={`h-8 rounded-[9px] text-[13px] font-semibold tabular-nums transition-colors duration-150 ${v === value ? "bg-[#2e2c2a] text-white" : "text-white/45 hover:text-white/70"}`}>
-            {v === max ? "Max" : `${v}x`}
-          </button>
-        ))}
       </div>
     </div>
   );

@@ -7,6 +7,7 @@ import { BagLoader, NumberRoll, StatusText } from "@/components/motion";
 import { Chart } from "./chart";
 import { Ticket } from "./ticket";
 import { CoinLogo } from "./coin-logo";
+import { Tip } from "./tip";
 import { useCoin, useAccount, type Interval, type Trade } from "./app/hl";
 import { FUNDING, STATUS, useStore } from "./app/store";
 import { DOWN, UP, compact, pct, priceDecimals, risk, time, tone, usd } from "./app/format";
@@ -55,7 +56,7 @@ export function CoinPage({ coin }: { coin: string }) {
               <Link href="/markets" aria-label="All markets" className="text-white/55 hover:text-white"><ArrowLeft size={20} /></Link>
               <CoinLogo coin={coin} className="size-8" />
               <span className="text-[18px] font-semibold">{coin}</span>
-              <span className="rounded-[7px] bg-[#1c1b1a] px-2 py-0.5 text-[12px] text-white/60">{maxLev}x</span>
+              <span className="rounded-[7px] bg-[#1c1b1a] px-2 py-0.5 text-[12px] text-white/60"><Tip text="The most leverage Hyperliquid allows on this market." side="bottom" align="start">{maxLev}x</Tip></span>
             </div>
             <div className="mt-3 text-[40px] font-semibold leading-none tracking-[-0.03em] sm:text-[46px]">
               {mark ? <NumberRoll value={mark} format={(n) => usd(n, decimals)} /> : <BagLoader size={34} label={`Loading ${coin}`} />}
@@ -64,9 +65,9 @@ export function CoinPage({ coin }: { coin: string }) {
           </div>
           {market && (
             <div className="hidden gap-7 pt-1 text-right md:flex">
-              <Stat label="Funding" value={`${((ctx?.funding ?? market.funding) * 100).toFixed(4)}%`} />
-              <Stat label="Open interest" value={compact(ctx?.oi ?? market.oi)} />
-              <Stat label="24h volume" value={compact(market.volume)} />
+              <Stat label="Funding" tip="Paid hourly between longs and shorts. Positive means longs pay." value={`${((ctx?.funding ?? market.funding) * 100).toFixed(4)}%`} />
+              <Stat label="Open interest" tip="Value of all open positions in this market." value={compact(ctx?.oi ?? market.oi)} />
+              <Stat label="24h volume" tip="Value traded in this market over the last 24 hours." value={compact(market.volume)} />
             </div>
           )}
         </header>
@@ -101,7 +102,7 @@ export function CoinPage({ coin }: { coin: string }) {
               {isSol && h.hedge !== 0 && (
                 <Row
                   title="Short"
-                  sub={<StatusText text={`Replay · ${STATUS[h.phase]}`} />}
+                  sub={<><Tip text="Simulated hedge. Nothing is signed or sent." side="bottom" align="start">Replay</Tip> · <StatusText text={STATUS[h.phase]} tone="plain" /></>}
                   value={<NumberRoll value={h.hedge} format={(n) => `${n.toFixed(2)} SOL`} />}
                   note={mark ? usd(Math.abs(h.hedge) * mark) : ""}
                   coin={coin}
@@ -172,7 +173,7 @@ function Tape({ trades, coin, decimals }: { trades: Trade[]; coin: string; decim
   return (
     <div className="flex min-h-0 flex-col">
       <div className="flex items-center justify-between px-5 pb-2 pt-3.5 text-[14px] sm:px-7">
-        <span className="font-semibold">Trades</span>
+        <span className="font-semibold"><Tip text="Live fills on Hyperliquid. Green buys, red sells." align="start">Trades</Tip></span>
         <span className="text-[12px] text-white/40">Size · Price · Time</span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
@@ -212,11 +213,11 @@ function Row({ title, sub, value, note, coin }: { title: string; sub: React.Reac
   );
 }
 
-export function Stat({ label, value }: { label: string; value: string }) {
+export function Stat({ label, value, tip }: { label: string; value: string; tip?: string }) {
   return (
     <div className="leading-tight">
       <p className="text-[15px] font-semibold tabular-nums">{value}</p>
-      <p className="mt-0.5 text-[12px] text-white/45">{label}</p>
+      <p className="mt-0.5 text-[12px] text-white/45">{tip ? <Tip text={tip} side="bottom" align="end">{label}</Tip> : label}</p>
     </div>
   );
 }

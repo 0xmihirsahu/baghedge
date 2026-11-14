@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useAccount } from "./app/hl";
 import { useStore } from "./app/store";
 import { CoinLogo } from "./coin-logo";
+import { Tip } from "./tip";
 import { DOWN, UP, time, tone, usd } from "./app/format";
 
 // one list: the hedge replay's events and real fills from the Trade and Hedge accounts, newest first.
@@ -41,7 +42,7 @@ export function ActivityPage() {
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto border-t border-white/[0.08]">
         {rows.length ? (
-          rows.map((r) => (
+          rows.map((r, i) => (
             <div key={r.key} className="flex items-center gap-3 px-5 py-3 sm:px-7">
               <CoinLogo coin={r.coin} className="size-8" />
               <div className="min-w-0 leading-tight">
@@ -50,7 +51,9 @@ export function ActivityPage() {
               </div>
               <div className="ml-auto flex items-center gap-4 text-right tabular-nums">
                 {r.pnl !== undefined && <span className="text-[13px]" style={{ color: tone(r.pnl) }}>{usd(r.pnl, 2)}</span>}
-                <span className="hidden rounded-[6px] bg-[#1c1b1a] px-1.5 py-0.5 text-[11px] text-white/55 sm:block">{r.tag}</span>
+                <span className="hidden rounded-[6px] bg-[#1c1b1a] px-1.5 py-0.5 text-[11px] text-white/55 sm:block">
+                  <Tip text={TAGS[r.tag]} side={i ? "top" : "bottom"} align="end">{r.tag}</Tip>
+                </span>
                 <span className="w-[64px] text-[13px] text-white/40">{time(r.at)}</span>
               </div>
             </div>
@@ -68,3 +71,9 @@ export function ActivityPage() {
     </section>
   );
 }
+
+// the first row's tag opens downward so the list never clips it
+const TAGS: Record<string, string> = {
+  Replay: "Simulated hedge event. Nothing was signed.",
+  Mainnet: "A real fill from that Hyperliquid account.",
+};
