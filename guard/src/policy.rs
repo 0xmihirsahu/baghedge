@@ -36,9 +36,14 @@ pub struct Deployment {
 }
 
 impl Deployment {
+    #[cfg(not(feature = "multi-owner"))]
     pub fn pinned() -> Result<Self, String> {
         let owner =
             parse_hex(option_env!("BAGHEDGE_PINNED_OWNER").ok_or("guard is not provisioned")?)?;
+        Self::for_owner(owner)
+    }
+
+    pub fn for_owner(owner: [u8; 20]) -> Result<Self, String> {
         let environment = Environment::parse(
             option_env!("BAGHEDGE_PINNED_NETWORK").ok_or("guard is not provisioned")?,
         )?;
@@ -99,6 +104,7 @@ pub struct Policy {
 }
 
 impl Policy {
+    #[cfg(test)]
     pub fn verify(
         &self,
         chain_id: u64,
@@ -106,18 +112,28 @@ impl Policy {
         dep: &Deployment,
         agent: [u8; 20],
     ) -> Result<(), String> {
+        self.verify_owner(chain_id, signature, dep)?;
+        self.verify_agent(agent)
+    }
+
+    pub fn verify_owner(
+        &self,
+        chain_id: u64,
+        signature: &str,
+        dep: &Deployment,
+    ) -> Result<(), String> {
         let trade = parse_hex::<20>(&self.trade_account)?;
-        if dep.owner != parse_hex(&self.hedge_account)?
+        if dep.owner == [0; 20]
+            || dep.owner != parse_hex(&self.hedge_account)?
             || trade == dep.owner
             || trade == [0; 20]
             || self.environment != dep.environment
             || self.market != "SOL"
             || self.asset_id != dep.asset_id
             || self.price_source != "hyperliquid-mark"
-            || agent != parse_hex(&self.guard_agent)?
             || !self.one_cycle
         {
-            return Err("policy does not match provisioned owner, agent, or market".into());
+            return Err("policy does not match provisioned owner or market".into());
         }
         if self.version == 0
             || self.watch_scope & 1 == 0
@@ -136,6 +152,13 @@ impl Policy {
         }
         if recover(&self.digest(chain_id)?, &parse_hex(signature)?)? != dep.owner {
             return Err("policy signature is not from the provisioned owner".into());
+        }
+        Ok(())
+    }
+
+    pub fn verify_agent(&self, agent: [u8; 20]) -> Result<(), String> {
+        if agent != parse_hex(&self.guard_agent)? {
+            return Err("policy does not match provisioned agent".into());
         }
         Ok(())
     }

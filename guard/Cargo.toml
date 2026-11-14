@@ -7,6 +7,9 @@ edition = "2021"
 name = "baghedge-guard-probe"
 path = "src/main.rs"
 
+[features]
+multi-owner = ["dep:zeroize"]
+
 [dependencies]
 hex = "0.4"
 k256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
@@ -15,6 +18,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha3 = "0.10"
 wit-bindgen = "0.36"
+zeroize = { version = "1", optional = true }
 
 [profile.release]
 opt-level = "z"
