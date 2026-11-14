@@ -2,6 +2,11 @@
   "name": "baghedge-e2e",
   "private": true,
   "type": "module",
-  "scripts": { "smoke": "node run.mjs smoke" },
-  "dependencies": { "playwright": "1.65.1" }
+  "scripts": {
+    "smoke": "node run.mjs smoke"
+  },
+  "dependencies": {
+    "playwright": "1.65.1",
+    "@solana/web3.js": "1.98.4"
+  }
 }

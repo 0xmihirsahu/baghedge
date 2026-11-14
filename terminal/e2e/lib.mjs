@@ -2,6 +2,7 @@
 // every step: screenshot after, plus the API calls, console errors, status line and toasts it caused (log.jsonl).
 // see e2e/README.md
 import { chromium } from "playwright";
+import { Keypair, SystemInstruction, SystemProgram, TransactionInstruction, VersionedTransaction } from "@solana/web3.js";
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -35,7 +36,9 @@ export function copyProfile(port) {
   execSync(`find "${PROFILE}" -name LOCK -delete`);
 }
 
-export async function open({ url, email, allow = [], slowMo = 120, video = false, name = "run" }) {
+// solKey: a Solana keypair file ({ solana: { secretKeyArray } }) for a test wallet the page sees as "Test Wallet".
+// it signs in node, only when the run allows the "solana" rail, and logs what each transaction does first
+export async function open({ url, email, allow = [], slowMo = 120, video = false, name = "run", solKey = null }) {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const dir = path.join(HERE, "runs", `${stamp}-${name}`);
   fs.mkdirSync(path.join(dir, "shots"), { recursive: true });
@@ -55,6 +58,62 @@ export async function open({ url, email, allow = [], slowMo = 120, video = false
     args: ["--window-size=1480,960"],
     ...(video ? { recordVideo: { dir: path.join(dir, "video"), size: { width: 1440, height: 860 } } } : {}),
   });
+
+  // the test Solana wallet: a wallet-standard wallet in the page, its key in node
+  if (solKey) {
+    const kp = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(solKey, "utf8")).solana.secretKeyArray));
+    await ctx.exposeFunction("__bhSolSign", (b64) => {
+      const tx = VersionedTransaction.deserialize(Buffer.from(b64, "base64"));
+      const keys = tx.message.staticAccountKeys;
+      const what = tx.message.compiledInstructions.map((ix) => {
+        const program = keys[ix.programIdIndex];
+        if (program.equals(SystemProgram.programId)) {
+          try {
+            const d = SystemInstruction.decodeTransfer(new TransactionInstruction({ programId: program, keys: ix.accountKeyIndexes.map((i) => ({ pubkey: keys[i], isSigner: false, isWritable: true })), data: Buffer.from(ix.data) }));
+            return `transfer ${Number(d.lamports) / 1e9} SOL → ${d.toPubkey.toBase58()}`;
+          } catch {}
+        }
+        return `program ${program.toBase58()}`;
+      });
+      if (!allowed.has("solana")) {
+        write({ type: "rail", rail: "solana", action: "blocked", what });
+        throw new Error("Test wallet: signing is blocked for this run (--allow solana)");
+      }
+      write({ type: "rail", rail: "solana", action: "signed", what });
+      tx.sign([kp]);
+      return Buffer.from(tx.serialize()).toString("base64");
+    });
+    await ctx.addInitScript(({ address, bytes }) => {
+      const account = { address, publicKey: new Uint8Array(bytes), chains: ["solana:mainnet"], features: ["solana:signTransaction"] };
+      const listeners = new Set();
+      const wallet = {
+        version: "1.0.0",
+        name: "Test Wallet",
+        icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23f0645a'/%3E%3C/svg%3E",
+        chains: ["solana:mainnet"],
+        accounts: [],
+        features: {
+          "standard:connect": { version: "1.0.0", connect: async () => { wallet.accounts = [account]; listeners.forEach((l) => l({ accounts: wallet.accounts })); return { accounts: wallet.accounts }; } },
+          "standard:disconnect": { version: "1.0.0", disconnect: async () => { wallet.accounts = []; listeners.forEach((l) => l({ accounts: [] })); } },
+          "standard:events": { version: "1.0.0", on: (_e, l) => (listeners.add(l), () => listeners.delete(l)) },
+          "solana:signTransaction": {
+            version: "1.0.0",
+            supportedTransactionVersions: ["legacy", 0],
+            signTransaction: (...inputs) =>
+              Promise.all(inputs.map(async ({ transaction }) => {
+                const signed = await window.__bhSolSign(btoa(String.fromCharCode(...transaction)));
+                return { signedTransaction: Uint8Array.from(atob(signed), (c) => c.charCodeAt(0)) };
+              })),
+          },
+        },
+      };
+      const register = ({ register }) => register(wallet);
+      window.addEventListener("wallet-standard:app-ready", (e) => register(e.detail));
+      try {
+        window.dispatchEvent(new CustomEvent("wallet-standard:register-wallet", { detail: register }));
+      } catch {}
+    }, { address: kp.publicKey.toBase58(), bytes: [...kp.publicKey.toBytes()] });
+  }
 
   // the copy must never end the real session
   await ctx.route(/auth\.privy\.io\/api\/v1\/sessions\/logout/, (r) => r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
@@ -116,7 +175,8 @@ export async function open({ url, email, allow = [], slowMo = 120, video = false
         // live regions minus the rolling numbers (balances, prices), which aren't outcomes
         live: [...document.querySelectorAll("[aria-live]")].map((e) => e.textContent?.trim()).filter((t) => t && !/^[-−]?\$?[\d,.]+%?( total| SOL)?$/.test(t)),
         toasts: [...document.querySelectorAll(".toast-in")].map((e) => e.textContent?.trim()),
-        dialog: document.querySelector('[role="dialog"][aria-hidden="false"], [role="dialog"]:not([aria-hidden])')?.textContent?.trim().slice(0, 200) ?? null,
+        // the open sheet (ours or Privy's), whole: progress lives there
+        dialog: [...document.querySelectorAll('[role="dialog"]')].filter((d) => d.getBoundingClientRect().height > 0 && getComputedStyle(d.closest('[aria-hidden]') ?? d).opacity !== "0").map((d) => d.textContent?.trim()).join(" | ").slice(0, 600) || null,
       }))
       .catch(() => ({ live: [], toasts: [], dialog: null }));
 
@@ -148,13 +208,20 @@ export async function open({ url, email, allow = [], slowMo = 120, video = false
     let last = "";
     while (Date.now() - t0 < timeout) {
       const s = await status();
-      const text = [...s.live, ...s.toasts].join(" | ");
+      const text = [...s.live, ...s.toasts, s.dialog ?? ""].join(" | ");
+      // Privy's own confirm window (the dashboard can force it): approve it and keep the picture
+      const privyOk = page.locator("#privy-modal-content button, [id*='privy'] button").filter({ hasText: /^(Approve|Sign|Confirm|Sign and continue|Continue)$/i });
+      if (await privyOk.first().isVisible().catch(() => false)) {
+        await shot(`${name}-privy-confirm`);
+        await privyOk.first().click().catch(() => {});
+        write({ type: "privy", step: name, action: "approved the confirm window" });
+      }
       if (text !== last) {
         last = text;
         write({ type: "watch", step: name, text, shot: await shot(`${name}-watch`) });
       }
       if (done(text)) return text;
-      if (/failed|try again|couldn't|can't|refused/i.test(text)) throw new Error(`${name}: ${text}`);
+      if (/failed|try again|couldn't|can't|refused|cancelled|Nothing was sent/i.test([...s.live, ...s.toasts].join(" ") + " " + (s.dialog?.match(/(Something went wrong[^|]*|You cancelled[^|]*|Refunded[^|]*)/)?.[0] ?? ""))) throw new Error(`${name}: ${text}`);
       await page.waitForTimeout(1000);
     }
     throw new Error(`${name}: timed out after ${timeout / 1000}s (last: ${last || "nothing"})`);
