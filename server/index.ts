@@ -1,9 +1,15 @@
+import { keccak256, stringToHex } from "viem";
 import { isEvmAddress, isSolanaAddress } from "../shared/amounts";
 import { previewHedge } from "./preview";
 import { RequestError } from "./http";
 import { createIntents, parseQuoteInput } from "./intents";
 import { openTransfers } from "./transfers";
 import { createVenue, readSolBalance } from "./venue";
+import { openDb } from "./db";
+import { createExchange, fallbackSigner, verifiedSigner, type HedgeSigner, type Hex } from "./exchange";
+import { createHedgeRoutes, type SignerConfig } from "./hedges";
+import { createWorker, type SignContext } from "./worker";
+import type { RuleRecord } from "./db";
 
 type AppConfig = {
   mode: "testnet" | "mainnet";
@@ -12,16 +18,34 @@ type AppConfig = {
   solanaRpc: string;
   intentsUrl?: string;
   intentsJwt?: string;
+  /** Hedge signer. Absent: hedge routes report signer_unconfigured and the worker doesn't run. */
+  signer?: SignerConfig & { signerFor(rule: RuleRecord, context: SignContext): HedgeSigner };
+  worker?: boolean;
 };
 
 export function createApi(config: AppConfig, request = fetch) {
   const venue = createVenue(config.mode, request);
   const intents = createIntents(config.intentsUrl, config.intentsJwt, request);
   const transfers = openTransfers(config.dbPath);
+  const db = openDb(config.dbPath);
+  const exchange = createExchange(config.mode, request);
+  const readWallet = (address: string) => readSolBalance(config.solanaRpc, address, request);
+  const worker = config.signer
+    ? createWorker({ env: config.mode, db, exchange, readWallet, signerFor: config.signer.signerFor })
+    : null;
+  const hedges = createHedgeRoutes({
+    env: config.mode, db, exchange, readWallet, signer: config.signer ?? null,
+    onArmed: id => { void worker?.tickRule(id).catch(error => console.error("hedge tick failed", error)); },
+  });
+  if (worker && config.worker) worker.start();
 
   async function route(req: Request, url: URL) {
     if (req.method === "GET" && url.pathname === "/api/health") {
-      return { mode: config.mode, executableQuotesEnabled: config.mode === "mainnet" };
+      return {
+        mode: config.mode, executableQuotesEnabled: config.mode === "mainnet",
+        hedgeSigner: config.signer ? { kind: config.signer.kind, agentAddress: config.signer.agentAddress } : null,
+        workerRunning: Boolean(worker && config.worker),
+      };
     }
     if (req.method === "GET" && url.pathname === "/api/markets") {
       return { mode: config.mode, markets: await venue.markets() };
@@ -65,6 +89,8 @@ export function createApi(config: AppConfig, request = fetch) {
       const id = quote.dry ? null : transfers.save(config.mode, quote);
       return { id, mode: "mainnet", ...quote };
     }
+    const hedgeResult = await hedges.route(req, url);
+    if (hedgeResult !== undefined) return hedgeResult;
     const transferId = /^\/api\/transfers\/([\da-f-]{36})$/.exec(url.pathname)?.[1];
     if (req.method === "GET" && transferId) {
       const transfer = transfers.get(config.mode, transferId);
@@ -92,6 +118,11 @@ export function createApi(config: AppConfig, request = fetch) {
         headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
       }
       if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
+      if (req.method === "GET" && url.pathname === "/api/events") {
+        headers.set("Content-Type", "text/event-stream");
+        headers.set("Connection", "keep-alive");
+        return new Response(hedges.events(req, url), { headers });
+      }
       try {
         return Response.json(await route(req, url), { headers });
       } catch (error) {
@@ -102,7 +133,8 @@ export function createApi(config: AppConfig, request = fetch) {
         return Response.json({ error: "internal_error", message: "Request could not be completed" }, { status: 500, headers });
       }
     },
-    close: transfers.close,
+    worker,
+    close() { worker?.stop(); transfers.close(); db.close(); },
   };
 }
 
@@ -117,9 +149,56 @@ if (import.meta.main) {
       (mode === "mainnet" ? "https://api.mainnet-beta.solana.com" : "https://api.devnet.solana.com"),
     intentsUrl: process.env.INTENTS_BASE_URL,
     intentsJwt: process.env.INTENTS_JWT,
+    signer: await signerFromEnv(mode),
+    worker: process.env.WORKER !== "0",
   });
   const server = Bun.serve({
-    hostname: "127.0.0.1", port: Number(process.env.PORT ?? 3001), maxRequestBodySize: 8192, fetch: api.fetch,
+    hostname: process.env.HOST ?? "127.0.0.1", port: Number(process.env.PORT ?? 3001), maxRequestBodySize: 8192, fetch: api.fetch,
   });
   console.log(`Baghedge API (${mode}) listening at ${server.url}`);
+}
+
+/**
+ * HEDGE_SIGNER=fallback: a server-held agent key (FALLBACK_AGENT_PRIVATE_KEY). Labeled demo signer; refused on
+ * mainnet unless ALLOW_MAINNET_FALLBACK=labeled-demo. HEDGE_SIGNER=guard: the OutLayer guard via server/guard.ts
+ * (Codex), with GUARD_AGENT_ADDRESS and GUARD_BUILD_HASH from the attested build.
+ */
+async function signerFromEnv(mode: "testnet" | "mainnet"): Promise<AppConfig["signer"]> {
+  const kind = process.env.HEDGE_SIGNER;
+  if (!kind) return undefined;
+  if (kind === "fallback") {
+    const key = process.env.FALLBACK_AGENT_PRIVATE_KEY;
+    if (!key || !/^0x[\da-f]{64}$/i.test(key)) throw new Error("FALLBACK_AGENT_PRIVATE_KEY must be a 32-byte hex key");
+    if (mode === "mainnet" && process.env.ALLOW_MAINNET_FALLBACK !== "labeled-demo") {
+      throw new Error("The fallback signer is testnet-only unless ALLOW_MAINNET_FALLBACK=labeled-demo");
+    }
+    const signer = verifiedSigner(fallbackSigner(key as Hex, mode), mode);
+    // A fixed, recognizable non-zero label: the fallback has no attested build.
+    const buildHash = keccak256(stringToHex("baghedge-fallback-agent-unattested"));
+    console.warn(`Hedge signer: FALLBACK agent ${signer.address} (${mode}). Not an attested guard.`);
+    return { kind: "fallback", agentAddress: signer.address, buildHash, signerFor: () => signer };
+  }
+  if (kind === "guard") {
+    const agentAddress = process.env.GUARD_AGENT_ADDRESS?.toLowerCase();
+    const buildHash = process.env.GUARD_BUILD_HASH?.toLowerCase();
+    if (!isEvmAddress(agentAddress) || !/^0x[\da-f]{64}$/.test(buildHash ?? "")) {
+      throw new Error("GUARD_AGENT_ADDRESS and GUARD_BUILD_HASH are required for HEDGE_SIGNER=guard");
+    }
+    // Codex owns server/guard.ts. Loaded by path so this file builds before it lands.
+    const modulePath = "./guard";
+    const guard = await import(modulePath).catch(() => null) as null | {
+      createGuardSigner(ctx: Record<string, unknown>, executor?: unknown): HedgeSigner;
+      executorFromEnv?(): unknown;
+    };
+    if (!guard?.createGuardSigner) throw new Error("server/guard.ts is not available yet");
+    const executor = guard.executorFromEnv?.();
+    return {
+      kind: "guard", agentAddress: agentAddress as Hex, buildHash: buildHash as Hex,
+      signerFor: (rule, context) => verifiedSigner(guard.createGuardSigner({
+        policy: rule.policy, ownerSig: rule.ownerSig, chainId: rule.chainId,
+        entryUntilMs: context.entryUntilMs, cancelRefs: context.cancelRefs,
+      }, executor), mode),
+    };
+  }
+  throw new Error("HEDGE_SIGNER must be fallback or guard");
 }
