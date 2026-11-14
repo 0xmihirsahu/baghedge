@@ -153,6 +153,19 @@ export function WalletBox() {
           </button>
         </div>
       )}
+      {/* the two Hyperliquid accounts that came with the sign-in */}
+      {privy?.authenticated && (
+        <div className="flex flex-col gap-1 rounded-[12px] bg-[#1c1b1a] px-3 py-2.5 text-[12px]">
+          {(["trade", "hedge"] as const).map((r) => (
+            <div key={r} className="flex items-center justify-between gap-2">
+              <Tip text={r === "trade" ? "Your Hyperliquid account for trading by hand." : "A separate Hyperliquid account that holds the hedge."} side="top" align="start">
+                <span className="text-white/45">{r === "trade" ? "Trade" : "Hedge"}</span>
+              </Tip>
+              {privy[r] ? <CopyAddress address={privy[r]!} /> : <span className="text-white/35">{privy.error ? "Not set up" : "Setting up…"}</span>}
+            </div>
+          ))}
+        </div>
+      )}
       {wallet.address ? (
         <div className="flex items-center gap-3 px-1">
           <WalletAvatar address={wallet.address} size={36} />
