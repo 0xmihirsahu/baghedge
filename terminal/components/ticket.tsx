@@ -96,7 +96,7 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
         </div>
       </div>
 
-      <div className="mt-6 text-center">
+      <div className="mt-5 flex h-[92px] shrink-0 flex-col items-center justify-center text-center">
         <p className="whitespace-nowrap font-semibold leading-none tracking-[-0.03em] tabular-nums" style={{ color: over ? DOWN : undefined, fontSize: Math.max(26, 52 - Math.max(0, value.length - 6) * 4) }}>
           {hedgeMode ? `${value} SOL` : `$${value}`}
         </p>
@@ -124,7 +124,7 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
           <ExposureDots watched={h.held} hedged={h.hedge} per={h.held / 20 || 1} size={14} className="w-[203px]" />
         </div>
       ) : (
-        <div className="flex flex-1 flex-col justify-center py-3">
+        <div className="mt-4 shrink-0">
           <div className="grid grid-cols-4 gap-2">
             {(hedgeMode ? ["25%", "50%", "75%", "Max"] : ["$10", "$50", "$100", "$250"]).map((c) => (
               <button
@@ -147,7 +147,7 @@ export function Ticket({ coin, mark, change, maxLev, onReview }: { coin: string;
         </div>
       )}
 
-      <p className="mt-3 text-center text-[13px] text-white/45 tabular-nums">
+      <p className="mt-auto pt-4 text-center text-[13px] text-white/45 tabular-nums">
         {hedgeMode ? (
           <>
             <span style={{ color: CORAL }}>Entry {usd(h.entry)}</span> · Recovery {usd(h.recovery)}

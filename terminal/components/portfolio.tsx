@@ -105,7 +105,7 @@ function Accounts() {
   const [bad, setBad] = useState<string | null>(null);
 
   return (
-    <div className="flex min-h-[420px] flex-col rounded-[20px] bg-[#141312] p-6 lg:min-h-0">
+    <div className={`flex min-h-[420px] flex-col overflow-hidden rounded-[20px] bg-[#141312] px-6 pt-6 lg:min-h-0 ${account && address ? "pb-0" : "pb-6"}`}>
       <div className="flex items-center justify-between gap-3">
         <p className="text-[13px] text-white/45">Hyperliquid accounts</p>
         <div className="grid grid-cols-2 gap-1 rounded-[12px] bg-[#1c1b1a] p-1">
@@ -170,20 +170,25 @@ function Accounts() {
         <div className="grid flex-1 place-items-center"><BagLoader size={32} label="Reading account" /></div>
       ) : (
         <>
-          <div className="mt-5 flex items-end justify-between gap-4">
+          <div className="mt-4 flex items-start justify-between gap-4">
             <div>
               <p className="text-[34px] font-semibold leading-none tracking-[-0.03em] tabular-nums">{usd(account.equity, 2)}</p>
               <p className="mt-2 text-[13px] text-white/45 tabular-nums">Equity · {usd(account.withdrawable, 2)} withdrawable</p>
             </div>
-            <button onClick={() => setAccounts({ ...accounts, [role]: "" })} className="text-[12px] text-white/45 transition-colors hover:text-white">
-              {short(address)} · Remove
-            </button>
+            <span className="flex h-8 shrink-0 items-center gap-1 rounded-[10px] bg-[#1c1b1a] pl-3 pr-1 text-[12px] text-white/70 tabular-nums">
+              {short(address)}
+              <button onClick={() => setAccounts({ ...accounts, [role]: "" })} className="grid size-6 place-items-center rounded-[7px] text-white/45 transition-colors hover:bg-[#2e2c2a] hover:text-white" aria-label="Remove account">
+                ✕
+              </button>
+            </span>
           </div>
-          <div className="mt-5 flex items-center justify-between border-b border-white/[0.08] pb-2 text-[12px] text-white/40">
-            <span>{account.positions.length} open</span>
+          <div className="mt-6 flex items-center justify-between pb-1 text-[12px] text-white/40">
+            <span>
+              Positions <span className="text-white/70">{account.positions.length}</span>
+            </span>
             <span>Value · PnL</span>
           </div>
-          <div className="-mx-2 min-h-0 flex-1 overflow-y-auto">
+          <div className="-mx-2 min-h-0 flex-1 overflow-y-auto border-t border-white/[0.08] pb-3 pt-1">
             {account.positions.length ? (
               account.positions.map((p) => (
                 <Link key={p.coin} href={p.coin === "SOL" ? "/" : `/markets/${p.coin}`} className="flex items-center gap-3 rounded-[12px] px-2 py-2.5 transition-colors duration-100 hover:bg-[#1c1b1a]">

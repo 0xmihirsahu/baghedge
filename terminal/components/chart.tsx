@@ -31,6 +31,8 @@ export function Chart({ candles, decimals, rule }: { candles: Candle[]; decimals
   const volume = useRef<ISeriesApi<"Histogram"> | null>(null);
   const loaded = useRef<{ first: number; length: number } | null>(null);
   const [hover, setHover] = useState<Candle | null>(null);
+  const ruleRef = useRef(rule);
+  const lines = useRef<{ entry: IPriceLine; recovery: IPriceLine } | null>(null);
 
   useEffect(() => {
     const el = box.current!;
@@ -47,7 +49,19 @@ export function Chart({ candles, decimals, rule }: { candles: Candle[]; decimals
         horzLine: { color: "rgba(255,255,255,0.22)", labelBackgroundColor: "#2e2c2a" },
       },
     });
-    const p = c.addSeries(CandlestickSeries, { upColor: UP, downColor: DOWN, borderVisible: false, wickUpColor: UP, wickDownColor: DOWN, priceLineStyle: LineStyle.Dotted });
+    const p = c.addSeries(CandlestickSeries, {
+      upColor: UP,
+      downColor: DOWN,
+      borderVisible: false,
+      wickUpColor: UP,
+      wickDownColor: DOWN,
+      priceLineStyle: LineStyle.Dotted,
+      autoscaleInfoProvider: (base: () => { priceRange: { minValue: number; maxValue: number } | null; margins?: { above: number; below: number } } | null) => {
+        const r = base(), rule = ruleRef.current;
+        if (!r?.priceRange || !rule?.entry) return r;
+        return { ...r, priceRange: { minValue: Math.min(r.priceRange.minValue, rule.entry, rule.recovery), maxValue: Math.max(r.priceRange.maxValue, rule.entry, rule.recovery) } };
+      },
+    });
     const v = c.addSeries(HistogramSeries, { priceScaleId: "", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
     c.priceScale("").applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
     c.subscribeCrosshairMove((e) => {
@@ -62,6 +76,7 @@ export function Chart({ candles, decimals, rule }: { candles: Candle[]; decimals
       c.remove();
       chart.current = null;
       loaded.current = null;
+      lines.current = null;
     };
   }, []);
 
@@ -94,7 +109,6 @@ export function Chart({ candles, decimals, rule }: { candles: Candle[]; decimals
   }, [candles]);
 
   // the rule as price lines, kept in place as the scale moves
-  const lines = useRef<{ entry: IPriceLine; recovery: IPriceLine } | null>(null);
   useEffect(() => {
     const p = price.current;
     if (!p) return;
@@ -119,7 +133,6 @@ export function Chart({ candles, decimals, rule }: { candles: Candle[]; decimals
   // drag handles: where each line sits right now, refreshed each frame while drafting
   const [ys, setYs] = useState<{ entry: number | null; recovery: number | null; scale: number }>({ entry: null, recovery: null, scale: 64 });
   const editing = !!rule?.editing && !!rule.entry;
-  const ruleRef = useRef(rule);
   useEffect(() => {
     ruleRef.current = rule;
   });
