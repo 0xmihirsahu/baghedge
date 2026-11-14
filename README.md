@@ -9,7 +9,7 @@ A Hyperliquid terminal that hedges the SOL you already hold, without moving it.<
 
 <p align="center">
   <a href="https://app.baghedge.xyz"><b>Open the app</b></a> ·
-  <a href="docs/media/baghedge-mainnet-run.mp4"><b>Watch the 2:14 demo</b></a> ·
+  <a href="https://x.com/baghedge/status/2121753205399056754"><b>Watch the demo on X</b></a> ·
   <a href="JUDGES.md"><b>For judges</b></a> ·
   <a href="docs/media/baghedge-deck.pdf"><b>Pitch deck (PDF)</b></a> ·
   <a href="https://baghedge.xyz">Site</a>
