@@ -1,0 +1,180 @@
+{
+  "source": "@nktkas/hyperliquid@0.33.3, viem@2.57.19; public test fixtures, never submit",
+  "policy": {
+    "policy": {
+      "environment": "mainnet",
+      "ruleId": "0x4242424242424242424242424242424242424242424242424242424242424242",
+      "version": 1,
+      "policyNonce": "1",
+      "tradeAccount": "0x2222222222222222222222222222222222222222",
+      "hedgeAccount": "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A",
+      "watchedSolana": "0x3333333333333333333333333333333333333333333333333333333333333333",
+      "watchScope": 1,
+      "market": "SOL",
+      "assetId": 5,
+      "priceSource": "hyperliquid-mark",
+      "guardAgent": "0x4444444444444444444444444444444444444444",
+      "guardBuildHash": "0x5555555555555555555555555555555555555555555555555555555555555555",
+      "capLots": "40",
+      "entryTriggerE8": "14000000000",
+      "entryFloorE8": "13720000000",
+      "recoveryTriggerE8": "16100000000",
+      "buybackCeilingE8": "16300000000",
+      "entryWindowMs": "30000",
+      "expiryMs": "1794666060000",
+      "minMarginE6": "20000000",
+      "oneCycle": true
+    },
+    "ownerSig": "0xaecd20e6b8fb3014323c1774df7bae390b54c63a92e23a3a3fa8d49ca53434077261d2a8391cab92aa85eac35a8c7894dd63af3321d4af4ef8dc05b95bc844251c",
+    "policyDigest": "0x07b710953a6611bf9826af1e3d87bf16c85840c8f6d6138e286efabdc2c837f4",
+    "chainId": 8453,
+    "entryUntilMs": 1794666020000
+  },
+  "cancelRefs": [
+    {
+      "intent": "stop",
+      "seq": 0
+    }
+  ],
+  "vectors": [
+    {
+      "name": "IOC without expiry",
+      "action": {
+        "type": "order",
+        "orders": [
+          {
+            "a": 0,
+            "b": false,
+            "p": "140",
+            "s": "0.1",
+            "r": false,
+            "t": {
+              "limit": {
+                "tif": "Ioc"
+              }
+            }
+          }
+        ],
+        "grouping": "na"
+      },
+      "nonce": 1794666000000,
+      "expiresAfter": null,
+      "source": "b",
+      "connectionId": "0x05cede95adc1f93d2097439b1d4ec0d5ae7e002e02a6881d9bc842b5a6d7aa53",
+      "agentDigest": "0x695a7a4737a4b4e6e1ed3115c87650aecbe82897e8ff352e0fc5814b7f6a1888"
+    },
+    {
+      "name": "IOC with expiry",
+      "action": {
+        "type": "order",
+        "orders": [
+          {
+            "a": 0,
+            "b": false,
+            "p": "140",
+            "s": "0.1",
+            "r": false,
+            "t": {
+              "limit": {
+                "tif": "Ioc"
+              }
+            }
+          }
+        ],
+        "grouping": "na"
+      },
+      "nonce": 1794666000000,
+      "expiresAfter": 1794666005000,
+      "source": "b",
+      "connectionId": "0x834ba2dace98eccc2436d18abe35f66b07e39a63bfc88b85aa628e4032b70110",
+      "agentDigest": "0xf104e418d37c3f4d196d3672f2749c156761c23bdc72fd888970dbe2924db64b"
+    },
+    {
+      "name": "entry with recovery stop",
+      "action": {
+        "type": "order",
+        "orders": [
+          {
+            "a": 5,
+            "b": false,
+            "p": "137.2",
+            "s": "0.4",
+            "r": false,
+            "t": {
+              "limit": {
+                "tif": "Ioc"
+              }
+            },
+            "c": "0xa00d2e313b71cae950999a814bd58adf"
+          },
+          {
+            "a": 5,
+            "b": true,
+            "p": "163",
+            "s": "0.4",
+            "r": true,
+            "t": {
+              "trigger": {
+                "isMarket": false,
+                "triggerPx": "161",
+                "tpsl": "sl"
+              }
+            },
+            "c": "0x09b571268c5f9c3d77f9869737100ad2"
+          }
+        ],
+        "grouping": "normalTpsl"
+      },
+      "nonce": 1794666000000,
+      "expiresAfter": 1794666005000,
+      "source": "a",
+      "connectionId": "0x59967ee3a14fe0222fdb4d0bcb410bd9e8e14a435762fd2beeb297d04a9b0ea4",
+      "agentDigest": "0x529c8eeb2015faff37c72279e84a366b17493accc57f3b44b6bdff2b6811cc34"
+    },
+    {
+      "name": "cancel by cloid",
+      "action": {
+        "type": "cancelByCloid",
+        "cancels": [
+          {
+            "asset": 5,
+            "cloid": "0x09b571268c5f9c3d77f9869737100ad2"
+          }
+        ]
+      },
+      "nonce": 1794666000000,
+      "expiresAfter": 1794666005000,
+      "source": "a",
+      "connectionId": "0x0e656fdb2b1d2f8fa468d5b2be5da51c42b63f72823783d0f157a60507512d3f",
+      "agentDigest": "0x33cd1122219773f423af313b20760135ab750a8fa2c87b49841abd1cf59ff66e"
+    }
+  ],
+  "peerPolicy": {
+    "policy": {
+      "environment": "testnet",
+      "ruleId": "0xabababababababababababababababababababababababababababababababab",
+      "version": 1,
+      "policyNonce": "1794666000000",
+      "tradeAccount": "0x1111111111111111111111111111111111111111",
+      "hedgeAccount": "0x3333333333333333333333333333333333333333",
+      "watchedSolana": "0x069b8857feab8184fb687f634618c035dac439dc1aeb3b5598a0f00000000001",
+      "watchScope": 1,
+      "market": "SOL",
+      "assetId": 0,
+      "priceSource": "hyperliquid-mark",
+      "guardAgent": "0x2222222222222222222222222222222222222222",
+      "guardBuildHash": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "capLots": "40",
+      "entryTriggerE8": "7000000000",
+      "entryFloorE8": "6860000000",
+      "recoveryTriggerE8": "8050000000",
+      "buybackCeilingE8": "8200000000",
+      "entryWindowMs": "30000",
+      "expiryMs": "1794700000000",
+      "minMarginE6": "15000000",
+      "oneCycle": true
+    },
+    "chainId": 42161,
+    "policyDigest": "0x570ba90ddaa3698acb17a3e6434f84c91872cdc312b254cd3ceea72f4f303222"
+  }
+}
