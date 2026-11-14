@@ -23,8 +23,13 @@ services:
         sync: false
       - key: HEDGE_SIGNER
         value: guard
-      - key: GUARD_AGENT_ADDRESS
+      - key: OUTLAYER_CALLER
+        sync: false          # e.g. anotherbaghedge.near
+      - key: OUTLAYER_NEAR_PRIVATE_KEY
+        sync: false          # secret: ed25519:... of the executor
+      - key: OUTLAYER_WASM_URL
         sync: false
-      - key: GUARD_BUILD_HASH
+      - key: OUTLAYER_WASM_SHA256
         sync: false
-      # Guard executor variables (NEAR execution account etc.) come from Codex's server/guard.ts.
+      - key: OUTLAYER_AGENT_ADDRESS
+        sync: false
