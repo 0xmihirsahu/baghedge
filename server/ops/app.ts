@@ -34,9 +34,28 @@ const chainId = async () => Number(await eth!.request({ method: "eth_chainId" })
 const exchange = () => new ExchangeClient({ transport: new HttpTransport({ isTestnet: mode === "testnet" }), wallet: wallet() });
 const info = () => new InfoClient({ transport: new HttpTransport({ isTestnet: mode === "testnet" }) });
 
+// Polyfills some WalletConnect dependencies expect in the browser.
+(globalThis as Record<string, unknown>).global ??= globalThis;
+(globalThis as Record<string, unknown>).process ??= { env: {} };
+
+// Show any uncaught error on the page instead of failing silently.
+const showError = (message: string) => {
+  const box = document.getElementById("out-connect");
+  if (box) box.textContent = `ERROR: ${message}`;
+};
+window.addEventListener("error", e => showError(e.message));
+window.addEventListener("unhandledrejection", e => showError(String((e as PromiseRejectionEvent).reason)));
+
+const OUTPUT_FOR: Record<string, string> = {
+  "btn-wc": "out-connect", "btn-signin": "out-connect", "btn-connect": "out-connect",
+  "btn-disarm": "out-rule", "btn-close": "out-rule",
+  "btn-fund-quote": "out-fund", "btn-fund-send": "out-fund",
+  "btn-payout-quote": "out-payout", "btn-payout-send": "out-payout",
+};
+
 function guard(id: string, fn: () => Promise<void>) {
   $(id).addEventListener("click", async () => {
-    const out = id.replace(/^btn-/, "out-");
+    const out = OUTPUT_FOR[id] ?? id.replace(/^btn-/, "out-");
     log(out, "working… check your wallet");
     try { await fn(); } catch (error) { log(out, `ERROR: ${error instanceof Error ? error.message : String(error)}`); }
   });
