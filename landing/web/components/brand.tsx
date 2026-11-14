@@ -215,15 +215,6 @@ export function BrandPage() {
         </div>
       </Card>
 
-      <Card title="Voice">
-        <div className="grid gap-8 sm:grid-cols-3 sm:gap-12">
-          <p className="text-[18px] leading-[1.5] text-white/85">
-            Say the price. &ldquo;Hedge below $140&rdquo; and &ldquo;Stop above $161&rdquo;, never &ldquo;locked&rdquo; or &ldquo;safe&rdquo;.
-          </p>
-          <p className="text-[18px] leading-[1.5] text-white/85">It&apos;s a hedge, not insurance. Say what can go wrong next to what it does.</p>
-          <p className="text-[18px] leading-[1.5] text-white/85">Sentence case, plain words, real numbers. No exclamation marks.</p>
-        </div>
-      </Card>
     </div>
   );
 }
