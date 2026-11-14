@@ -20,7 +20,8 @@ const nextConfig: NextConfig = {
   async rewrites() {
     if (!BACKEND) return [];
     return [
-      ...PATHS.map((p) => ({ source: `/api/${p}/:path*`, destination: `${BACKEND}/api/${p}/:path*` })),
+      // :path+ needs at least one segment, so /api/health maps exactly (the backend 404s on a trailing slash)
+      ...PATHS.map((p) => ({ source: `/api/${p}/:path+`, destination: `${BACKEND}/api/${p}/:path+` })),
       ...PATHS.map((p) => ({ source: `/api/${p}`, destination: `${BACKEND}/api/${p}` })),
     ];
   },
