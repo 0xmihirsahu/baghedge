@@ -78,7 +78,7 @@ Your coins never move. Nothing to deposit, nothing to bridge out of cold storage
 
 ## How it fits together
 
-<p align="center"><img src="docs/media/architecture.jpg" alt="Architecture: Phantom's balance and the Hyperliquid mark feed the worker; the guard in an OutLayer enclave signs the short; NEAR Intents 1Click moves USDC to the Hedge account" /></p>
+<p align="center"><img src="docs/media/architecture.jpg" alt="Architecture: your SOL balance feeds the worker; you sign the policy in the app; when the entry is crossed the guard in an OutLayer TEE signs the short and the buyback on Hyperliquid; any token reaches Hyperliquid through NEAR Intents" /></p>
 
 And the life of one hedge:
 
