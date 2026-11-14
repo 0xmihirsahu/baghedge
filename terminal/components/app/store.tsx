@@ -3,9 +3,11 @@
 import { WalletReadyState, type WalletError } from "@solana/wallet-adapter-base";
 import { ConnectionProvider, WalletProvider, useWallet } from "@solana/wallet-adapter-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { MomentCard, type Moment, type MomentKind } from "../moment";
 import { WalletModal } from "../wallet-modal";
+import { risk, usd } from "./format";
 import { useMarkets } from "./hl";
-import { isSolAddress, useSolBalance } from "./wallet";
+import { isSolAddress, short, useSolBalance } from "./wallet";
 
 // everything the pages share: live markets, the wallet, toasts, activity, the hyperliquid accounts and the hedge.
 // the wallet connects through solana wallet adapter (anza, apache-2.0): any wallet-standard wallet, autoconnect.
@@ -37,6 +39,15 @@ function useTerminal() {
   }, []);
   const fail = useCallback((message: string) => toast("Wallet", message, "error"), [toast]);
 
+  // the key moments get a film card instead of a toast (components/moment.tsx). hedge moments are replays and
+  // also go to the activity list, as toasts did
+  const [momentNow, setMomentNow] = useState<Moment | null>(null);
+  const moment = useCallback((kind: MomentKind, title: string, line: string) => {
+    setMomentNow({ id: Math.random(), kind, title, line });
+    if (kind !== "connected") setActivity((v) => [{ at: Date.now(), what: title }, ...v]);
+  }, []);
+  const clearMoment = useCallback(() => setMomentNow(null), []);
+
   // the connected wallet, or a watched address when nothing is connected
   const adapter = useWallet();
   const [picker, setPicker] = useState(false);
@@ -49,6 +60,16 @@ function useTerminal() {
     } catch {}
   }, []);
   const address = adapter.publicKey?.toBase58() ?? watched;
+  // only a connect the user asked for gets a moment, never the autoconnect at page load
+  const asked = useRef(false);
+  const key = adapter.publicKey?.toBase58();
+  const walletName = adapter.wallet?.adapter.name;
+  useEffect(() => {
+    if (!key || !asked.current) return;
+    asked.current = false;
+    const t = setTimeout(() => moment("connected", "Wallet connected", `${walletName ?? "Wallet"} · ${short(key)}`), 0);
+    return () => clearTimeout(t);
+  }, [key, walletName, moment]);
   const sol = useSolBalance(address, fail);
   const wallet = {
     address,
@@ -56,7 +77,10 @@ function useTerminal() {
     name: adapter.wallet?.adapter.name ?? null,
     sol,
     connecting: adapter.connecting,
-    connect: () => setPicker(true),
+    connect: () => {
+      asked.current = true;
+      setPicker(true);
+    },
     picker,
     closePicker,
     watch: (a: string) => {
@@ -100,6 +124,12 @@ function useTerminal() {
   const [entry, setEntry] = useState(0);
   const [recovery, setRecovery] = useState(0);
   const capN = Math.min(Number(cap) || 0, held);
+  const maxLev = markets.find((m) => m.name === "SOL")?.maxLeverage ?? 20;
+  // arming is a user step, so it gets its moment here rather than from an effect
+  const go = (p: Phase) => {
+    if (p === "armed") moment("armed", "Hedge armed", `Replay · short opens below ${usd(entry)}`);
+    setPhase(p);
+  };
 
   // starting prices from the live mark, and a starting cap of half the wallet once it's read
   useEffect(() => {
@@ -118,19 +148,34 @@ function useTerminal() {
     return () => clearTimeout(t);
   }, [sol, address]);
 
-  // replay steps that move on by themselves
+  // replay steps that move on by themselves. the numbers for the moment lines are read when the step lands, from a ref,
+  // so a ticking mark doesn't restart the step's timer
+  const now = useRef({ capN, held, hedge, entry, recovery, maxLev, mark });
+  useEffect(() => {
+    now.current = { capN, held, hedge, entry, recovery, maxLev, mark };
+  });
   useEffect(() => {
     const next = AUTO[phase];
     if (!next) return;
     const t = setTimeout(() => {
-      if (phase === "entry") { setHedge(-capN); toast("Short", "Filled"); }
-      if (phase === "buyback") { setHedge(-held); toast("Buyback", "Filled"); }
-      if (phase === "closing") { setHedge(0); toast("Hedge", "Closed"); }
-      if (phase === "transit") toast("Deposit", "Credited");
+      const { capN, held, hedge, entry, recovery, maxLev, mark } = now.current;
+      if (phase === "entry") {
+        setHedge(-capN);
+        moment("filled", "Short filled", `Replay · ${capN.toFixed(2)} SOL at ${usd(entry)}`);
+      }
+      if (phase === "buyback") {
+        setHedge(-held);
+        moment("buyback", "Buyback filled", `Replay · ${(-hedge - held).toFixed(2)} SOL bought back`);
+      }
+      if (phase === "closing") {
+        setHedge(0);
+        moment("closed", "Hedge closed", `Replay · ${(-hedge).toFixed(2)} SOL${mark ? ` at ${usd(mark)}` : ""}`);
+      }
+      if (phase === "transit") moment("credited", "Deposit credited", `Replay · ${risk(capN, entry, recovery, maxLev).margin.toFixed(2)} USDC margin`);
       setPhase(next[0]);
     }, next[1]);
     return () => clearTimeout(t);
-  }, [phase, capN, held, toast]);
+  }, [phase, moment]);
 
   // the live mark drives the rule: a real crossing down through the entry, or up to the recovery
   useEffect(() => {
@@ -149,8 +194,8 @@ function useTerminal() {
     return () => clearTimeout(t);
   }, [sol, hedge, phase]);
 
-  const hedgeState = { phase, setPhase, hedge, cap, setCap, capN, entry, setEntry, recovery, setRecovery, held };
-  return { markets, mids, live, toasts, toast, activity, wallet, accounts, setAccounts, hedge: hedgeState };
+  const hedgeState = { phase, setPhase: go, hedge, cap, setCap, capN, entry, setEntry, recovery, setRecovery, held };
+  return { markets, mids, live, toasts, toast, moment, momentNow, clearMoment, activity, wallet, accounts, setAccounts, hedge: hedgeState };
 }
 
 const Ctx = createContext<ReturnType<typeof useTerminal> | null>(null);
@@ -179,6 +224,7 @@ function Store({ children }: { children: ReactNode }) {
     <Ctx.Provider value={value}>
       {children}
       <WalletModal open={value.wallet.picker} onClose={value.wallet.closePicker} />
+      <MomentCard moment={value.momentNow} onDone={value.clearMoment} />
     </Ctx.Provider>
   );
 }
