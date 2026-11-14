@@ -1,5 +1,7 @@
 mod crypto;
 mod orders;
+#[cfg(feature = "multi-owner")]
+mod owner_agent;
 mod policy;
 
 use crypto::{action_hash, address_from_key, agent_digest, recover};
@@ -7,30 +9,43 @@ use orders::{Action, ActionContext, CloidRef};
 use policy::{Deployment, Environment, Policy};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sha3::{Digest, Keccak256};
 use std::io::{self, Read, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(feature = "multi-owner")]
+wit_bindgen::generate!({ world: "owner-guard", path: "wit-multi-owner" });
+#[cfg(not(feature = "multi-owner"))]
 wit_bindgen::generate!({ world: "signing-probe", path: "wit" });
+#[cfg(not(feature = "multi-owner"))]
 use outlayer::signing_keys::api;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", not(feature = "multi-owner")))]
 #[used]
 #[link_section = "outlayer.manifest"]
 static MANIFEST: [u8; include_bytes!("../manifest.json").len()] =
     *include_bytes!("../manifest.json");
 
+#[cfg(all(target_arch = "wasm32", feature = "multi-owner"))]
+#[used]
+#[link_section = "outlayer.manifest"]
+static MANIFEST: [u8; include_bytes!("../manifest.multi-owner.json").len()] =
+    *include_bytes!("../manifest.multi-owner.json");
+
+#[cfg(not(feature = "multi-owner"))]
 const PATH: &str = "guard";
+#[cfg(not(feature = "multi-owner"))]
 const PROBE_PREFIX: &str = "Baghedge OutLayer signing probe v1:";
 const MAX_INPUT: u64 = 8192;
 
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Request {
+    #[cfg(not(feature = "multi-owner"))]
     PublicKey,
-    SignChallenge {
-        challenge: String,
-    },
+    #[cfg(feature = "multi-owner")]
+    PublicKey { owner: String },
+    #[cfg(not(feature = "multi-owner"))]
+    SignChallenge { challenge: String },
     SignOrder {
         policy: Box<Policy>,
         #[serde(rename = "ownerSig")]
@@ -57,6 +72,8 @@ fn main() {
 }
 
 fn run() -> Result<Value, String> {
+    #[cfg(feature = "multi-owner")]
+    owner_agent::require_direct_caller()?;
     let mut input = String::new();
     io::stdin()
         .take(MAX_INPUT + 1)
@@ -66,82 +83,113 @@ fn run() -> Result<Value, String> {
         return Err("Guard input is too large".into());
     }
     let request: Request = serde_json::from_str(&input).map_err(|_| "Invalid guard request")?;
-    let challenge = match &request {
-        Request::PublicKey => None,
-        Request::SignChallenge { challenge } => Some(challenge_digest(challenge)?),
-        Request::SignOrder { .. } => None,
-    };
-
-    let public_key = api::public_key(PATH, None)?;
-    let agent = address_from_key(&public_key)?;
-    if let Request::SignOrder {
-        policy,
-        owner_sig,
-        chain_id,
-        action,
-        nonce,
-        expires_after,
-        entry_until,
-        order_ref,
-        cancel_refs,
-    } = request
-    {
-        let deployment = Deployment::pinned()?;
-        policy.verify(chain_id, &owner_sig, &deployment, agent)?;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| "guard clock unavailable")?
-            .as_millis() as u64;
-        if nonce.abs_diff(now) > 60_000 || nonce > expires_after {
-            return Err("invalid venue nonce".into());
+    match request {
+        #[cfg(feature = "multi-owner")]
+        Request::PublicKey { owner } => {
+            let dep = Deployment::for_owner(crypto::parse_hex(&owner)?)?;
+            let key = owner_agent::key(dep.owner, dep.environment)?;
+            let public_key = key.verifying_key().to_encoded_point(false);
+            let public_key = &public_key.as_bytes()[1..];
+            let agent = address_from_key(public_key)?;
+            Ok(json!({
+                "owner": format!("0x{}", hex::encode(dep.owner)),
+                "address": format!("0x{}", hex::encode(agent)),
+                "publicKey": format!("0x{}", hex::encode(public_key)),
+            }))
         }
-        action.validate(
-            &deployment,
-            &policy,
-            now,
+        #[cfg(not(feature = "multi-owner"))]
+        Request::PublicKey => {
+            let public_key = api::public_key(PATH, None)?;
+            let agent = address_from_key(&public_key)?;
+            Ok(
+                json!({"address": format!("0x{}", hex::encode(agent)), "publicKey": format!("0x{}", hex::encode(public_key))}),
+            )
+        }
+        #[cfg(not(feature = "multi-owner"))]
+        Request::SignChallenge { challenge } => {
+            let digest = challenge_digest(&challenge)?;
+            let agent = address_from_key(&api::public_key(PATH, None)?)?;
+            let signature = api::sign(PATH, None, &digest)?;
+            if signature.len() != 65 {
+                return Err("Unexpected secp256k1 signature length".into());
+            }
+            Ok(json!({
+                "address": format!("0x{}", hex::encode(agent)),
+                "digest": format!("0x{}", hex::encode(digest)),
+                "signature": format!("0x{}", hex::encode(signature))
+            }))
+        }
+        Request::SignOrder {
+            policy,
+            owner_sig,
+            chain_id,
+            action,
+            nonce,
             expires_after,
-            ActionContext {
-                entry_until,
-                order_ref: order_ref.as_ref(),
-                cancel_refs: &cancel_refs,
-            },
-        )?;
-        let connection_id = action_hash(&action, nonce, Some(expires_after))?;
-        let digest = agent_digest(
-            connection_id,
-            deployment.environment == Environment::Mainnet,
-        );
-        let signature: [u8; 65] = api::sign(PATH, None, &digest)?
-            .try_into()
-            .map_err(|_| "invalid guard signature length")?;
-        if signature[64] > 1 || recover(&digest, &signature)? != agent {
-            return Err("host returned a signature for another agent".into());
+            entry_until,
+            order_ref,
+            cancel_refs,
+        } => {
+            #[cfg(not(feature = "multi-owner"))]
+            let deployment = Deployment::pinned()?;
+            #[cfg(feature = "multi-owner")]
+            let deployment = Deployment::for_owner(crypto::parse_hex(&policy.hedge_account)?)?;
+            policy.verify_owner(chain_id, &owner_sig, &deployment)?;
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|_| "guard clock unavailable")?
+                .as_millis() as u64;
+            if nonce.abs_diff(now) > 60_000 || nonce > expires_after {
+                return Err("invalid venue nonce".into());
+            }
+            action.validate(
+                &deployment,
+                &policy,
+                now,
+                expires_after,
+                ActionContext {
+                    entry_until,
+                    order_ref: order_ref.as_ref(),
+                    cancel_refs: &cancel_refs,
+                },
+            )?;
+            let connection_id = action_hash(&action, nonce, Some(expires_after))?;
+            let digest = agent_digest(
+                connection_id,
+                deployment.environment == Environment::Mainnet,
+            );
+            #[cfg(not(feature = "multi-owner"))]
+            let agent = address_from_key(&api::public_key(PATH, None)?)?;
+            #[cfg(feature = "multi-owner")]
+            let key = owner_agent::key(deployment.owner, deployment.environment)?;
+            #[cfg(feature = "multi-owner")]
+            let agent =
+                address_from_key(&key.verifying_key().to_encoded_point(false).as_bytes()[1..])?;
+            policy.verify_agent(agent)?;
+            #[cfg(not(feature = "multi-owner"))]
+            let signature: [u8; 65] = api::sign(PATH, None, &digest)?
+                .try_into()
+                .map_err(|_| "invalid guard signature length")?;
+            #[cfg(feature = "multi-owner")]
+            let signature = owner_agent::sign(&key, &digest)?;
+            if signature[64] > 1 || recover(&digest, &signature)? != agent {
+                return Err("host returned a signature for another agent".into());
+            }
+            Ok(json!({
+                "ok": true, "agent": format!("0x{}", hex::encode(agent)),
+                "connectionId": format!("0x{}", hex::encode(connection_id)),
+                "nonce": nonce, "expiresAfter": expires_after,
+                "r": format!("0x{}", hex::encode(&signature[..32])),
+                "s": format!("0x{}", hex::encode(&signature[32..64])),
+                "v": signature[64] + 27,
+            }))
         }
-        return Ok(json!({
-            "ok": true, "agent": format!("0x{}", hex::encode(agent)),
-            "connectionId": format!("0x{}", hex::encode(connection_id)),
-            "nonce": nonce, "expiresAfter": expires_after,
-            "r": format!("0x{}", hex::encode(&signature[..32])),
-            "s": format!("0x{}", hex::encode(&signature[32..64])),
-            "v": signature[64] + 27,
-        }));
     }
-    let address = format!("0x{}", hex::encode(agent));
-    if let Some(digest) = challenge {
-        let signature = api::sign(PATH, None, &digest)?;
-        if signature.len() != 65 {
-            return Err("Unexpected secp256k1 signature length".into());
-        }
-        return Ok(json!({
-            "address": address,
-            "digest": format!("0x{}", hex::encode(digest)),
-            "signature": format!("0x{}", hex::encode(signature))
-        }));
-    }
-    Ok(json!({ "address": address, "publicKey": format!("0x{}", hex::encode(public_key)) }))
 }
 
+#[cfg(not(feature = "multi-owner"))]
 fn challenge_digest(challenge: &str) -> Result<[u8; 32], String> {
+    use sha3::{Digest, Keccak256};
     let challenge =
         hex::decode(challenge).map_err(|_| "Challenge must be 32 bytes encoded as hex")?;
     if challenge.len() != 32 {
@@ -376,6 +424,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "multi-owner"))]
     fn challenge_never_passes_raw_bytes_through() {
         let challenge = [0x42; 32];
         let digest = challenge_digest(&hex::encode(challenge)).unwrap();
@@ -385,5 +434,31 @@ mod tests {
             r#"{"operation":"sign_challenge","challenge":"abcd","digest":"0xdead"}"#
         )
         .is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "multi-owner")]
+    fn multi_owner_only_accepts_explicit_lookup_and_scoped_order() {
+        assert!(serde_json::from_str::<Request>(
+            r#"{"operation":"sign_challenge","challenge":"abcd"}"#
+        )
+        .is_err());
+        assert!(serde_json::from_str::<Request>(r#"{"operation":"public_key"}"#).is_err());
+        assert!(serde_json::from_str::<Request>(
+            r#"{"operation":"public_key","owner":"0x1111111111111111111111111111111111111111"}"#
+        )
+        .is_ok());
+        let mut signed = fixtures().policy;
+        let dep = deployment(&signed);
+        assert!(signed.policy.verify_agent([9; 20]).is_err());
+        signed.policy.hedge_account = format!("0x{}", hex::encode([9; 20]));
+        let forged_dep = Deployment {
+            owner: [9; 20],
+            ..dep
+        };
+        assert!(signed
+            .policy
+            .verify_owner(signed.chain_id, &signed.owner_sig, &forged_dep)
+            .is_err());
     }
 }

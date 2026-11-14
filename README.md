@@ -82,8 +82,9 @@ Every row links to on-chain or venue evidence. Raw records: [`docs/evidence/main
 ## Trust boundary and disclosed risks
 - **The owner keeps control:** funding, agent approval, the policy, disarm, close and payout are all owner wallet signatures. The guard agent can't withdraw or transfer, because Hyperliquid forbids it for agents.
 - **What a compromised signer could do:** trade the Hedge account's posted margin badly. It can't move funds out. The dedicated Hedge account caps the loss at the margin posted.
+- **One guard, an agent per user:** the multi-owner guard derives a separate Hyperliquid agent for every Hedge owner inside the enclave. Each owner approves only their own agent, and a policy naming another owner's agent is refused (verified live on mainnet).
 - **Guard state:** the guard is stateless. Cumulative size caps and data freshness are enforced by the worker, not inside the enclave (documented in [`docs/BAGHEDGE_CONTEXT.md`](docs/BAGHEDGE_CONTEXT.md) §22).
-- **Disclosed:** the NEAR execution account for this demo (`anotherbaghedge.near`) had its seed phrase shared during development, and the owner chose not to rotate it. Someone holding it could request extra guard signatures under the public signed policy (trading the ~$15 Hedge margin, never withdrawing it).
+- **Disclosed:** the guard's NEAR execution account (`anotherbaghedge.near`) had its key shared during development, and the team chose not to rotate it. Someone holding it could request extra guard signatures under **any user's** public signed policy, trading that user's Hedge margin within the policy's limits, and could spend the account's NEAR. They can **never withdraw** funds. `GET /api/health` → `disclosures` carries this so the app can show it before funding.
 - **Platform trust:** Hyperliquid (venue and mark price), OutLayer/Intel TDX, NEAR Intents, and Solana RPC data. Auto-deleveraging and funding can change the outcome.
 
 ## Docs

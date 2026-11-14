@@ -220,14 +220,17 @@ Show **Credited** only when the second condition holds too.
 
 ## 3. Approve the hedge agent (Hedge owner, once)
 ```ts
-const { hedgeSigner } = await get("/api/health"); // { kind: "guard", agentAddress, buildHash }
-const { action, typedData } = await post("/api/hl/approve-agent", { agentAddress: hedgeSigner.agentAddress, chainId, purpose: "hedge", validDays: 90 });
+// Each Hedge owner has their own agent (multi-owner guard). Sign in as the Hedge owner first (section 1).
+const { agentAddress } = await get(`/api/hedges/agent?owner=${hedgeOwner}`);   // first call for a new owner takes ~5–10 s
+const { action, typedData } = await post("/api/hl/approve-agent", { agentAddress, chainId, purpose: "hedge", validDays: 90 });
 const signature = await signTyped(wallet, hedgeOwner, typedData);
 await post("/api/hl/approve-agent/submit", { owner: hedgeOwner, action, signature });
 ```
 - Hyperliquid only accepts this after the account has been funded (step 2).
 - To check the agent is approved, read `extraAgents` for the Hedge address from Hyperliquid info.
 - If `hedgeSigner.kind === "fallback"`, label it **Demo signer (not attested)**.
+- Show `GET /api/health` → `disclosures` (if non-empty) before the user funds their Hedge account.
+- Errors: `agent_unknown` (call `/api/hedges/agent` first), `agent_lookup_rate_limited`/`agent_lookup_busy` (retry later), `owner_unsupported`.
 
 ## 4. Arm the hedge (Hedge owner signs the policy)
 ```ts

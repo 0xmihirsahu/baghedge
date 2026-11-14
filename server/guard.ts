@@ -1,4 +1,5 @@
-import { Account, JsonRpcProvider, actions, getTransactionLastResult } from "near-api-js";
+import { Account, JsonRpcProvider, KeyPair, KeyPairSigner, actions, baseEncode, getTransactionLastResult } from "near-api-js";
+import { keccak256 } from "viem";
 
 type Hex = `0x${string}`;
 type Signature = { r: Hex; s: Hex; v: number };
@@ -6,17 +7,29 @@ type L1Action = Record<string, unknown>;
 type Policy = { guardAgent: Hex; guardBuildHash: Hex; environment: "mainnet" | "testnet" };
 type CancelRef = { intent: "entry" | "stop" | "resize" | "close" | "position_stop"; seq: number };
 type OrderRef = { intent: Exclude<CancelRef["intent"], "stop">; seq: number };
-type GuardRequest = {
-  operation: "sign_order";
+type GuardContext = {
   policy: Policy;
   ownerSig: Hex;
   chainId: number;
-  action: L1Action;
-  nonce: number;
-  expiresAfter: number;
   entryUntilMs?: number;
   orderRef?: OrderRef;
   cancelRefs?: readonly CancelRef[];
+};
+type GuardRequest = GuardContext & {
+  operation: "sign_order";
+  action: L1Action;
+  nonce: number;
+  expiresAfter: number;
+};
+
+type OwnerLookup = { operation: "public_key"; owner: Hex };
+type TransportConfig = {
+  caller: string;
+  privateKey: `ed25519:${string}`;
+  wasmUrl: string;
+  buildHash: Hex;
+  environment: Policy["environment"];
+  rpcUrl?: string;
 };
 
 export type OutLayerExecutor = {
@@ -26,6 +39,10 @@ export type OutLayerExecutor = {
   run(request: GuardRequest): Promise<unknown>;
 };
 
+export type MultiOwnerExecutor = Pick<OutLayerExecutor, "buildHash" | "environment" | "run"> & {
+  discover(request: OwnerLookup): Promise<{ output: unknown; txHash: string }>;
+};
+
 export class GuardRefused extends Error {
   constructor(reason: string) {
     super(`OutLayer guard refused the action: ${reason}`);
@@ -33,16 +50,37 @@ export class GuardRefused extends Error {
   }
 }
 
-export function createGuardSigner(context: {
-  policy: Policy;
-  ownerSig: Hex;
-  chainId: number;
-  entryUntilMs?: number;
-  orderRef?: OrderRef;
-  cancelRefs?: readonly CancelRef[];
-}, executor: OutLayerExecutor) {
+export function createGuardSigner(context: GuardContext, executor: OutLayerExecutor) {
+  return scopedSigner(context, executor, executor.agent);
+}
+
+export function createGuardSignerFor(context: GuardContext & { policy: { hedgeAccount: Hex; tradeAccount: Hex } }, executor: MultiOwnerExecutor) {
+  const hedge = walletAddress(context.policy.hedgeAccount);
+  const trade = walletAddress(context.policy.tradeAccount);
+  if (hedge === trade) throw new Error("Trade and Hedge must be separate accounts");
+  // The WASM verifies the owner signature and re-derives this agent before signing.
+  return scopedSigner(context, executor, walletAddress(context.policy.guardAgent));
+}
+
+export async function agentFor(executor: MultiOwnerExecutor, owner: Hex) {
+  const requested = walletAddress(owner);
+  const { output, txHash } = await executor.discover({ operation: "public_key", owner: requested });
+  if (isGuardRefusal(output)) throw new GuardRefused(output.error);
+  if (typeof output !== "object" || output === null || !("owner" in output) || output.owner !== requested ||
+      !("address" in output) || !("publicKey" in output) || !isHex(output.publicKey, 64) ||
+      !/^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(txHash)) {
+    throw new Error("Invalid OutLayer owner agent response");
+  }
+  const address = walletAddress(output.address);
+  if (`0x${keccak256(output.publicKey).slice(-40)}` !== address) {
+    throw new Error("OutLayer agent address does not match its public key");
+  }
+  return { agentAddress: address, attestationTxHash: txHash };
+}
+
+function scopedSigner(context: GuardContext, executor: Pick<OutLayerExecutor, "buildHash" | "environment" | "run">, expectedAgent: Hex) {
   const address = context.policy.guardAgent.toLowerCase() as Hex;
-  if (!isHex(address, 20) || address !== executor.agent.toLowerCase() ||
+  if (!isHex(address, 20) || address !== expectedAgent.toLowerCase() ||
       context.policy.guardBuildHash.toLowerCase() !== executor.buildHash.toLowerCase() ||
       context.policy.environment !== executor.environment) {
     throw new Error("Hedge policy does not match the configured OutLayer deployment");
@@ -73,15 +111,7 @@ export function createGuardSigner(context: {
   };
 }
 
-export function createOutLayerExecutor(config: {
-  caller: string;
-  privateKey: `ed25519:${string}`;
-  wasmUrl: string;
-  buildHash: Hex;
-  agent: Hex;
-  environment: Policy["environment"];
-  rpcUrl?: string;
-}): OutLayerExecutor {
+export function createOutLayerExecutor(config: TransportConfig & { agent: Hex }): OutLayerExecutor {
   const { caller, privateKey, wasmUrl, buildHash, agent, environment } = config;
   const wasm = new URL(wasmUrl);
   if (caller === "baghedge.near" || !isHex(buildHash, 32) || !isHex(agent, 20) ||
@@ -108,6 +138,54 @@ export function createOutLayerExecutor(config: {
   };
 }
 
+export function createMultiOwnerExecutor(config: TransportConfig): MultiOwnerExecutor {
+  const { caller, privateKey, wasmUrl, buildHash, environment } = config;
+  const wasm = new URL(wasmUrl);
+  if (!caller || caller === "baghedge.near" || !isHex(buildHash, 32) ||
+      wasm.protocol !== "https:" || wasm.port || wasm.username || wasm.password) {
+    throw new Error("Multi-owner OutLayer requires its dedicated caller and a pinned HTTPS WASM");
+  }
+  const rpc = new JsonRpcProvider({ url: config.rpcUrl?.trim() || `https://rpc.${environment}.near.org` });
+  const signer = new KeyPairSigner(KeyPair.fromString(privateKey));
+  const account = new Account(caller, rpc, signer);
+  const receiverId = environment === "mainnet" ? "outlayer.near" : "outlayer.testnet";
+  let submission: Promise<unknown> = Promise.resolve();
+
+  async function execute(request: GuardRequest | OwnerLookup) {
+    // Share one NEAR access key: wait for inclusion before sending the next nonce, not for the full TEE run.
+    const included = submission.then(async () => {
+      if (request.operation === "sign_order" && Date.now() >= request.expiresAfter) {
+        throw new Error("Venue action expired before OutLayer submission");
+      }
+      const args = buildOutLayerArgs(wasm.href, buildHash, request);
+      const transaction = await account.createTransaction({
+        receiverId,
+        actions: [actions.functionCall("request_execution", args, 300_000_000_000_000n, 10n ** 23n)],
+        publicKey: await signer.getPublicKey(),
+      });
+      const signed = await signer.signTransaction(transaction);
+      if (request.operation === "sign_order" && Date.now() >= request.expiresAfter) {
+        throw new Error("Venue action expired before OutLayer submission");
+      }
+      const result = await rpc.sendTransactionUntil(signed.signedTransaction, "INCLUDED");
+      if (result.final_execution_status === "NONE") {
+        throw new Error("OutLayer execution did not reach inclusion");
+      }
+      return baseEncode(signed.txHash);
+    });
+    submission = included.catch(() => undefined);
+    const txHash = await included;
+    const result = await rpc.viewTransactionStatus({ txHash, accountId: caller, waitUntil: "FINAL" });
+    if (result.final_execution_status !== "FINAL" || result.transaction?.hash !== txHash ||
+        result.transaction.signer_id !== caller || result.transaction.receiver_id !== receiverId) {
+      throw new Error("OutLayer transaction does not match the finalized execution");
+    }
+    return { output: getTransactionLastResult(result), txHash };
+  }
+
+  return { buildHash, environment, discover: execute, run: async request => (await execute(request)).output };
+}
+
 function isGuardRefusal(result: unknown): result is { ok: false; error: string } {
   return typeof result === "object" && result !== null &&
     "ok" in result && result.ok === false && "error" in result &&
@@ -117,19 +195,28 @@ function isGuardRefusal(result: unknown): result is { ok: false; error: string }
 }
 
 export function outLayerExecutorFromEnv(environment: Policy["environment"], env: NodeJS.ProcessEnv = process.env) {
+  const agent = env.OUTLAYER_AGENT_ADDRESS;
+  if (!isHex(agent, 20)) throw new Error("Incomplete OutLayer deployment configuration");
+  return createOutLayerExecutor({ ...transportConfig(environment, env), agent });
+}
+
+export function multiOwnerExecutorFromEnv(environment: Policy["environment"], env: NodeJS.ProcessEnv = process.env) {
+  return createMultiOwnerExecutor(transportConfig(environment, env));
+}
+
+function transportConfig(environment: Policy["environment"], env: NodeJS.ProcessEnv): TransportConfig {
   const caller = env.OUTLAYER_CALLER;
   const privateKey = env.OUTLAYER_NEAR_PRIVATE_KEY;
   const wasmUrl = env.OUTLAYER_WASM_URL;
   const buildHash = env.OUTLAYER_WASM_SHA256;
-  const agent = env.OUTLAYER_AGENT_ADDRESS;
   if (!caller || !privateKey || !isEd25519Key(privateKey) || !wasmUrl ||
-      !isHex(buildHash, 32) || !isHex(agent, 20)) {
+      !isHex(buildHash, 32)) {
     throw new Error("Incomplete OutLayer deployment configuration");
   }
-  return createOutLayerExecutor({ caller, privateKey, wasmUrl, buildHash, agent, environment, rpcUrl: env.OUTLAYER_NEAR_RPC_URL });
+  return { caller, privateKey, wasmUrl, buildHash, environment, rpcUrl: env.OUTLAYER_NEAR_RPC_URL };
 }
 
-export function buildOutLayerArgs(wasmUrl: string, buildHash: Hex, request: GuardRequest | { operation: "public_key" }) {
+export function buildOutLayerArgs(wasmUrl: string, buildHash: Hex, request: GuardRequest | OwnerLookup | { operation: "public_key" }) {
   return {
     source: { WasmUrl: { url: wasmUrl, hash: buildHash.slice(2).toLowerCase(), build_target: "wasm32-wasip2" } },
     resource_limits: { max_instructions: 10_000_000_000, max_memory_mb: 128, max_execution_seconds: 60 },
@@ -140,6 +227,11 @@ export function buildOutLayerArgs(wasmUrl: string, buildHash: Hex, request: Guar
 
 function isHex(value: unknown, bytes: number): value is Hex {
   return typeof value === "string" && value.length === 2 + 2 * bytes && /^0x[0-9a-fA-F]+$/.test(value);
+}
+
+function walletAddress(value: unknown): Hex {
+  if (!isHex(value, 20) || /^0x0{40}$/.test(value)) throw new Error("Invalid OutLayer wallet address");
+  return value.toLowerCase() as Hex;
 }
 
 function isEd25519Key(value: string): value is `ed25519:${string}` {

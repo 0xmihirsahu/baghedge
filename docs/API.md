@@ -30,6 +30,9 @@ Each account in `/api/accounts` also includes:
 
 ## Hedge rules
 
+### 0. `GET /api/hedges/agent?owner=<Hedge address>`: the agent to approve
+Requires a session for that owner on multi-owner builds (the first lookup for a new owner is a paid guard call, about 5–10 s, then cached). Returns `{ owner, agentAddress, signerKind, buildHash, multiOwner }`. Errors: `sign_in_required`, `agent_lookup_rate_limited` (one retry per minute per owner), `agent_lookup_busy` (global hourly cap). On a multi-owner guard build, each Hedge owner has their **own** agent: approve this address (section 3 of the integration guide) before arming. Error `owner_unsupported` means this server's guard can't sign for that account.
+
 ### 1. `POST /api/hedges/draft`: build the policy for review
 Request:
 ```json

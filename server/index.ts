@@ -9,6 +9,7 @@ import { openDb } from "./db";
 import { serveOps } from "./ops/serve";
 import { createSessions } from "./session";
 import { createOwnerActions } from "./owner";
+import * as guardModule from "./guard";
 import { createGuardSigner, outLayerExecutorFromEnv } from "./guard";
 import { createExchange, fallbackSigner, verifiedSigner, type HedgeSigner, type Hex } from "./exchange";
 import { createHedgeRoutes, type SignerConfig } from "./hedges";
@@ -57,8 +58,12 @@ export function createApi(config: AppConfig, request = fetch) {
         mode: config.mode, executableQuotesEnabled: config.mode === "mainnet",
         hedgeSigner: config.signer
           ? { kind: config.signer.kind, agentAddress: config.signer.agentAddress, buildHash: config.signer.buildHash,
-              pinnedOwner: config.signer.pinnedOwner ?? null }
+              pinnedOwner: config.signer.pinnedOwner ?? null, multiOwner: Boolean(config.signer.agentFor) }
           : null,
+        // Shown to users before they fund a Hedge account (README "Trust boundary and disclosed risks").
+        disclosures: process.env.EXECUTOR_KEY_DISCLOSURE === "1"
+          ? ["The guard's NEAR execution account key was exposed during development and has not been rotated. A holder could request extra hedge orders within a user's signed policy limits (trading the Hedge account's margin); it can never withdraw funds."]
+          : [],
         workerRunning: Boolean(worker && config.worker),
       };
     }
@@ -265,6 +270,53 @@ if (import.meta.main) {
  * (Codex), configured by OUTLAYER_CALLER, OUTLAYER_NEAR_PRIVATE_KEY, OUTLAYER_WASM_URL, OUTLAYER_WASM_SHA256,
  * OUTLAYER_AGENT_ADDRESS and optional OUTLAYER_NEAR_RPC_URL.
  */
+// A function-scoped holder (not a module `let`): startup runs signerFromEnv before later top-level
+// declarations initialize, so a `let` here would be in its temporal dead zone.
+function dbForAgents(): ReturnType<typeof openDb> {
+  const holder = dbForAgents as unknown as { db?: ReturnType<typeof openDb> };
+  holder.db ??= openDb(process.env.BAGHEDGE_DB_PATH || "data/baghedge.sqlite");
+  return holder.db;
+}
+
+/**
+ * Durable owner → agent mapping for a multi-owner guard, keyed by network, build and executor (a new build or
+ * executor yields new agents). Concurrent misses for an owner share one guard call; misses are rate-limited.
+ */
+export function multiOwnerAgentCache(db: ReturnType<typeof openDb>, network: string, buildHash: string, caller: string) {
+  db.raw.run(`CREATE TABLE IF NOT EXISTS guard_agents (network TEXT NOT NULL, build_hash TEXT NOT NULL, caller TEXT NOT NULL,
+    owner TEXT NOT NULL, agent TEXT NOT NULL, attestation_tx TEXT, created_at INTEGER NOT NULL,
+    PRIMARY KEY (network, build_hash, caller, owner))`);
+  const inflight = new Map<string, Promise<{ agentAddress: Hex; attestationTxHash?: string | null }>>();
+  const lastMiss = new Map<string, number>();
+  const MISS_INTERVAL_MS = 60_000;
+  // Global cap on paid discoveries (new owners) per rolling hour, so many sessions can't drain the executor.
+  const perHour = Math.max(1, Number(process.env.OUTLAYER_DISCOVERY_PER_HOUR) || 30);
+  const recent: number[] = [];
+  return {
+    async get(owner: Hex, discover: boolean, lookup: (o: Hex) => Promise<{ agentAddress: Hex; attestationTxHash?: string | null }>) {
+      const o = owner.toLowerCase() as Hex;
+      const row = db.raw.query("SELECT agent, attestation_tx FROM guard_agents WHERE network=$n AND build_hash=$b AND caller=$c AND owner=$o")
+        .get({ n: network, b: buildHash, c: caller, o }) as { agent: string; attestation_tx: string | null } | null;
+      if (row) return { agentAddress: row.agent as Hex, attestationTxHash: row.attestation_tx };
+      if (!discover) return null;
+      const pending = inflight.get(o);
+      if (pending) return pending;
+      if (Date.now() - (lastMiss.get(o) ?? 0) < MISS_INTERVAL_MS) throw new RequestError(429, "agent_lookup_rate_limited", "Try again in a minute");
+      while (recent.length && Date.now() - recent[0]! > 3_600_000) recent.shift();
+      if (recent.length >= perHour) throw new RequestError(429, "agent_lookup_busy", "Too many new accounts right now; try again later");
+      recent.push(Date.now());
+      lastMiss.set(o, Date.now());
+      const p = lookup(o).then(result => {
+        db.raw.query("INSERT OR REPLACE INTO guard_agents VALUES ($n, $b, $c, $o, $a, $t, $now)")
+          .run({ n: network, b: buildHash, c: caller, o, a: result.agentAddress.toLowerCase(), t: result.attestationTxHash ?? null, now: Date.now() });
+        return result;
+      }).finally(() => inflight.delete(o));
+      inflight.set(o, p);
+      return p;
+    },
+  };
+}
+
 async function signerFromEnv(mode: "testnet" | "mainnet"): Promise<AppConfig["signer"]> {
   const kind = process.env.HEDGE_SIGNER;
   if (!kind) return undefined;
@@ -279,6 +331,29 @@ async function signerFromEnv(mode: "testnet" | "mainnet"): Promise<AppConfig["si
     const buildHash = keccak256(stringToHex("baghedge-fallback-agent-unattested"));
     console.warn(`Hedge signer: FALLBACK agent ${signer.address} (${mode}). Not an attested guard.`);
     return { kind: "fallback", agentAddress: signer.address, buildHash, signerFor: () => signer };
+  }
+  if (kind === "guard" && process.env.OUTLAYER_MULTI_OWNER === "1") {
+    // Multi-owner guard (option B): one attested build, an agent derived per Hedge owner inside the guard.
+    // server/guard.ts must export agentFor/createGuardSignerFor; until it does, refuse to start in this mode.
+    const g = guardModule as unknown as {
+      multiOwnerExecutorFromEnv?(mode: string): { buildHash: Hex };
+      agentFor?(executor: unknown, owner: Hex): Promise<{ agentAddress: Hex; attestationTxHash?: string | null }>;
+      createGuardSignerFor?(ctx: Record<string, unknown>, executor: unknown): HedgeSigner;
+    };
+    if (!g.multiOwnerExecutorFromEnv || !g.agentFor || !g.createGuardSignerFor) {
+      throw new Error("OUTLAYER_MULTI_OWNER=1 needs the multi-owner guard adapter in server/guard.ts");
+    }
+    const executor = g.multiOwnerExecutorFromEnv(mode);
+    const agents = multiOwnerAgentCache(dbForAgents(), mode, executor.buildHash, process.env.OUTLAYER_CALLER ?? "");
+    const agentFor = (owner: Hex, opts: { discover: boolean }) => agents.get(owner, opts.discover, o => g.agentFor!(executor, o));
+    console.log(`Hedge signer: OutLayer MULTI-OWNER guard build ${executor.buildHash} (${mode}).`);
+    return {
+      kind: "guard", agentAddress: null, buildHash: executor.buildHash.toLowerCase() as Hex, agentFor,
+      signerFor: (rule, context) => verifiedSigner(g.createGuardSignerFor!({
+        policy: rule.policy, ownerSig: rule.ownerSig as Hex, chainId: rule.chainId,
+        entryUntilMs: context.entryUntilMs, cancelRefs: context.cancelRefs, orderRef: context.orderRef,
+      }, executor), mode),
+    };
   }
   if (kind === "guard") {
     // Agent address and build hash come from the same pinned executor config the guard uses.

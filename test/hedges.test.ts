@@ -117,6 +117,59 @@ test("arm recomputes the margin floor: a signed minMarginE6 of 0 with a big cap 
   expect(post("/api/hedges", { policy: p, ownerSig, chainId: 1 })).rejects.toThrow("this rule needs");
 });
 
+test("multi-owner guard: each Hedge owner gets their own agent; a policy naming another owner's agent is refused", async () => {
+  const db = openDb(":memory:");
+  const sessions = createSessions({ env: "testnet", db, origin: "http://localhost:5173", secureCookie: false });
+  const agentOf = (o: string) => (`0x${o.slice(2, 10)}${"a".repeat(32)}`).toLowerCase() as `0x${string}`;
+  const known = new Set<string>();
+  const r = createHedgeRoutes({
+    env: "testnet", db, exchange, sessionAddresses: req => sessions.addresses(req),
+    signer: { kind: "guard", agentAddress: null, buildHash, agentFor: async (o, { discover }) => (known.has(o.toLowerCase()) || discover) ? (known.add(o.toLowerCase()), { agentAddress: agentOf(o) }) : null },
+    readWallet: async () => ({ lamports: "1000000000", observedAt: Date.now() }),
+  });
+  const call = (method: string, path: string, body?: unknown) => r.route(new Request(`http://x${path}`, {
+    method, ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}),
+  }), new URL(`http://x${path}`));
+
+  // Discovery (a paid guard call) needs the owner's session.
+  expect(call("GET", `/api/hedges/agent?owner=${owner.address}`)).rejects.toThrow("Sign in");
+  const { message, nonce } = sessions.challenge({ address: owner.address });
+  const cookie = (await sessions.verify({ nonce, signature: await owner.signMessage({ message }) })).setCookie.split(";")[0]!;
+  const agent = await r.route(new Request(`http://x/api/hedges/agent?owner=${owner.address}`, { headers: { cookie } }),
+    new URL(`http://x/api/hedges/agent?owner=${owner.address}`)) as { agentAddress: string; multiOwner: boolean };
+  expect(agent).toMatchObject({ agentAddress: agentOf(owner.address.toLowerCase()), multiOwner: true });
+
+  // A policy carrying this owner's derived agent arms.
+  const mine = { ...policy, ruleId: `0x${"11".repeat(32)}` as `0x${string}`, guardAgent: agentOf(owner.address.toLowerCase()) };
+  const armed = await call("POST", "/api/hedges", { policy: mine, ownerSig: await owner.signTypedData(policyTypedData(mine, 1)), chainId: 1 }) as { phase: string };
+  expect(armed.phase).toBe("armed");
+
+  // The same owner's policy naming someone else's agent is refused.
+  const other = privateKeyToAccount(generatePrivateKey());
+  const wrong = { ...policy, ruleId: `0x${"22".repeat(32)}` as `0x${string}`, guardAgent: agentOf(other.address.toLowerCase()) };
+  expect(call("POST", "/api/hedges", { policy: wrong, ownerSig: await owner.signTypedData(policyTypedData(wrong, 1)), chainId: 1 }))
+    .rejects.toThrow("different hedge signer");
+});
+
+test("multi-owner agent cache: durable, one guard call per owner, rate-limited misses, no discovery without consent", async () => {
+  const { multiOwnerAgentCache } = await import("../server/index");
+  const db = openDb(":memory:");
+  const cache = multiOwnerAgentCache(db, "mainnet", "0xbuild", "exec.near");
+  let calls = 0;
+  const lookup = async (o: `0x${string}`) => { calls++; await Bun.sleep(5); return { agentAddress: `0x${"b".repeat(40)}` as `0x${string}`, attestationTxHash: "tx" }; };
+  const o = "0x1111111111111111111111111111111111111111" as const;
+  expect(await cache.get(o, false, lookup)).toBeNull();                       // no consent → no paid call
+  const [a, b] = await Promise.all([cache.get(o, true, lookup), cache.get(o, true, lookup)]);
+  expect(a?.agentAddress).toBe(b?.agentAddress!);
+  expect(calls).toBe(1);                                                       // coalesced
+  expect((await cache.get(o, false, lookup))?.attestationTxHash).toBe("tx");  // durable
+  const o2 = "0x2222222222222222222222222222222222222222" as const;
+  await cache.get(o2, true, async () => { throw new Error("guard down"); }).catch(() => {});
+  expect(cache.get(o2, true, lookup)).rejects.toThrow("Try again in a minute"); // rate-limited after a miss
+  // A different build or executor gets fresh agents.
+  expect(await multiOwnerAgentCache(db, "mainnet", "0xotherbuild", "exec.near").get(o, false, lookup)).toBeNull();
+});
+
 test("a guard pinned to one Hedge owner refuses other owners at draft and arm, before any signature", async () => {
   const db = openDb(":memory:");
   const sessions = createSessions({ env: "testnet", db, origin: "http://localhost:5173", secureCookie: false });
