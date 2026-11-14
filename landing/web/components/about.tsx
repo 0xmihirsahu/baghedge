@@ -12,7 +12,7 @@ const PEOPLE: { name: string; title: string; bio: string; art: Source[]; links: 
   {
     name: "Mihir",
     title: "Co-founder & CEO",
-    bio: "Builds the parts of baghedge that touch money: the worker that runs every hedge, and the guard in the OutLayer enclave that signs only what your rule allows.",
+    bio: "Fifteen-time hackathon winner who keeps building privacy and trading infrastructure. Before baghedge he made StarkSwirl, a privacy pool on Starknet that won at ETHGlobal StarkHack, and SoloPatty, a TEE-based private order book that reached the ETHGlobal Trifecta finals.",
     art: [{ kind: "image", src: "/art/portrait-mihir.webp", scale: 1 }],
     links: [
       { label: "X", href: "https://x.com/0xmihirsahu", icon: "x" },

@@ -4,7 +4,6 @@ import { motion } from "motion/react";
 import { useState, type ReactNode } from "react";
 import { Field } from "@/components/field";
 import { Header } from "@/components/header";
-import { MotionDemo } from "@/components/motion-demo";
 import type { Source } from "@/lib/field";
 import { cn } from "@/lib/utils";
 
@@ -174,13 +173,6 @@ export function BrandPage() {
             </figure>
           ))}
         </div>
-      </Card>
-
-      <Card title="Motion">
-        <MotionDemo />
-        <p className="mt-6 max-w-[620px] text-[15px] leading-[1.6] text-white/60">
-          For the app. Four React components in components/motion with no dependencies past React: copy the folder in and import them.
-        </p>
       </Card>
 
       <Card title="Colour">

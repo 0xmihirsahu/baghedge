@@ -68,7 +68,7 @@ function Stack({ s, active }: { s: MotionValue<number>; active: number }) {
           <div
             className={cn(
               "flex items-center gap-2.5 rounded-[12px] border px-3.5 py-2.5 text-[15px] transition-opacity duration-500",
-              !lit || lit.includes(n.id) ? "border-brand bg-brand text-[#16120f]" : "border-white/20 bg-white/[0.04]",
+              !lit || lit.includes(n.id) ? "border-brand bg-brand text-[#16120f]" : "border-white/20 bg-[#1a1817]",
             )}
           >
             {n.logos?.map((src) => (

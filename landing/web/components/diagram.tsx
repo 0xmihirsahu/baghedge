@@ -182,7 +182,7 @@ function NodeBox({ node, s, on }: { node: Node; s: MotionValue<number>; on: bool
       <div
         className={cn(
           "flex items-center gap-2.5 whitespace-nowrap rounded-[14px] border px-4 py-3 text-[17px] transition-[background-color,border-color,opacity] duration-500",
-          on ? "border-brand bg-brand text-[#16120f]" : "border-white/20 bg-white/[0.04] text-white",
+          on ? "border-brand bg-brand text-[#16120f]" : "border-white/20 bg-[#1a1817] text-white",
         )}
       >
         {node.logos?.map((src) => (
