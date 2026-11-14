@@ -256,6 +256,33 @@ await ex.order({ orders: [{ a: asset, b: true, p: limitPx, s: size, r: false, t:
 
 Query positions with the **Trade owner** address, not the agent. Verified on testnet: an agent approved through the relay placed and canceled an order on the owner's account.
 
+## Fees and gas (show these before the user signs)
+
+Measured on the mainnet run (Nov 14). Users **never need gas on Hyperliquid or NEAR**. With Privy, the embedded Trade and Hedge wallets only sign and never pay gas.
+
+| Step | Who pays | What it costs | Where to show it |
+| --- | --- | --- | --- |
+| Funding transfer (Base USDC → deposit address) | User: ETH gas on Base, from the funding wallet | under $0.01 | Fund screen ("network fee") |
+| NEAR Intents route Base → Hyperliquid | User, taken from the amount | about $0.32 on $6–15 (`amountIn` − `amountOut` in the quote) | Fund review: show `amountIn`, `amountOut`, `minAmountOut` |
+| First deposit into a new Hyperliquid account | User, in USDC | 1 USDC (activation) | Fund review, first time only |
+| Orders (manual, hedge entry, buyback, close) | The trading account, in USDC | 0.045% taker per fill (~$0.005–0.01 on a $10–20 order); no gas | Ticket and hedge review |
+| Guard signature per hedge order | **Baghedge (operator)**, NEAR on the executor account | ~0.002 NEAR (~$0.006) per signature; ~3 per hedge cycle | Not shown to users (an operator cost) |
+| Payout `sendAsset` from Hyperliquid | User, in USDC | 1 USDC (seen when sending to the quote's deposit address) | Payout review: **leave ≥ 1.2 USDC** in the account, or the transfer fails with "Insufficient USDC balance for token transfer gas" |
+| NEAR Intents route Hyperliquid → Base | User, taken from the amount | about 0.2 USDC (13.5 → 13.297) | Payout review |
+| Signatures (policy, commands, sign-in, agent approvals) | Nobody | free (off-chain) | — |
+| Funding rate on open positions | The position holder | hourly, variable (`fundingRate` in `/api/markets`) | Hedge review: "variable funding" |
+
+**UI rules:**
+- **Payout max** = withdrawable − 1.2 USDC. Pre-fill that rather than the full balance.
+- Show the **required margin** (`requiredMarginUsdc` from the draft) next to the costs, and label it as margin that comes back, not a fee.
+- Label every quote number as an estimate until the transfer reaches `SUCCESS`.
+
+**Operator side** (not for the UI):
+- The executor account pays every guard call; 1 NEAR covers about 500.
+- Monitor its balance with an alert, and top it up.
+- The worker pauses a rule after 3 failed guard calls, so a broken guard can't drain it.
+- Hyperliquid builder codes (brief §4) can add a small disclosed per-order fee to cover guard gas and hosting.
+
 ## 9. Labels and copy (AGENTS.md rule 15)
 - Keep the environment banner (Testnet / Mainnet).
 - Label anything simulated as replay.
