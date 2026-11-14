@@ -11,7 +11,16 @@ export type SignerConfig = {
   kind: "guard" | "fallback";
   agentAddress: Hex;
   buildHash: Hex;
+  /** Single-owner builds: the Hedge owner compiled into the guard. Other owners are refused up front. */
+  pinnedOwner?: Hex;
 };
+
+/** Refuses a Hedge owner this server's guard can't sign for, before any signature or funds are asked for. */
+function assertOwnerSupported(signer: SignerConfig, owner: string) {
+  if (signer.pinnedOwner && signer.pinnedOwner.toLowerCase() !== owner.toLowerCase()) {
+    throw new RequestError(409, "owner_unsupported", "This server's guard can only sign for its configured Hedge account");
+  }
+}
 
 export const COMMAND_TYPES = {
   HedgeCommand: [
@@ -113,6 +122,7 @@ export function createHedgeRoutes(opts: {
     try { capLots = toUnits(body.maxSol, market.sizeDecimals).toString(); } catch {
       throw new RequestError(400, "invalid_size", "Size exceeds SOL lot precision");
     }
+    assertOwnerSupported(opts.signer, body.hedgeAddress);
     const ruleId = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
     const policy: HedgePolicy = {
       environment: env, ruleId, version: 1, policyNonce: String(Date.now()),
@@ -156,6 +166,7 @@ export function createHedgeRoutes(opts: {
     }
     if (db.ruleByDigest(digest)) throw new RequestError(409, "duplicate_rule", "This signed policy was already used");
     if (policy.environment !== env) throw new RequestError(409, "wrong_environment", `This server runs ${env}`);
+    assertOwnerSupported(opts.signer, policy.hedgeAccount);
     if (policy.guardAgent.toLowerCase() !== opts.signer.agentAddress.toLowerCase() ||
       policy.guardBuildHash.toLowerCase() !== opts.signer.buildHash.toLowerCase()) {
       throw new RequestError(409, "wrong_signer", "Policy names a different hedge signer than this server runs");

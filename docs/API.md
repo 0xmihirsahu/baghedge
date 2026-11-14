@@ -67,6 +67,7 @@ Request: `{ policy, ownerSig, chainId }`. Response: a rule view (shown below), w
 The server refuses to arm when:
 - the signature is invalid or isn't from the Hedge owner;
 - the Trade and Hedge accounts are the same;
+- the server's guard can't sign for that Hedge account (`owner_unsupported`, also returned by the draft). `GET /api/health` → `hedgeSigner.pinnedOwner` shows which account a single-owner guard supports;
 - the policy names a different environment or signer than the server runs;
 - the signed policy was already used (`duplicate_rule`; each signed policy arms one rule, ever);
 - the mark is already at or below the entry trigger (`entry_already_crossed`, which includes the current mark: draft a lower entry);
@@ -128,6 +129,7 @@ UI labels (section 12):
 | `phase: missed` | **Missed entry** |
 | `reason: cancelling-hedge-orders` | **Closing** (flat; cancelling leftover stop orders) |
 | `reason: recovery-stop-filled` | **Closed by recovery stop** (the venue stop filled at the recovery price) |
+| `reason: resize-blocked: …` / `close-blocked: …` | **Resize blocked** / **Close blocked**. The venue refused the order (the text after the colon says why, e.g. below the $10 minimum). The worker retries with backoff (30 s doubling, max 10 min); offer the owner a direct close for small residuals. |
 | `reason: recovery-stop-partial` | **Recovery stop partially filled** |
 
 An action with `transport: unknown` means **Checking order**. Show it as pending, never as filled.

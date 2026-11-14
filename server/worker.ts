@@ -143,19 +143,34 @@ export function createWorker(deps: WorkerDeps) {
     const { lots: shortLots } = await confirmedShortLots(rule, sizeDecimals);
     const current = db.rule(rule.id)!;
     let state: HedgeState;
+    let stopExplained: { stopFilled: bigint; filledStops: { cloid: string; oid: number; lots: bigint }[] } | null = null;
     try {
       state = settleHedgeOrder(current.state, { terminal: true, filledLots, confirmedShortLots: shortLots });
     } catch {
-      db.atomically(() => { db.updateAction(action.id, actionPatch); pause(current, current.state, "reconcile-mismatch"); });
-      return true;
+      // A recovery stop may have filled at the venue while this IOC was in flight. If our own stop fills plus this
+      // fill explain the venue short exactly, settle both; otherwise it's a genuine mismatch and we pause.
+      const fills = await stopFills(rule, sizeDecimals);
+      const journalAfter = journalShort(rule.id, { id: action.id, intent: action.intent, filled: filledLots });
+      const delta = action.intent === "entry" ? filledLots : -filledLots;
+      try {
+        if (fills.stopFilled === 0n || journalAfter - fills.stopFilled !== shortLots) throw new Error("unexplained");
+        state = settleHedgeOrder({ ...current.state, shortLots: shortLots - delta }, { terminal: true, filledLots, confirmedShortLots: shortLots });
+        stopExplained = fills;
+      } catch {
+        db.atomically(() => { db.updateAction(action.id, actionPatch); pause(current, current.state, "reconcile-mismatch"); });
+        return true;
+      }
     }
+    if (stopExplained) await recordStopFills(rule, stopExplained.filledStops);
     const stopStatus = action.intent === "entry" && filledLots > 0n ? "checking" : current.stopStatus;
     // The action's outcome and the rule state it settles are one write.
     db.atomically(() => {
       db.updateAction(action.id, actionPatch);
-      db.updateRule(rule.id, { state, stopStatus, reason: `${action.intent}-${outcome}` });
+      db.updateRule(rule.id, { state, stopStatus: stopExplained && shortLots === 0n ? "none" : stopStatus,
+        reason: stopExplained ? (shortLots === 0n ? "recovery-stop-filled" : "recovery-stop-partial") : `${action.intent}-${outcome}` });
     });
     db.emit(env, rule.id, "order", { intent: action.intent, cloid: action.cloid, outcome, filledLots, shortLots });
+    if (stopExplained) db.emit(env, rule.id, "stop-filled", { filledLots: stopExplained.stopFilled, shortLots, stops: stopExplained.filledStops.map(x => x.cloid) });
     pauseIfGuardKeepsFailing(rule.id);
     return true;
   }
@@ -214,6 +229,20 @@ export function createWorker(deps: WorkerDeps) {
       const state = settleHedgeOrder(current.state, { terminal: true, filledLots: 0n, confirmedShortLots: lots });
       db.atomically(() => { db.updateAction(actionId, patch); db.updateRule(rule.id, { state, reason }); });
     } catch {
+      // The same known-stop reconciliation as a filled IOC: a venue stop may have filled before this order was
+      // refused (e.g. a reduce-only IOC rejected because the position was already gone).
+      const fills = await stopFills(rule, sizeDecimals);
+      if (fills.stopFilled > 0n && journalShort(rule.id) - fills.stopFilled === lots) {
+        await recordStopFills(rule, fills.filledStops);
+        const state = settleHedgeOrder({ ...current.state, shortLots: lots }, { terminal: true, filledLots: 0n, confirmedShortLots: lots });
+        db.atomically(() => {
+          db.updateAction(actionId, patch);
+          db.updateRule(rule.id, { state, reason: lots === 0n ? "recovery-stop-filled" : "recovery-stop-partial",
+            ...(lots === 0n ? { stopStatus: "none" as const } : {}) });
+        });
+        db.emit(env, rule.id, "stop-filled", { filledLots: fills.stopFilled, shortLots: lots, stops: fills.filledStops.map(x => x.cloid) });
+        return;
+      }
       db.atomically(() => { db.updateAction(actionId, patch); pause(current, current.state, "reconcile-mismatch"); });
     }
   }
@@ -249,7 +278,9 @@ export function createWorker(deps: WorkerDeps) {
     if (signature === "unknown") return; // engine action stays pending until reconcile resolves it
     if (!signature) {
       await settleZero(rule, market.sizeDecimals, "signer-refused", id, "rejected");
-      pause(db.rule(rule.id)!, db.rule(rule.id)!.state, "signer-refused");
+      // Don't turn a rule that settleZero just reconciled as closed (e.g. by a venue stop) into "paused".
+      const after = db.rule(rule.id)!;
+      if (after.state.phase !== "closed") pause(after, after.state, "signer-refused");
       return;
     }
     const sent = await send(rule, db.action(id)!, signature);
@@ -333,7 +364,8 @@ export function createWorker(deps: WorkerDeps) {
     const resting = (await exchange.openOrders(rule.hedgeAddress))
       .filter(o => typeof o.cloid === "string" && refs.has(o.cloid.toLowerCase()));
     if (!resting.length) return true;
-    const cancels = resting.map(o => ({ asset: market.asset, cloid: (o.cloid as string).toLowerCase() }));
+    // The guard signs at most 8 cancels per action; the rest go next tick (the venue is re-read every time).
+    const cancels = resting.slice(0, 8).map(o => ({ asset: market.asset, cloid: (o.cloid as string).toLowerCase() }));
     const cancelRefs = cancels.map(c => refs.get(c.cloid)!);
     const signer = deps.signerFor(rule, { intent: "cancel", cancelRefs });
     const wire = canonicalAction({ type: "cancelByCloid", cancels });
@@ -344,10 +376,14 @@ export function createWorker(deps: WorkerDeps) {
     try {
       const signature = await signer.signL1(wire, db.action(id)!.nonce, db.action(id)!.expiresAfter);
       const result = await exchange.submit(wire, db.action(id)!.nonce, signature, db.action(id)!.expiresAfter);
-      // Cancels are idempotent: record what happened and let the next tick re-check the venue.
+      // Per-leg results: an HTTP ack can still carry an error for an individual cancel. Cancels are idempotent,
+      // and the venue is re-read next tick before the rule may finish, so this record is informational.
+      const legErrors = result.transport === "acked"
+        ? result.statuses.map((st, i) => st.kind === "error" ? `${cancels[i]?.cloid}: ${st.message}` : null).filter(Boolean)
+        : [`${result.transport}: ${result.message}`];
       db.updateAction(id, { signature, transport: result.transport === "acked" ? "acked" : result.transport,
-        outcome: result.transport === "acked" ? "canceled" : "rejected", filledLots: "0",
-        error: result.transport === "acked" ? null : result.message.slice(0, 300) });
+        outcome: legErrors.length ? "rejected" : "canceled", filledLots: "0",
+        error: legErrors.length ? legErrors.join("; ").slice(0, 300) : null });
       db.emit(env, rule.id, "cancel-leftovers", { cloids: cancels.map(c => c.cloid), transport: result.transport });
     } catch (error) {
       db.updateAction(id, { transport: "rejected", outcome: "rejected", filledLots: "0",
@@ -360,13 +396,13 @@ export function createWorker(deps: WorkerDeps) {
    * Adopts the venue short when our own stop orders (attached child or position stop) account exactly for the
    * difference between the journal and the venue. Returns false when the stops don't explain it.
    */
-  async function settleStopFills(rule: RuleRecord, venueShort: bigint, sizeDecimals: number) {
+  /** Lots filled so far by this rule's own stop orders (attached children and position stops), from the venue. */
+  async function stopFills(rule: RuleRecord, sizeDecimals: number) {
     const actions = db.actionsForRule(rule.id);
     const stopCloids = [
       ...actions.filter(a => a.intent === "entry" && a.stopCloid).map(a => a.stopCloid!),
       ...actions.filter(a => a.intent === "position_stop").map(a => a.cloid),
     ];
-    if (!stopCloids.length) return false;
     let stopFilled = 0n;
     const filledStops: { cloid: string; oid: number; lots: bigint }[] = [];
     for (const cloid of stopCloids) {
@@ -375,20 +411,51 @@ export function createWorker(deps: WorkerDeps) {
       const lots = toUnitsRounded(status.origSz, sizeDecimals, "floor") - toUnitsRounded(status.remainingSz, sizeDecimals, "floor");
       if (lots > 0n) { stopFilled += lots; filledStops.push({ cloid, oid: status.oid, lots }); }
     }
-    const journalShort = actions.reduce((sum, a) => {
-      const filled = BigInt(a.filledLots ?? "0");
+    return { stopFilled, filledStops };
+  }
+
+  /** Short implied by our own IOC fills (entries add, resizes/closes subtract), optionally with one unwritten fill. */
+  function journalShort(ruleId: string, pending?: { id: string; intent: ActionRecord["intent"]; filled: bigint }) {
+    return db.actionsForRule(ruleId).reduce((sum, a) => {
+      const filled = pending && a.id === pending.id ? pending.filled : BigInt(a.filledLots ?? "0");
       return a.intent === "entry" ? sum + filled : a.intent === "resize" || a.intent === "close" ? sum - filled : sum;
     }, 0n);
-    if (stopFilled === 0n || journalShort - stopFilled !== venueShort) return false;
+  }
+
+  async function recordStopFills(rule: RuleRecord, filledStops: { oid: number }[]) {
     for (const stop of filledStops) {
       const fills = await exchange.fillsForOrder(rule.hedgeAddress, stop.oid, rule.createdAt);
       for (const fill of fills) db.recordFill(env, rule.hedgeAddress, rule.id, { ...fill, oid: stop.oid });
     }
+  }
+
+  /**
+   * Adopts the venue short when our own stop orders account exactly for the difference between the journal and
+   * the venue. Returns false when the stops don't explain it (then the engine pauses on the mismatch).
+   */
+  async function settleStopFills(rule: RuleRecord, venueShort: bigint, sizeDecimals: number) {
+    const { stopFilled, filledStops } = await stopFills(rule, sizeDecimals);
+    if (stopFilled === 0n || journalShort(rule.id) - stopFilled !== venueShort) return false;
+    await recordStopFills(rule, filledStops);
     const state = { ...rule.state, shortLots: venueShort, phase: venueShort === 0n ? "closed" as const : rule.state.phase };
     db.updateRule(rule.id, { state, reason: venueShort === 0n ? "recovery-stop-filled" : "recovery-stop-partial",
       stopStatus: venueShort === 0n ? "none" : rule.stopStatus });
     db.emit(env, rule.id, "stop-filled", { filledLots: stopFilled, shortLots: venueShort, stops: filledStops.map(s => s.cloid) });
     return true;
+  }
+
+  /** Consecutive venue refusals for this intent → when the next attempt may be signed (30 s doubling, max 10 min). */
+  function refusalBackoff(ruleId: string, intent: "resize" | "close") {
+    const recent = db.actionsForRule(ruleId).filter(a => a.intent === intent).reverse();
+    let refusals = 0;
+    for (const a of recent) {
+      // A venue refusal: we signed and sent it, and the venue answered with an error and no fill.
+      if ((a.outcome === "zero" || a.outcome === "rejected") && a.signature !== null && a.error) refusals++;
+      else break;
+    }
+    if (!refusals) return null;
+    const last = recent[0]!;
+    return { retryAt: last.updatedAt + Math.min(30_000 * 2 ** (refusals - 1), 600_000), error: last.error!, refusals };
   }
 
   async function tickRule(ruleId: string) {
@@ -466,6 +533,16 @@ export function createWorker(deps: WorkerDeps) {
         db.updateRule(ruleId, { state: step.state, reason, ...(done ? { status: "done" as const } : {}) });
         if (step.state.phase !== current.state.phase) db.emit(env, ruleId, "phase", { phase: step.state.phase, reason: step.reason });
         return;
+      }
+      // A resize/close the venue keeps refusing (e.g. below its minimum order value) would otherwise be
+      // re-signed every tick, and each guard signature is paid. Back off and surface the venue's reason.
+      if (step.action.kind === "resize" || step.action.kind === "close") {
+        const blocked = refusalBackoff(ruleId, step.action.kind);
+        if (blocked && now() < blocked.retryAt) {
+          const reason = `${step.action.kind}-blocked: ${blocked.error}`.slice(0, 120);
+          if (current.reason !== reason) db.updateRule(ruleId, { reason });
+          return;
+        }
       }
       await execute(current, hedgeRule, step.state, step.action, market);
     });
