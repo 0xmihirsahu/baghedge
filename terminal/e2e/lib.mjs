@@ -312,21 +312,18 @@ export async function open({ url, email, allow = [], slowMo = 250, video = true,
     }
   };
 
-  // open every "View" link on screen (toasts, activity rows, account pills), screenshot the explorer page, close it
+  // open every explorer link on screen: hrefs are read all at once first (toasts expire), then each is visited.
+  // with video, in the same tab so the recording stays one piece
   const views = async (name, max = 4) => {
-    const links = page.locator('.toast-in a, a[aria-label="View transaction"], a[aria-label="View on the Hyperliquid explorer"]');
-    const count = Math.min(await links.count(), max);
-    for (let i = 0; i < count; i++) {
-      const link = links.nth(i);
-      const href = await link.getAttribute("href");
+    const hrefs = await page
+      .evaluate(() => [...new Set([...document.querySelectorAll('.toast-in a, a[aria-label="View transaction"], a[aria-label="View on the Hyperliquid explorer"], [role="dialog"] a[target="_blank"]')].map((a) => a.href).filter(Boolean))])
+      .catch(() => []);
+    const list = hrefs.slice(0, max);
+    for (let i = 0; i < list.length; i++) {
+      const href = list[i];
       await step(`${name}-view-${i + 1}`, async () => {
         if (video) {
-          // in the same tab, so the recording stays one continuous video: hover the link, open it, come back
           const back = page.url();
-          // a toast's link can expire before its turn: skip what's gone
-          if (!(await link.isVisible().catch(() => false))) return write({ type: "view", href, note: "gone before its turn, skipped" });
-          await link.hover({ timeout: 3000 }).catch(() => {});
-          await page.waitForTimeout(600);
           await page.goto(href, { waitUntil: "domcontentloaded" });
           await page.waitForTimeout(5000);
           write({ type: "view", href, url: page.url(), title: await page.title().catch(() => "") });
@@ -334,15 +331,15 @@ export async function open({ url, email, allow = [], slowMo = 250, video = true,
           await page.waitForTimeout(2500);
           return;
         }
-        const [popup] = await Promise.all([ctx.waitForEvent("page", { timeout: 15_000 }), link.click()]);
-        await popup.waitForLoadState("domcontentloaded").catch(() => {});
+        const popup = await ctx.newPage();
+        await popup.goto(href, { waitUntil: "domcontentloaded" }).catch(() => {});
         await popup.waitForTimeout(4000);
         write({ type: "view", href, url: popup.url(), title: await popup.title().catch(() => ""), shot: (await shot(`${name}-explorer-${i + 1}`, popup)) ?? undefined });
         await popup.close();
       });
     }
-    if (!count) write({ type: "view", note: "no View links on screen" });
-    return count;
+    if (!list.length) write({ type: "view", note: "no View links on screen" });
+    return list.length;
   };
 
   // refuse to run on the wrong account
