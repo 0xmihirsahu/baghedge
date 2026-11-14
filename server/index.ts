@@ -194,26 +194,26 @@ export function createApi(config: AppConfig, request = fetch) {
 }
 
 if (import.meta.main) {
-  const mode = process.env.APP_MODE ?? "testnet";
+  const mode = process.env.APP_MODE || "testnet";
   if (mode !== "mainnet" && mode !== "testnet") throw new Error("APP_MODE must be testnet or mainnet");
   const api = createApi({
     mode,
-    appOrigin: process.env.APP_ORIGIN,
-    dbPath: process.env.BAGHEDGE_DB_PATH ?? "data/baghedge.sqlite",
-    solanaRpc: process.env.SOLANA_RPC_URL ??
+    appOrigin: process.env.APP_ORIGIN || undefined,
+    dbPath: process.env.BAGHEDGE_DB_PATH || "data/baghedge.sqlite",
+    solanaRpc: process.env.SOLANA_RPC_URL ||
       (mode === "mainnet" ? "https://api.mainnet-beta.solana.com" : "https://api.devnet.solana.com"),
-    intentsUrl: process.env.INTENTS_BASE_URL,
-    intentsJwt: process.env.INTENTS_JWT,
+    intentsUrl: process.env.INTENTS_BASE_URL || undefined,
+    intentsJwt: process.env.INTENTS_JWT || undefined,
     signer: await signerFromEnv(mode),
     worker: process.env.WORKER !== "0",
   });
-  const host = process.env.HOST ?? "127.0.0.1";
+  const host = process.env.HOST || "127.0.0.1";
   if (!["127.0.0.1", "localhost", "::1"].includes(host) && !process.env.APP_ORIGIN?.startsWith("https://")) {
     // Public binds need an HTTPS app origin: session cookies are Secure and challenges are bound to that origin.
     throw new Error(`Refusing to bind ${host} without an https:// APP_ORIGIN.`);
   }
   const server = Bun.serve({
-    hostname: host, port: Number(process.env.PORT ?? 3001), maxRequestBodySize: 8192, fetch: api.fetch,
+    hostname: host, port: Number(process.env.PORT || 3001), maxRequestBodySize: 8192, fetch: api.fetch,
   });
   console.log(`Baghedge API (${mode}) listening at ${server.url}`);
 }
