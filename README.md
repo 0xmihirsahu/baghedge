@@ -1,41 +1,155 @@
-# Baghedge
+<p align="center">
+  <img src="terminal/public/mascot.webp" alt="baghedge" width="96" />
+</p>
 
-**Trade perps. Hedge your bag.**
+<h1 align="center">baghedge</h1>
 
-Baghedge is a Hyperliquid trading terminal that can hedge the SOL you already hold in your wallet. You trade perps normally in a **Trade** account. Switch to **Wallet Hedge**, and a separate **Hedge** account opens a short when SOL falls through your price. The short is sized to the SOL actually sitting in your Phantom wallet, and it **shrinks automatically when you move SOL out**. Your manual trade isn't touched. USDC moves between Base and Hyperliquid through **NEAR Intents**. The hedge's trading key lives in an **OutLayer TEE** (Intel TDX on NEAR) and signs only what your signed policy allows.
+<p align="center"><b>Trade perps. Hedge your bag.</b><br/>
+A Hyperliquid terminal that hedges the SOL you already hold, without moving it.</p>
 
-Built at the NEAR Hackathon (track: Unstoppable DeFi).
+<p align="center">
+  <a href="https://app.baghedge.xyz"><b>Open the app</b></a> ·
+  <a href="docs/media/baghedge-mainnet-run.mp4"><b>Watch the 1:42 demo</b></a> ·
+  <a href="JUDGES.md"><b>For judges</b></a> ·
+  <a href="https://baghedge.xyz">Site</a>
+</p>
 
-- **Terminal (Vercel):** https://app.baghedge.xyz (source: [`terminal/`](terminal/))
-- **Backend API (Render):** mainnet https://baghedge-api-mainnet.onrender.com/api/health (attested guard) · testnet sandbox https://baghedge-api.onrender.com/api/health (source: [`server/`](server/))
+<p align="center">
+  <img src="terminal/public/tokens/NEAR.jpg" alt="NEAR" height="28" />&nbsp;&nbsp;
+  <img src="terminal/public/tokens/HYPE.jpg" alt="Hyperliquid" height="28" />&nbsp;&nbsp;
+  <img src="terminal/public/tokens/SOL.png" alt="Solana" height="28" />&nbsp;&nbsp;
+  <img src="terminal/public/wallets/phantom.svg" alt="Phantom" height="28" />
+  <br/><sub>NEAR Intents · OutLayer TEE · Hyperliquid · Solana · Privy</sub>
+</p>
+
+<p align="center">
+  <img src="docs/media/01-hedge-ticket.jpg" alt="The baghedge terminal: the SOL chart with entry and recovery lines, and the hedge ticket" />
+</p>
+
+Built at the NEAR Hackathon, track **Unstoppable DeFi**. Live on mainnet.
+
+- **App:** https://app.baghedge.xyz (source: [`terminal/`](terminal/))
+- **Backend:** mainnet https://baghedge-api-mainnet.onrender.com/api/health (attested guard) · testnet sandbox https://baghedge-api.onrender.com/api/health (source: [`server/`](server/))
 - **Guard (Rust, OutLayer):** [`guard/`](guard/)
 
-> **For judges:** start with [`JUDGES.md`](JUDGES.md). It maps the five criteria to evidence, lists the commands to check the repo, and links a [1:42 demo film](docs/media/baghedge-mainnet-run.mp4) of a full mainnet run done in the app: Privy sign-in, fund from SOL through NEAR Intents, arm and disarm a hedge with a per-owner guard agent, a real trade, and payouts back to SOL, every step with its transactions.
+## The idea
 
-## Try it
+You hold SOL. It starts to fall. Today you have two options: sell it, or sit through the drop.
 
-### 1. No wallet needed: replay
-```sh
-bun install && bun run demo:replay
+baghedge gives you a third. Draw an entry and a recovery on the chart. If SOL falls through your entry, a short opens on Hyperliquid in a separate **Hedge** account, sized to the SOL that's actually in your wallet. When SOL recovers, or when you say so, the short closes. Move SOL out of the wallet and the short shrinks with it. It never adds.
+
+Your coins never move. Nothing to deposit, nothing to bridge out of cold storage. The wallet is only read.
+
+**A worked example.** You hold 1,000 SOL at $140. baghedge shorts 600 SOL at $140, and SOL drops to $119. Without the hedge you're down $21,000. With it you're down $8,400, because the short made $12,600. All 1,000 SOL are still in your wallet. (Before costs; assumes a full fill and that the short tracks spot. The margin for that short is about $21,900 in USDC, and it comes back.)
+
+## What you can do in the app
+
+| | |
+|---|---|
+| **Sign in** | Email or Google through Privy. You get two accounts, **Trade** and **Hedge**, both yours. |
+| **Fund** | From any of about 228 tokens on 38 chains, through NEAR Intents. The quote shows what arrives and every fee before you sign. |
+| **Hedge** | Drag the entry and recovery on the SOL chart, review, sign once. An attested guard runs it from there. |
+| **Trade** | Any of the 179 Hyperliquid perps, at the leverage you pick. |
+| **Pay out** | Back to any token and any wallet. |
+
+Every result links to the explorer it happened on: Solana, NEAR Intents, Hyperliquid, Base.
+
+<table>
+  <tr>
+    <td><img src="docs/media/07-add-funds-quote.jpg" alt="Add funds: the quote with every fee" /></td>
+    <td><img src="docs/media/02-hedge-review.jpg" alt="The hedge review card before signing" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Add funds: what arrives and every fee, first</sub></td>
+    <td align="center"><sub>Review: entry, recovery, margin, fees, then sign once</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/10-funding-credited.jpg" alt="Funding credited with links to every chain" /></td>
+    <td><img src="docs/media/12-trade-filled.jpg" alt="A real long filled on Hyperliquid" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Credited, with Solana, NEAR Intents and Hyperliquid links</sub></td>
+    <td align="center"><sub>A real trade, filled at $70.008</sub></td>
+  </tr>
+</table>
+
+## How it fits together
+
+```mermaid
+flowchart LR
+  subgraph You
+    W["Phantom<br/>(watched SOL, read only)"]
+    P["Privy sign-in<br/>Trade + Hedge wallets"]
+  end
+  subgraph App["app.baghedge.xyz"]
+    T["Terminal<br/>(Next.js)"]
+  end
+  subgraph Backend["baghedge backend"]
+    API["API + sessions"]
+    WK["Worker<br/>(journal, reconcile)"]
+  end
+  subgraph NEAR
+    G["Guard<br/>OutLayer TEE"]
+    NI["NEAR Intents<br/>1Click"]
+  end
+  subgraph HL["Hyperliquid"]
+    TA["Trade account"]
+    HA["Hedge account"]
+  end
+  P -->|signs every owner action| T
+  T --> API
+  W -.->|balance| WK
+  API --> WK
+  WK -->|policy-valid order| G
+  G -->|signed short or buyback| HA
+  T -->|orders via a trade-only agent| TA
+  NI <-->|USDC in and out| HA
+  NI <-->|USDC in and out| TA
+  T -->|fund and pay out| NI
 ```
-This prints the two-account flow (manual long, hedge entry, wallet transfer, buyback, closes) with exposure after each step. **Replay uses sample fills.**
 
-### 2. Live API (testnet sandbox), checked end to end
-```sh
-bun run smoke:api https://baghedge-api.onrender.com
+And the life of one hedge:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor You
+  participant NI as NEAR Intents
+  participant HL as Hyperliquid
+  participant WK as baghedge worker
+  participant G as Guard (OutLayer TEE)
+  You->>NI: Fund with SOL or USDC, any chain
+  NI->>HL: USDC lands in the Hedge account
+  You->>WK: Sign the hedge policy (cap, entry, recovery, expiry)
+  loop every tick
+    WK->>HL: Read the mark
+    WK->>WK: Read the watched wallet
+  end
+  WK->>G: SOL crossed the entry: sign this order
+  G->>HL: Short + recovery stop
+  Note over WK,HL: SOL leaves the wallet: the guard signs a reduce-only buyback
+  You->>WK: Sign close
+  G->>HL: Buy back, reduce-only
+  You->>HL: Sign the payout
+  HL->>NI: USDC out
+  NI->>You: Back in your wallet
 ```
-→ 18 checks against the deployed backend: markets, accounts, wallet reads, policy draft, owner signature and arm, refusals, sign-in sessions, live events, and owner-signed disarm. It needs `.env.testwallets` (test keys) for the signing steps.
 
-### 3. Run it yourself
-```sh
-cp .env.example .env.testnet      # fill in; see comments
-bun run start:testnet             # API + hedge worker on :3001
-bun run check                     # typecheck + 68 unit tests
-cargo +stable test --locked --manifest-path guard/Cargo.toml   # guard tests
-```
-Open `http://localhost:3001/ops` (with `OPS_PAGE=1`) for the owner console. It connects a browser or phone wallet (WalletConnect) to fund, approve the agent, sign a hedge policy, close and pay out.
+The details:
 
-## What's verified live
+- **Two accounts.** Trade and Hedge are different Hyperliquid master accounts. Aliases are rejected in the UI, the API and the guard.
+- **Policy.** The Hedge owner signs one EIP-712 `HedgePolicy`: accounts, watched wallet, market, cap, entry, floor, recovery, buyback ceiling, expiry, required margin, and the guard agent and build hash. The TypeScript and Rust digests are cross-checked.
+- **Worker** ([`server/worker.ts`](server/worker.ts)). For each Hedge account, one serialized tick does four things in order:
+  1. reconcile every journaled order by client ID;
+  2. confirm the recovery stop at the venue, and install a position stop if it's missing;
+  3. decide entry, resize or close;
+  4. reserve, sign, send, then reconcile again.
+
+  If a send's result is unknown, the worker never retries it blind. Every buy is reduce-only.
+- **Guard** ([`guard/`](guard/)). Rust `wasm32-wasip2` on OutLayer. It rebuilds each order from typed fields, checks it against the owner's policy (accounts, market, prices, size, reduce-only, expiry and cloid binding), and signs with a key that never leaves the TEE. It never signs raw bytes, transfers or withdrawals. The worker checks the recovered signer before anything reaches Hyperliquid.
+- **Funding and payout** ([`server/intents.ts`](server/intents.ts)). 1Click `EXACT_INPUT` quotes. Refunds always go back to the owner. Credit is confirmed against the Hyperliquid balance, not only the provider's status.
+
+## Proof it runs
 
 **The full flow ran on mainnet with real funds:** fund through NEAR Intents, then an attested guard signs the hedge entry with its recovery stop, then SOL leaves the wallet and the hedge buys back reduce-only, then the owner closes the hedge while the manual Trade position stays put, then USDC is paid back to Base.
 
@@ -57,30 +171,7 @@ Every row links to on-chain or venue evidence. Raw records: [`docs/evidence/main
 | **Multi-owner guard: full cycle for a per-owner agent** (public service, release `6d85a8f`) | **Mainnet** | Hedge `0x59c3…85cc` approves its own derived agent `0x96fd5f5a…c65a` → guard ([`CcWtZNNA…rRiG`](https://api.outlayer.ai/attestations/by-tx/CcWtZNNAkvZzGojji6YHbtNq7WCviW6o4FmPeu8MrRiG), build `1a847d88…`, `sign_order`/entry) → IOC sell `605392198623` **filled 0.2 SOL @ 70.573**, recovery stop `605392198624` open → owner close, guard ([`Dt7F2RmA…JCS`](https://api.outlayer.ai/attestations/by-tx/Dt7F2RmAmFXzEcZFMpG48hPAua4aZ6hX5BujUuZJDJCS)) → reduce-only `605394485511` **filled 0.2 @ 70.238**, stop `reduceOnlyCanceled`, Trade untouched → `sendAsset` 8.69 USDC → Base tx [`0x94e83167…5bf3`](https://basescan.org/tx/0x94e83167a29a80a405909f554529370ee5d438b62bf39343f09cabee7b075bf3): **8.486894 USDC received** | ✅ |
 | Rule expiry without a crossing ends flat | Hyperliquid testnet | rule `0x243019ab…3b1a`: low 64.794 vs entry 64.76, expired with 0 actions | ✅ |
 
-## How it works
-
-```
- Phantom (watched SOL, read-only) ──► worker ◄── Hyperliquid mark / book / positions
-                                        │
-          owner-signed EIP-712 policy ──┤ journal (SQLite): cloid + nonce saved before every send
-                                        ▼
-                         OutLayer guard (TDX enclave, NEAR)  ── signs only policy-valid orders
-                                        ▼
-                        Hyperliquid Hedge account (separate master account)
- Base USDC ◄──── NEAR Intents 1Click ────► Hyperliquid perps USDC (Trade or Hedge)
-```
-
-- **Two accounts.** Trade and Hedge are different Hyperliquid master accounts. Aliases are rejected in the UI, the API and the guard.
-- **Policy.** The Hedge owner signs one EIP-712 `HedgePolicy`: accounts, watched wallet, market, cap, entry, floor, recovery, buyback ceiling, expiry, required margin, and the guard agent and build hash. The TypeScript and Rust digests are cross-checked.
-- **Worker** ([`server/worker.ts`](server/worker.ts)). For each Hedge account, one serialized tick does four things in order:
-  1. reconcile every journaled order by client ID;
-  2. confirm the recovery stop at the venue, and install a position stop if it's missing;
-  3. decide entry, resize or close;
-  4. reserve, sign, send, then reconcile again.
-
-  If a send's result is unknown, the worker never retries it blind. Every buy is reduce-only.
-- **Guard** ([`guard/`](guard/)). Rust `wasm32-wasip2` on OutLayer. It rebuilds each order from typed fields, checks it against the owner's policy (accounts, market, prices, size, reduce-only, expiry and cloid binding), and signs with a key that never leaves the TEE. It never signs raw bytes, transfers or withdrawals. The worker checks the recovered signer before anything reaches Hyperliquid.
-- **Funding and payout** ([`server/intents.ts`](server/intents.ts)). 1Click `EXACT_INPUT` quotes. Refunds always go back to the owner. Credit is confirmed against the Hyperliquid balance, not only the provider's status.
+**And again, through the app.** On 2026-11-14 a fresh Privy account ran the whole thing in the UI on mainnet: fund from SOL, arm and disarm a hedge with its own guard agent, a real long and close, and payouts back to SOL. Every transaction is in [`JUDGES.md`](JUDGES.md#the-full-flow-on-mainnet-through-the-ui), and the [1:42 film](docs/media/baghedge-mainnet-run.mp4) shows it.
 
 ## Trust boundary and disclosed risks
 - **The owner keeps control:** funding, agent approval, the policy, disarm, close and payout are all owner wallet signatures. The guard agent can't withdraw or transfer, because Hyperliquid forbids it for agents.
@@ -90,11 +181,46 @@ Every row links to on-chain or venue evidence. Raw records: [`docs/evidence/main
 - **Disclosed:** the guard's NEAR execution account (`anotherbaghedge.near`) had its key shared during development, and the team chose not to rotate it. Someone holding it could request extra guard signatures under **any user's** public signed policy, trading that user's Hedge margin within the policy's limits, and could spend the account's NEAR. They can **never withdraw** funds. `GET /api/health` → `disclosures` carries this so the app can show it before funding.
 - **Platform trust:** Hyperliquid (venue and mark price), OutLayer/Intel TDX, NEAR Intents, and Solana RPC data. Auto-deleveraging and funding can change the outcome.
 
-## Docs
-- [`docs/INTEGRATION.md`](docs/INTEGRATION.md): wiring the terminal to the backend, step by step.
-- [`docs/API.md`](docs/API.md): the full API contract.
-- [`docs/BAGHEDGE_CONTEXT.md`](docs/BAGHEDGE_CONTEXT.md): product, engineering and security brief.
-- [`AGENTS.md`](AGENTS.md): engineering rules (no floats for money, journal before writing, reconcile before retrying, and more).
+## Try it
+
+**In the browser:** open https://app.baghedge.xyz. Markets and charts need no sign-in.
+
+**No wallet at all, a replay:**
+```sh
+bun install && bun run demo:replay
+```
+It prints the two-account flow (manual long, hedge entry, wallet transfer, buyback, closes) with exposure after each step. **The replay uses sample fills.**
+
+**The live API, end to end** (testnet sandbox):
+```sh
+bun run smoke:api https://baghedge-api.onrender.com
+```
+→ 18 checks against the deployed backend: markets, accounts, wallet reads, policy draft, owner signature and arm, refusals, sign-in sessions, live events, and owner-signed disarm. It needs `.env.testwallets` (test keys) for the signing steps.
+
+**Run it yourself:**
+```sh
+bun install                       # root dependencies first
+cp .env.example .env.testnet      # fill in; see comments
+bun run start:testnet             # API + hedge worker on :3001
+bun run check                     # typecheck + 68 unit tests
+cargo +stable test --locked --manifest-path guard/Cargo.toml   # guard tests
+cd terminal && bun install && bun run dev                      # the app, see terminal/README.md
+```
+Open `http://localhost:3001/ops` (with `OPS_PAGE=1`) for the owner console. It connects a browser or phone wallet (WalletConnect) to fund, approve the agent, sign a hedge policy, close and pay out.
+
+## What's where
+
+| Folder | What it is |
+|---|---|
+| [`terminal/`](terminal/) | The app at app.baghedge.xyz, and [`terminal/e2e/`](terminal/e2e/), the browser suite that ran the mainnet flow |
+| [`server/`](server/) | The API and the hedge worker |
+| [`guard/`](guard/) | The Rust guard that runs in OutLayer and signs hedge orders |
+| [`shared/`](shared/) | The EIP-712 policy and amounts, shared by the server and the browser |
+| [`landing/web/`](landing/web/) | baghedge.xyz |
+| [`docs/`](docs/) | [`API.md`](docs/API.md), [`INTEGRATION.md`](docs/INTEGRATION.md), the design brief and the raw evidence |
+| [`AGENTS.md`](AGENTS.md) | Engineering rules: no floats for money, journal before writing, reconcile before retrying, and more |
+
+Every folder has its own README.
 
 ## Libraries
 Bun, TypeScript, [`@nktkas/hyperliquid`](https://github.com/nktkas/hyperliquid), viem, WalletConnect, `near-api-js`, `@solana/web3.js` (scripts); Rust `k256`, `sha3`, `serde`, `rmp-serde` (guard); Next.js, React, lightweight-charts and the Solana wallet adapter (terminal). Hyperliquid, NEAR Intents 1Click, OutLayer and FastFS.
