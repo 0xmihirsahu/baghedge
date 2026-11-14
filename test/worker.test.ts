@@ -5,7 +5,7 @@ import { ruleFromPolicy, solanaToBytes32, type HedgePolicy } from "../shared/pol
 import { openDb } from "../server/db";
 import { fallbackSigner, verifiedSigner, type Exchange, type L1Action, type HedgeSigner, type OrderStatusResult, type SubmitResult } from "../server/exchange";
 import { GuardRefused } from "../server/guard";
-import { createWorker, type SignContext } from "../server/worker";
+import { createWorker, publicError, type SignContext } from "../server/worker";
 
 type Order = { cloid: string; oid: number; buy: boolean; reduceOnly: boolean; trigger?: string; origLots: number; filledLots: number; status: string; parent?: string };
 
@@ -118,7 +118,7 @@ function setup(signerMode: "fallback" | "guard-publishes-then-throws" | "guard-d
     readWallet: async () => ({ lamports: v.lamports.toString(), observedAt: clock() }),
   });
   const tick = async () => { await Bun.sleep(2); await worker.tickRule("r1"); return db.rule("r1")!; };
-  return { v, db, tick, exchange };
+  return { v, db, tick, exchange, worker };
 }
 
 describe("worker", () => {
@@ -489,5 +489,24 @@ describe("worker", () => {
     } finally {
       clock = () => Date.now();
     }
+  });
+  test("status() reports loop liveness and a redacted last error, and a 429 sets the backoff", async () => {
+    const { exchange, worker } = setup();
+    (exchange as { market: typeof exchange.market }).market = async () => {
+      throw new Error(`Hyperliquid info returned HTTP 429 for 0x${"ab".repeat(20)}`);
+    };
+    expect(worker.status()).toMatchObject({ lastTickAt: null, lastError: null, rateLimitedUntil: null, activeRules: 1 });
+    worker.start(5);
+    await Bun.sleep(40);
+    worker.stop();
+    const status = worker.status();
+    expect(status.lastTickAt).not.toBeNull();
+    expect(status.lastError?.message).toBe("Hyperliquid info returned HTTP 429 for 0x…");
+    expect(status.rateLimitedUntil).toBeGreaterThan(Date.now());
+  });
+
+  test("publicError elides hex ids and caps length", () => {
+    expect(publicError(new Error(`rule 0x${"cd".repeat(32)} failed`))).toBe("rule 0x… failed");
+    expect(publicError("x".repeat(500))).toHaveLength(160);
   });
 });

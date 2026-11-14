@@ -90,8 +90,10 @@ describe("createMarketStream", () => {
     expect(stream.quote("SOL", 3_000)).toEqual({ markPx: "70.40", bestBid: "70.43", bestAsk: "70.45", markAt: 13_100, bookAt: 13_100 });
     t = 16_200;
     expect(stream.quote("SOL", 3_000)).toBeNull();          // both silent
+    expect(stream.status()).toEqual({ connected: true, reconnects: 0, coins: { SOL: { markAgeMs: 3_100, bookAgeMs: 3_100 } } });
     ws.onclose?.({});
     expect(stream.quote("SOL", 3_000)).toBeNull();          // disconnected: callers fall back to HTTP
+    expect(stream.status()).toEqual({ connected: false, reconnects: 1, coins: { SOL: { markAgeMs: null, bookAgeMs: null } } });
     stream.stop();
   });
 });
@@ -107,7 +109,7 @@ describe("exchange.market", () => {
     let t = 50_000;
     const infoClient = createInfoClient("https://hl.invalid", request, () => t);
     let live: ReturnType<ReturnType<typeof createMarketStream>["quote"]> = { markPx: "70.45", bestBid: "70.44", bestAsk: "70.46", markAt: 49_900, bookAt: 49_950 };
-    const stream = { quote: () => live, stop() {} };
+    const stream = { quote: () => live, status: () => ({ connected: true, reconnects: 0, coins: {} }), stop() {} };
     const exchange = createExchange("mainnet", request, { infoClient, stream });
 
     expect(await exchange.market("SOL")).toEqual({ asset: 1, sizeDecimals: 2, maxLeverage: 20,
