@@ -187,8 +187,8 @@ export function WalletBox() {
             wallet.connect();
           }}
           disabled={wallet.connecting}
-          className="h-11 rounded-[12px] bg-[#f0645a] text-[15px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70">
-          {wallet.connecting ? "Connecting…" : privy && !privy.authenticated ? "Sign in" : privy ? "Add your SOL" : "Connect wallet"}
+          className={`h-11 rounded-[12px] text-[15px] font-semibold transition-transform duration-150 active:scale-[0.98] disabled:opacity-70 ${privy?.authenticated ? "bg-[#1c1b1a] text-white/80 hover:bg-[#2e2c2a]" : "bg-[#f0645a]"}`}>
+          {wallet.connecting ? "Connecting…" : privy && !privy.authenticated ? "Sign in" : privy ? "Add SOL to hedge" : "Connect wallet"}
         </button>
       )}
     </div>
