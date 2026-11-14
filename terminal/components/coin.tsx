@@ -160,9 +160,9 @@ export function CoinPage({ coin }: { coin: string }) {
               ["Wallet", wallet.address ? `${wallet.address.slice(0, 4)}…${wallet.address.slice(-4)}` : "—"],
               ["Entry", usd(h.entry)],
               ["Recovery", usd(h.recovery)],
-              ["Margin, est.", L?.margin ? usd(L.margin.need, 2) : usd(r.margin)],
+              ["Margin, comes back", L?.margin ? usd(L.margin.need, 2) : usd(r.margin)],
               ["Liquidation, est.", usd(r.liq)],
-              ["Fees, est.", usd(r.fees)],
+              ["Fees, est.", L ? "0.045% per fill" : usd(r.fees)],
               ["Runs", "Once, 7 days"],
             ].map(([k, v]) => (
               <div key={k} className="flex justify-between py-3"><span className="text-white/50">{k}</span><span className="font-medium tabular-nums">{v}</span></div>
