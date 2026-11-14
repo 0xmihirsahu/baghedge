@@ -148,6 +148,14 @@ export function createIntents(baseUrl = INTENTS_URL, jwt?: string, request = fet
       };
     },
 
+    /** Optional speed-up: tells 1Click which source transaction paid the deposit address. */
+    async submitDeposit(depositAddress: string, txHash: string) {
+      const result = await providerJson(new URL("/v0/deposit/submit", baseUrl), {
+        method: "POST", headers, body: JSON.stringify({ depositAddress, txHash }),
+      }, "NEAR Intents", request);
+      return isRecord(result) && typeof result.status === "string" ? { status: result.status } : { status: "SUBMITTED" };
+    },
+
     async status(depositAddress: string) {
       const url = new URL("/v0/status", baseUrl);
       url.searchParams.set("depositAddress", depositAddress);

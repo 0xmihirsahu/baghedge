@@ -276,6 +276,39 @@ export function createWorker(deps: WorkerDeps) {
     if (await send(rule, db.action(id)!, signature) !== "zero") await reconcile(db.rule(rule.id)!, db.action(id)!, market.sizeDecimals);
   }
 
+  /** Cancels resting stop orders this rule placed. Returns true once the venue shows none left. */
+  async function cancelLeftoverOrders(rule: RuleRecord, market: { asset: number }) {
+    const refs = new Map<string, { intent: CloidIntent; seq: number }>();
+    for (const a of db.actionsForRule(rule.id)) {
+      if (a.intent === "entry" && a.stopCloid) refs.set(a.stopCloid.toLowerCase(), { intent: "stop", seq: a.seq });
+      if (a.intent === "position_stop") refs.set(a.cloid.toLowerCase(), { intent: "position_stop", seq: a.seq });
+    }
+    const resting = (await exchange.openOrders(rule.hedgeAddress))
+      .filter(o => typeof o.cloid === "string" && refs.has(o.cloid.toLowerCase()));
+    if (!resting.length) return true;
+    const cancels = resting.map(o => ({ asset: market.asset, cloid: (o.cloid as string).toLowerCase() }));
+    const cancelRefs = cancels.map(c => refs.get(c.cloid)!);
+    const signer = deps.signerFor(rule, { intent: "cancel", cancelRefs });
+    const wire = canonicalAction({ type: "cancelByCloid", cancels });
+    const id = crypto.randomUUID();
+    db.reserveAction({ id, env, ruleId: rule.id, account: rule.hedgeAddress, intent: "cancel", seq: db.nextSeq(rule.id, "cancel"),
+      cloid: `cancel:${id}`, stopCloid: null, lots: "0", nonce: db.nextNonce(signer.address),
+      expiresAfter: now() + expiryMs, signer: signer.address, action: wire }, rule.state);
+    try {
+      const signature = await signer.signL1(wire, db.action(id)!.nonce, db.action(id)!.expiresAfter);
+      const result = await exchange.submit(wire, db.action(id)!.nonce, signature, db.action(id)!.expiresAfter);
+      // Cancels are idempotent: record what happened and let the next tick re-check the venue.
+      db.updateAction(id, { signature, transport: result.transport === "acked" ? "acked" : result.transport,
+        outcome: result.transport === "acked" ? "canceled" : "rejected", filledLots: "0",
+        error: result.transport === "acked" ? null : result.message.slice(0, 300) });
+      db.emit(env, rule.id, "cancel-leftovers", { cloids: cancels.map(c => c.cloid), transport: result.transport });
+    } catch (error) {
+      db.updateAction(id, { transport: "rejected", outcome: "rejected", filledLots: "0",
+        error: error instanceof Error ? error.message.slice(0, 300) : "signer error" });
+    }
+    return false;
+  }
+
   async function tickRule(ruleId: string) {
     const rule = db.rule(ruleId);
     if (!rule || rule.status !== "active") return;
@@ -317,8 +350,11 @@ export function createWorker(deps: WorkerDeps) {
           bestAsk: market.bestAsk ? toUnitsRounded(market.bestAsk, hedgeRule.priceDecimals, "ceil") : null },
       });
       if (!step.action) {
-        const done = ["closed", "expired", "missed"].includes(step.state.phase);
-        db.updateRule(ruleId, { state: step.state, reason: step.reason, ...(done ? { status: "done" as const } : {}) });
+        let done = ["closed", "expired", "missed"].includes(step.state.phase);
+        let reason = step.reason;
+        // Flat is not finished until none of this rule's stop orders are left resting on the Hedge account.
+        if (done && !await cancelLeftoverOrders(current, market)) { done = false; reason = "cancelling-hedge-orders"; }
+        db.updateRule(ruleId, { state: step.state, reason, ...(done ? { status: "done" as const } : {}) });
         if (step.state.phase !== current.state.phase) db.emit(env, ruleId, "phase", { phase: step.state.phase, reason: step.reason });
         return;
       }

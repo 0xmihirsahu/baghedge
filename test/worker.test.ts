@@ -16,7 +16,7 @@ function fakeVenue() {
     mark: "75", bid: "74.9", ask: "75.1", shortLots: 0, nextOid: 1,
     orders: new Map<string, Order>(),
     fill: "full" as "full" | "half" | "zero" | "timeout",
-    submissions: 0, lamports: 1_000_000_000n, // 1 SOL in the watched wallet
+    submissions: 0, cancels: 0, lamports: 1_000_000_000n, // 1 SOL in the watched wallet
   };
   const lots = (s: string) => Math.round(Number(s) * 100);
   const exchange = {
@@ -37,9 +37,14 @@ function fakeVenue() {
     async fillsForOrder() { return []; },
     async openOrders() {
       return [...v.orders.values()].filter(o => o.status === "open" && o.trigger)
-        .map(o => ({ coin: "SOL", side: "B", reduceOnly: true, isTrigger: true, triggerPx: o.trigger, sz: ((o.origLots) / 100).toString() }));
+        .map(o => ({ coin: "SOL", side: "B", reduceOnly: true, isTrigger: true, triggerPx: o.trigger, sz: ((o.origLots) / 100).toString(), cloid: o.cloid }));
     },
     async submit(action: L1Action): Promise<SubmitResult> {
+      if (action.type === "cancelByCloid") {
+        v.cancels++;
+        for (const c of action.cancels as { cloid: string }[]) { const o = v.orders.get(c.cloid); if (o) o.status = "canceled"; }
+        return { transport: "acked", statuses: [{ kind: "ok" }], raw: null };
+      }
       v.submissions++;
       const orders = action.orders as { b: boolean; s: string; r: boolean; c: string; t: { limit?: unknown; trigger?: { triggerPx: string } } }[];
       const statuses: OrderStatusResult[] = [];
@@ -138,7 +143,12 @@ describe("worker", () => {
     rule = await tick();
     expect(rule.state.phase).toBe("closed");
     expect(v.shortLots).toBe(0);
-    rule = await tick();
+    rule = await tick();                      // attached stop still resting → cancel it, not done yet
+    expect(rule).toMatchObject({ status: "active", reason: "cancelling-hedge-orders" });
+    expect(v.cancels).toBe(1);
+    const cancel = db.actionsForRule("r1").find(a => a.intent === "cancel")!;
+    expect((cancel.action as { type: string }).type).toBe("cancelByCloid");
+    rule = await tick();                      // venue shows nothing left → done
     expect(rule.status).toBe("done");
   });
 

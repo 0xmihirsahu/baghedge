@@ -101,14 +101,30 @@ export function createApi(config: AppConfig, request = fetch) {
     }
     const hedgeResult = await hedges.route(req, url);
     if (hedgeResult !== undefined) return hedgeResult;
-    const transferId = /^\/api\/transfers\/([\da-f-]{36})$/.exec(url.pathname)?.[1];
-    if (req.method === "GET" && transferId) {
+    const transferMatch = /^\/api\/transfers\/([\da-f-]{36})(\/deposit)?$/.exec(url.pathname);
+    const transferId = transferMatch?.[1];
+    if (transferId) {
       const transfer = transfers.get(config.mode, transferId);
       if (!transfer?.quote.depositAddress) throw new RequestError(404, "transfer_missing", "Transfer not found");
-      return {
-        id: transferId, mode: config.mode, ...transfer,
-        ...await intents.status(transfer.quote.depositAddress),
-      };
+      if (req.method === "POST" && transferMatch?.[2]) {
+        if (!req.headers.get("content-type")?.startsWith("application/json")) {
+          throw new RequestError(415, "expected_json", "Send a JSON request");
+        }
+        const body: unknown = await req.json().catch(() => null);
+        const txHash = typeof (body as { txHash?: unknown })?.txHash === "string" ? (body as { txHash: string }).txHash : "";
+        if (!/^0x[\da-fA-F]{64}$/.test(txHash)) throw new RequestError(400, "invalid_tx", "Provide the source txHash (0x + 64 hex)");
+        return { id: transferId, ...await intents.submitDeposit(transfer.quote.depositAddress, txHash) };
+      }
+      if (req.method === "GET" && !transferMatch?.[2]) {
+        const status = await intents.status(transfer.quote.depositAddress);
+        // Provider SUCCESS isn't proof of credit: for inbound funding, also report the recipient's venue balances.
+        const recipient = transfer.quote.direction === "fund" && config.mode === "mainnet"
+          ? await venue.account(transfer.quote.recipient).then(
+            a => ({ address: a.address, withdrawableUsdc: a.withdrawableUsdc, spotUsdc: a.spotUsdc, observedAt: a.observedAt }),
+            () => null)
+          : null;
+        return { id: transferId, mode: config.mode, ...transfer, ...status, recipientAccount: recipient };
+      }
     }
     throw new RequestError(404, "not_found", "Route not found");
   }
